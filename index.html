@@ -1,316 +1,265 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Scout — Location Manager</title>
+<title>Jordan B. Hoffman — Locations</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
 <style>
-:root {
-  --bg:#0e0f11;--bg2:#161719;--bg3:#1e2022;
-  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
-  --text:#e8e6e0;--text2:#888680;--text3:#555350;
-  --accent:#c8a96e;--accent2:#a08650;
-  --green:#4caf82;--blue:#5b9bd5;--amber:#d4943a;--red:#c26060;
-  --radius:10px;--sidebar:260px;
-}
+:root{--bg:#000;--bg2:#0e0f11;--bg3:#161719;--bg4:#1e2022;--border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);--text:#e8e6e0;--text2:#888680;--text3:#444241;--accent:#c8a96e;--accent2:#8a6d3e;--green:#4caf82;--blue:#5b9bd5;--amber:#d4943a;--red:#c26060;--radius:8px;--nav-h:52px;--header-h:44px}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px}
-#app{display:flex;height:100vh}
-#sidebar{width:var(--sidebar);background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
-#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.sidebar-head{padding:20px 16px 14px;border-bottom:1px solid var(--border)}
-.sidebar-head .logo{font-family:'DM Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.12em;font-weight:500}
-.sidebar-head .sub{font-size:11px;color:var(--text3);margin-top:3px;font-family:'DM Mono',monospace}
-.sidebar-search{padding:10px 12px;border-bottom:1px solid var(--border)}
-.sidebar-search input{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none}
-.sidebar-search input::placeholder{color:var(--text3)}
-.sidebar-search input:focus{border-color:var(--accent2)}
-.filter-row{display:flex;gap:5px;padding:8px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap}
-.fp{padding:3px 9px;border-radius:99px;font-size:10px;border:1px solid var(--border2);color:var(--text2);cursor:pointer;font-family:'DM Mono',monospace;letter-spacing:.04em;transition:all .15s}
-.fp:hover{border-color:var(--accent2);color:var(--accent)}
-.fp.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-#loc-list{flex:1;overflow-y:auto}
-#loc-list::-webkit-scrollbar{width:3px}
-#loc-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.loc-item{padding:11px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
-.loc-item:hover{background:var(--bg3)}
-.loc-item.active{background:var(--bg3);border-left:2px solid var(--accent);padding-left:14px}
-.li-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.li-addr{font-size:11px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'DM Mono',monospace}
-.li-foot{display:flex;align-items:center;gap:6px;margin-top:6px}
-.sdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.stxt{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.04em}
-.li-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
-.mtag{font-size:9px;padding:1px 6px;border-radius:3px;background:var(--bg);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace}
-.add-btn{margin:12px;padding:10px;background:transparent;border:1px solid var(--accent2);border-radius:var(--radius);color:var(--accent);font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;letter-spacing:.06em;transition:all .15s}
-.add-btn:hover{background:var(--accent);color:var(--bg)}
-#topbar{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg2);flex-shrink:0;flex-wrap:wrap}
-#topbar h1{font-size:15px;font-weight:500;flex:1;min-width:100px}
-#topbar h1 span{color:var(--text3);font-weight:300;font-family:'DM Mono',monospace;font-size:12px;margin-left:8px}
-.tb{padding:6px 14px;font-size:11px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-family:'DM Mono',monospace;letter-spacing:.05em;transition:all .15s;white-space:nowrap}
-.tb.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-.tb:hover:not(.active){border-color:var(--accent2);color:var(--accent)}
-#content{flex:1;overflow-y:auto;padding:24px}
-#content::-webkit-scrollbar{width:3px}
-#content::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-#map-content{flex:1;overflow:hidden;display:none;flex-direction:column}
-#map-content.visible{display:flex}
-#google-map{flex:1;width:100%}
-.map-toolbar{padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.mstat{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace}
-.mstat strong{color:var(--text2)}
-#smugmug-content{flex:1;overflow:hidden;display:none;flex-direction:column}
-#smugmug-content.visible{display:flex}
-.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text3);font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em}
-.empty-state .big{font-size:32px;margin-bottom:8px;opacity:.3}
-.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.dc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
-.dc.full{grid-column:1/-1}
-.ch{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-.cht{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.1em;color:var(--text3)}
-.cb{padding:14px 16px}
-.fr{display:flex;justify-content:space-between;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;gap:12px}
-.fr:last-child{border-bottom:none}
-.fl{color:var(--text3);font-family:'DM Mono',monospace;font-size:11px;flex-shrink:0}
-.fv{color:var(--text);text-align:right;word-break:break-all}
-.fv a{color:var(--accent);text-decoration:none}
-.fv a:hover{text-decoration:underline}
-.sbadge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:4px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.05em;font-weight:500}
-.tag-list{display:flex;flex-wrap:wrap;gap:5px}
-.tag{padding:3px 9px;border-radius:4px;font-size:10px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);color:var(--text2)}
-.notes-block{background:var(--bg3);border-radius:6px;padding:12px;font-size:12px;color:var(--text2);line-height:1.7;font-style:italic;min-height:60px}
-.file-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
-.file-item:last-child{border-bottom:none}
-.ficon{width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;font-weight:500;flex-shrink:0;border:1px solid var(--border2)}
-.fmeta{flex:1;min-width:0}
-.fname-t{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.fsub{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px}
-.flink{color:var(--accent);font-size:11px;font-family:'DM Mono',monospace;text-decoration:none;flex-shrink:0}
-.flink:hover{text-decoration:underline}
-.permit-item{padding:10px 12px;background:var(--bg3);border-radius:6px;margin-bottom:8px;border:1px solid var(--border)}
-.permit-item:last-child{margin-bottom:0}
-.ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
-.pt{font-size:12px;font-weight:500}
-.pd{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace}
-.cover-photo{width:100%;height:180px;object-fit:cover;display:block;background:var(--bg3)}
-.cover-ph{width:100%;height:180px;display:flex;align-items:center;justify-content:center;background:var(--bg3);color:var(--text3);font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.08em;cursor:pointer;transition:background .15s}
-.cover-ph:hover{background:var(--bg)}
-.action-row{display:flex;gap:8px;flex-wrap:wrap}
-.ab{padding:7px 14px;border-radius:6px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.05em;cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .15s;text-decoration:none;display:inline-block}
-.ab:hover{border-color:var(--accent2);color:var(--accent)}
-.ab.danger:hover{border-color:var(--red);color:var(--red)}
-.ab.kml{border-color:var(--green);color:var(--green)}
-.ab.kml:hover{background:rgba(76,175,130,.1)}
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:20px}
+#shell{display:flex;flex-direction:column;height:100vh}
+#header{height:var(--header-h);display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0}
+#header h1{font-family:'DM Mono',monospace;font-size:13px;font-weight:400;letter-spacing:.18em;color:var(--accent);text-transform:uppercase}
+#nav{height:var(--nav-h);display:flex;align-items:center;justify-content:center;gap:2px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.nav-btn{padding:8px 28px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.1em;color:var(--text3);background:transparent;border:none;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;text-transform:uppercase}
+.nav-btn:hover{color:var(--text2)}
+.nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+#pages{flex:1;overflow:hidden;position:relative}
+.page{position:absolute;inset:0;display:none;flex-direction:column}
+.page.active{display:flex}
+#home-page{background:var(--bg)}
+#home-map-wrap{flex:1;position:relative;overflow:hidden}
+#home-map{width:100%;height:100%}
+#map-controls{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.88) 30%);padding:20px 24px 16px;display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap}
+.control-group{display:flex;flex-direction:column;gap:6px}
+.control-label{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);text-transform:uppercase}
+.check-row{display:flex;gap:12px;flex-wrap:wrap}
+.check-item{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.check-item input[type=checkbox]{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+.check-item label{font-size:11px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer;letter-spacing:.04em}
+.zone-toggle{display:flex;align-items:center;gap:8px;padding:7px 14px;border:1px solid var(--border2);border-radius:var(--radius);background:rgba(0,0,0,.5);cursor:pointer;transition:all .15s}
+.zone-toggle:hover{border-color:var(--red)}
+.zone-toggle.active{border-color:var(--red);background:rgba(194,96,96,.1)}
+.zone-toggle label{font-size:11px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer;letter-spacing:.04em}
+.zone-dot{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--red);background:transparent;flex-shrink:0}
+.zone-toggle.active .zone-dot{background:var(--red)}
+.map-hover-card{position:absolute;z-index:10;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;overflow:hidden;width:240px;pointer-events:none;opacity:0;transform:translateY(6px);transition:opacity .15s,transform .15s;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+.map-hover-card.visible{opacity:1;transform:translateY(0)}
+.hc-photo{width:100%;height:140px;object-fit:cover;display:block;background:var(--bg4)}
+.hc-photo-ph{width:100%;height:140px;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;font-family:'DM Mono',monospace}
+.hc-body{padding:10px 12px}
+.hc-name{font-size:13px;font-weight:500;margin-bottom:3px}
+.hc-addr{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:6px}
+.hc-tags{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+.hc-tag{font-size:9px;padding:2px 6px;border-radius:3px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace}
+.hc-status{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.05em}
+.hc-hint{font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:4px}
+#sync-bar{position:absolute;top:12px;right:12px;z-index:20;display:flex;gap:8px;align-items:center}
+.sync-btn{padding:6px 12px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.06em;border:1px solid var(--border2);border-radius:var(--radius);background:rgba(0,0,0,.6);color:var(--text2);cursor:pointer;transition:all .15s}
+.sync-btn:hover{border-color:var(--accent);color:var(--accent)}
+.sync-btn.connected{border-color:var(--green);color:var(--green)}
+.sync-status{font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);background:rgba(0,0,0,.6);padding:4px 8px;border-radius:4px}
+#projects-page{background:var(--bg2);overflow-y:auto}
+#projects-page::-webkit-scrollbar{width:3px}
+#projects-page::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.projects-header{padding:24px 32px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+.projects-header h2{font-size:15px;font-weight:500}
+.projects-grid{padding:24px 32px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.project-card{background:var(--bg3);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s}
+.project-card:hover{border-color:var(--border2)}
+.pc-thumb{width:100%;height:160px;object-fit:cover;background:var(--bg4);display:block}
+.pc-thumb-ph{width:100%;height:160px;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.06em}
+.pc-body{padding:12px 14px}
+.pc-name{font-size:13px;font-weight:500;margin-bottom:3px}
+.pc-meta{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace}
+.pc-actions{display:flex;gap:6px;margin-top:10px}
+.pc-btn{padding:4px 10px;font-size:10px;font-family:'DM Mono',monospace;border:1px solid var(--border2);border-radius:4px;background:transparent;color:var(--text3);cursor:pointer;transition:all .15s}
+.pc-btn:hover{border-color:var(--accent2);color:var(--accent)}
+.add-project-card{background:transparent;border:1px dashed var(--border2);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;height:240px;transition:all .15s}
+.add-project-card:hover{border-color:var(--accent2)}
+.add-project-card span{font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em}
+.add-icon{width:32px;height:32px;border:1px solid var(--border2);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:18px;line-height:1}
+#search-page{background:var(--bg2);display:flex;flex-direction:column;overflow:hidden}
+.search-header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0}
+.search-input-wrap{flex:1;min-width:200px}
+.search-input-wrap input{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:9px 14px;font-size:13px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none}
+.search-input-wrap input:focus{border-color:var(--accent2)}
+.search-input-wrap input::placeholder{color:var(--text3)}
+.search-filter{padding:8px 12px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none}
+#search-grid{flex:1;overflow-y:auto;padding:16px 24px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-content:start}
+#search-grid::-webkit-scrollbar{width:3px}
+#search-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.sg-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s}
+.sg-card:hover{border-color:var(--border2)}
+.sg-thumb{width:100%;height:130px;object-fit:cover;background:var(--bg4);display:block}
+.sg-thumb-ph{width:100%;height:130px;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:9px;font-family:'DM Mono',monospace}
+.sg-body{padding:8px 10px}
+.sg-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sg-sub{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn{padding:8px 18px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.06em;border-radius:var(--radius);cursor:pointer;transition:all .15s;border:1px solid var(--border2);background:transparent;color:var(--text2)}
+.btn:hover{border-color:var(--accent2);color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.btn.primary:hover{opacity:.85}
+.btn.primary:disabled{opacity:.4;cursor:not-allowed}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:100;align-items:center;justify-content:center;padding:20px}
 .modal-overlay.open{display:flex}
-.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto}
-.modal-head{padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.modal-head h2{font-size:14px;font-weight:500}
-.mc{background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;line-height:1;padding:4px}
-.mc:hover{color:var(--text)}
-.modal-body{padding:18px 20px;display:flex;flex-direction:column;gap:14px}
-.ff{display:flex;flex-direction:column;gap:5px}
-.fl2{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.08em;color:var(--text3)}
-.fi{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s;width:100%}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto}
+.mhead{padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.mhead h2{font-size:14px;font-weight:500}
+.mclose{background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;line-height:1;padding:2px 6px}
+.mclose:hover{color:var(--text)}
+.mbody{padding:18px 20px;display:flex;flex-direction:column;gap:13px}
+.mfoot{padding:13px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+.ff{display:flex;flex-direction:column;gap:4px}
+.fl{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.08em;color:var(--text3)}
+.fi{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;font-size:13px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;width:100%;transition:border-color .15s}
 .fi:focus{border-color:var(--accent2)}
 .fi::placeholder{color:var(--text3)}
-textarea.fi{resize:vertical;min-height:80px;line-height:1.6}
+textarea.fi{resize:vertical;min-height:70px;line-height:1.6}
 select.fi{cursor:pointer}
-.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.modal-footer{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
-.btn-p{padding:9px 20px;background:var(--accent);color:var(--bg);border:none;border-radius:6px;font-size:12px;font-family:'DM Mono',monospace;letter-spacing:.06em;cursor:pointer;font-weight:500;transition:opacity .15s}
-.btn-p:hover{opacity:.85}
-.btn-p:disabled{opacity:.4;cursor:not-allowed}
-.btn-c{padding:9px 20px;background:transparent;color:var(--text2);border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:'DM Mono',monospace;letter-spacing:.06em;cursor:pointer;transition:all .15s}
-.btn-c:hover{border-color:var(--accent2);color:var(--accent)}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px 16px;font-size:12px;font-family:'DM Mono',monospace;z-index:200;transform:translateY(60px);opacity:0;transition:all .3s;max-width:300px}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:11px 15px;font-size:11px;font-family:'DM Mono',monospace;z-index:300;transform:translateY(60px);opacity:0;transition:all .3s;max-width:280px}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.success{border-color:var(--green);color:var(--green)}
 .toast.error{border-color:var(--red);color:var(--red)}
-.loading{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text3);font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.08em;padding:40px}
-.spinner{width:14px;height:14px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+.toast.info{border-color:var(--blue);color:var(--blue)}
+.loading{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text3);font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.08em;padding:40px;grid-column:1/-1}
+.spin{width:13px;height:13px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.s-identified{color:var(--text3)}.s-scouted{color:var(--blue)}.s-pending{color:var(--amber)}.s-approved{color:var(--green)}.s-rejected{color:var(--red)}
-.dot-identified{background:var(--text3)}.dot-scouted{background:var(--blue)}.dot-pending{background:var(--amber)}.dot-approved{background:var(--green)}.dot-rejected{background:var(--red)}
-.bg-identified{background:rgba(85,83,80,.15)}.bg-scouted{background:rgba(91,155,213,.15)}.bg-pending{background:rgba(212,148,58,.15)}.bg-approved{background:rgba(76,175,130,.15)}.bg-rejected{background:rgba(194,96,96,.15)}
-
-/* SmugMug browser */
-.sm-toolbar{padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.sm-breadcrumb{font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);flex:1}
-.sm-breadcrumb span{color:var(--accent);cursor:pointer}
-.sm-breadcrumb span:hover{text-decoration:underline}
-#sm-grid{flex:1;overflow-y:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;align-content:start}
-#sm-grid::-webkit-scrollbar{width:3px}
-#sm-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.sm-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s}
-.sm-card:hover{border-color:var(--accent2)}
-.sm-thumb{width:100%;height:110px;object-fit:cover;background:var(--bg3);display:block}
-.sm-thumb-ph{width:100%;height:110px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--text3)}
-.sm-label{padding:8px 10px;font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sm-sub{padding:0 10px 8px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace}
-.sm-attach-bar{padding:12px 16px;background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
-.sm-attach-bar select{flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none}
-.sm-no-loc{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace}
-
-/* Google Maps info */
-.gm-info{font-family:'DM Sans',sans-serif;min-width:180px}
-.gm-info-name{font-size:14px;font-weight:500;margin-bottom:4px;color:#1a1a1a}
-.gm-info-addr{font-size:12px;color:#666;margin-bottom:8px}
-.gm-info-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:99px;font-weight:500;margin-bottom:8px}
-.gm-info-tags{font-size:11px;color:#888;margin-bottom:8px}
-.gm-info-btn{font-size:12px;color:#185FA5;cursor:pointer;text-decoration:underline;background:none;border:none;padding:0;font-family:'DM Sans',sans-serif}
-
-@media(max-width:700px){:root{--sidebar:0px}#sidebar{display:none}.detail-grid{grid-template-columns:1fr}}
-@media(max-width:900px){.detail-grid{grid-template-columns:1fr}}
+.s-identified{color:#555350}.s-scouted{color:#5b9bd5}.s-pending{color:#d4943a}.s-approved{color:#4caf82}.s-rejected{color:#c26060}
+.sm-connect-steps{display:flex;flex-direction:column;gap:10px}
+.sm-step{display:flex;gap:10px;align-items:flex-start;font-size:12px;color:var(--text2);line-height:1.5}
+.sm-step-num{width:20px;height:20px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;flex-shrink:0;margin-top:1px}
+.progress-bar{height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;margin-top:6px}
+.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
+@media(max-width:700px){.projects-grid{grid-template-columns:1fr 1fr;padding:16px}#search-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}}
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="sidebar">
-    <div class="sidebar-head">
-      <div class="logo">SCOUT</div>
-      <div class="sub">location manager</div>
-    </div>
-    <div class="sidebar-search">
-      <input type="text" id="search-input" placeholder="search locations..." oninput="filterLocations()">
-    </div>
-    <div class="filter-row">
-      <div class="fp active" data-status="all" onclick="setFilter(this)">all</div>
-      <div class="fp" data-status="identified" onclick="setFilter(this)">identified</div>
-      <div class="fp" data-status="scouted" onclick="setFilter(this)">scouted</div>
-      <div class="fp" data-status="pending" onclick="setFilter(this)">pending</div>
-      <div class="fp" data-status="approved" onclick="setFilter(this)">approved</div>
-    </div>
-    <div id="loc-list"><div class="loading"><div class="spinner"></div>loading...</div></div>
-    <button class="add-btn" onclick="openAddModal()">+ add location</button>
+<div id="shell">
+  <div id="header"><h1>Jordan B. Hoffman &nbsp;·&nbsp; Locations</h1></div>
+  <div id="nav">
+    <button class="nav-btn active" onclick="showPage('home')">Home</button>
+    <button class="nav-btn" onclick="showPage('projects')">Projects</button>
+    <button class="nav-btn" onclick="showPage('search')">Search</button>
   </div>
-
-  <div id="main">
-    <div id="topbar">
-      <h1 id="main-title">Select a location <span id="loc-count"></span></h1>
-      <button class="tb active" id="tab-detail" onclick="setTab('detail')">detail</button>
-      <button class="tb" id="tab-files" onclick="setTab('files')">files</button>
-      <button class="tb" id="tab-permits" onclick="setTab('permits')">permits</button>
-      <button class="tb" id="tab-map" onclick="setTab('map')">map</button>
-      <button class="tb" id="tab-smugmug" onclick="setTab('smugmug')">smugmug</button>
-    </div>
-
-    <div id="content">
-      <div class="empty-state"><div class="big">◎</div><div>no location selected</div><div style="color:var(--text3);font-size:10px">pick one from the list or add new</div></div>
-    </div>
-
-    <div id="map-content">
-      <div class="map-toolbar">
-        <span class="mstat"><strong id="map-pin-count">0</strong> pins</span>
-        <span class="mstat">· click any pin to open detail</span>
-        <div style="flex:1"></div>
-        <button class="ab kml" onclick="exportKML()">⬇ export KML</button>
-      </div>
-      <div id="google-map"></div>
-    </div>
-
-    <div id="smugmug-content">
-      <div class="sm-toolbar">
-        <div class="sm-breadcrumb" id="sm-breadcrumb">
-          <span onclick="smGoRoot()">jordanhoffman.smugmug.com</span>
+  <div id="pages">
+    <div class="page active" id="home-page">
+      <div id="home-map-wrap">
+        <div id="home-map"></div>
+        <div id="sync-bar">
+          <span class="sync-status" id="sync-status">not synced</span>
+          <button class="sync-btn" id="sm-connect-btn" onclick="openSmugMugConnect()">connect smugmug</button>
+          <button class="sync-btn" id="sync-now-btn" onclick="startSync()" style="display:none">sync now</button>
         </div>
-        <button class="ab" onclick="smGoRoot()" style="font-size:10px;padding:5px 10px">↑ root</button>
+        <div class="map-hover-card" id="hover-card">
+          <div id="hc-photo-wrap"></div>
+          <div class="hc-body">
+            <div class="hc-name" id="hc-name"></div>
+            <div class="hc-addr" id="hc-addr"></div>
+            <div class="hc-tags" id="hc-tags"></div>
+            <div class="hc-status" id="hc-status"></div>
+            <div class="hc-hint">click to open smugmug gallery ↗</div>
+          </div>
+        </div>
+        <div id="map-controls">
+          <div class="control-group">
+            <div class="control-label">State</div>
+            <div class="check-row">
+              <div class="check-item"><input type="checkbox" id="f-ny" checked onchange="applyFilters()"><label for="f-ny">NY</label></div>
+              <div class="check-item"><input type="checkbox" id="f-nj" checked onchange="applyFilters()"><label for="f-nj">NJ</label></div>
+              <div class="check-item"><input type="checkbox" id="f-ct" checked onchange="applyFilters()"><label for="f-ct">CT</label></div>
+              <div class="check-item"><input type="checkbox" id="f-pa" checked onchange="applyFilters()"><label for="f-pa">PA</label></div>
+            </div>
+          </div>
+          <div class="control-group">
+            <div class="control-label">Zone</div>
+            <div class="check-row">
+              <div class="check-item"><input type="checkbox" id="f-inzone" onchange="applyFilters()"><label for="f-inzone">In-Zone Only</label></div>
+            </div>
+          </div>
+          <div class="control-group">
+            <div class="control-label">Status</div>
+            <div class="check-row">
+              <div class="check-item"><input type="checkbox" id="f-approved" checked onchange="applyFilters()"><label for="f-approved">Approved</label></div>
+              <div class="check-item"><input type="checkbox" id="f-scouted" checked onchange="applyFilters()"><label for="f-scouted">Scouted</label></div>
+              <div class="check-item"><input type="checkbox" id="f-pending" checked onchange="applyFilters()"><label for="f-pending">Pending</label></div>
+              <div class="check-item"><input type="checkbox" id="f-identified" checked onchange="applyFilters()"><label for="f-identified">Identified</label></div>
+            </div>
+          </div>
+          <div class="control-group" style="margin-left:auto">
+            <div class="control-label">Zone Line</div>
+            <div class="zone-toggle" id="zone-toggle" onclick="toggleZoneCircle()">
+              <div class="zone-dot"></div>
+              <label>30mi radius</label>
+            </div>
+          </div>
+        </div>
       </div>
-      <div id="sm-grid"><div class="loading"><div class="spinner"></div>loading smugmug...</div></div>
-      <div class="sm-attach-bar">
-        <span class="sm-no-loc" id="sm-attach-hint">select a photo above to attach it to a location</span>
-        <select id="sm-loc-select" style="display:none" onchange="smAttachPhoto()">
-          <option value="">attach to location...</option>
+    </div>
+    <div class="page" id="projects-page">
+      <div class="projects-header">
+        <h2>Projects</h2>
+        <button class="btn primary" onclick="openNewProject()">+ new project</button>
+      </div>
+      <div class="projects-grid" id="projects-grid">
+        <div class="loading"><div class="spin"></div>loading...</div>
+      </div>
+    </div>
+    <div class="page" id="search-page">
+      <div class="search-header">
+        <div class="search-input-wrap">
+          <input type="text" id="search-q" placeholder="search locations, keywords, descriptions..." oninput="doSearch()">
+        </div>
+        <select class="search-filter" id="sf-state" onchange="doSearch()">
+          <option value="">all states</option>
+          <option value="NY">NY</option><option value="NJ">NJ</option>
+          <option value="CT">CT</option><option value="PA">PA</option>
+        </select>
+        <select class="search-filter" id="sf-status" onchange="doSearch()">
+          <option value="">all status</option>
+          <option value="approved">approved</option><option value="scouted">scouted</option>
+          <option value="pending">pending</option><option value="identified">identified</option>
+        </select>
+        <select class="search-filter" id="sf-type" onchange="doSearch()">
+          <option value="">all types</option>
+          <option value="exterior">exterior</option><option value="interior">interior</option>
+          <option value="rooftop">rooftop</option><option value="water">water</option>
+          <option value="industrial">industrial</option>
         </select>
       </div>
+      <div id="search-grid"><div class="loading"><div class="spin"></div>loading...</div></div>
     </div>
   </div>
 </div>
 
-<!-- Add Location Modal -->
-<div class="modal-overlay" id="add-modal">
+<div class="modal-overlay" id="sm-modal">
   <div class="modal">
-    <div class="modal-head"><h2>Add location</h2><button class="mc" onclick="closeModal('add-modal')">×</button></div>
-    <div class="modal-body">
-      <div class="ff"><label class="fl2">location name *</label><input class="fi" id="f-name" placeholder="e.g. Brooklyn Waterfront" type="text"></div>
-      <div class="ff"><label class="fl2">address</label><input class="fi" id="f-address" placeholder="Street address" type="text"></div>
-      <div class="fgrid">
-        <div class="ff"><label class="fl2">city</label><input class="fi" id="f-city" placeholder="Brooklyn" type="text"></div>
-        <div class="ff"><label class="fl2">state</label><input class="fi" id="f-state" placeholder="NY" type="text"></div>
+    <div class="mhead"><h2>Connect SmugMug</h2><button class="mclose" onclick="closeModal('sm-modal')">×</button></div>
+    <div class="mbody">
+      <div class="sm-connect-steps">
+        <div class="sm-step"><div class="sm-step-num">1</div><div>Click "Authorize" — you'll be taken to SmugMug to grant access to your library.</div></div>
+        <div class="sm-step"><div class="sm-step-num">2</div><div>After authorizing, you'll be redirected back here automatically.</div></div>
+        <div class="sm-step"><div class="sm-step-num">3</div><div>Hit "Sync Now" to pull your full library into the database.</div></div>
       </div>
-      <div class="fgrid">
-        <div class="ff"><label class="fl2">latitude</label><input class="fi" id="f-lat" placeholder="40.6748" type="number" step="any"></div>
-        <div class="ff"><label class="fl2">longitude</label><input class="fi" id="f-lng" placeholder="-74.0168" type="number" step="any"></div>
+      <div id="sm-sync-progress" style="display:none">
+        <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text2);margin-bottom:6px" id="sm-progress-label">starting sync...</div>
+        <div class="progress-bar"><div class="progress-fill" id="sm-progress-fill" style="width:0%"></div></div>
       </div>
-      <div class="ff"><label class="fl2">status</label>
-        <select class="fi" id="f-status">
-          <option value="identified">identified</option><option value="scouted">scouted</option>
-          <option value="pending">pending</option><option value="approved">approved</option><option value="rejected">rejected</option>
-        </select>
-      </div>
-      <div class="ff"><label class="fl2">tags (comma separated)</label><input class="fi" id="f-tags" placeholder="Exterior, Water, Industrial" type="text"></div>
-      <div class="ff"><label class="fl2">smugmug gallery url</label><input class="fi" id="f-smugmug" placeholder="https://jordanhoffman.smugmug.com/..." type="url"></div>
-      <div class="ff"><label class="fl2">cover photo url</label><input class="fi" id="f-cover" placeholder="Direct image URL" type="url"></div>
-      <div class="ff"><label class="fl2">scout notes</label><textarea class="fi" id="f-notes" placeholder="Lighting, access, contacts, restrictions..."></textarea></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn-c" onclick="closeModal('add-modal')">cancel</button>
-      <button class="btn-p" id="save-btn" onclick="saveLocation()">save location</button>
+    <div class="mfoot">
+      <button class="btn" onclick="closeModal('sm-modal')">cancel</button>
+      <button class="btn primary" id="sm-auth-btn" onclick="startSmugMugAuth()">authorize smugmug ↗</button>
     </div>
   </div>
 </div>
 
-<!-- Add File Modal -->
-<div class="modal-overlay" id="file-modal">
+<div class="modal-overlay" id="project-modal">
   <div class="modal">
-    <div class="modal-head"><h2>Add file reference</h2><button class="mc" onclick="closeModal('file-modal')">×</button></div>
-    <div class="modal-body">
-      <div class="ff"><label class="fl2">filename *</label><input class="fi" id="ff-name" placeholder="e.g. rooftop_01.jpg" type="text"></div>
-      <div class="ff"><label class="fl2">url *</label><input class="fi" id="ff-url" placeholder="SmugMug or other URL" type="url"></div>
-      <div class="fgrid">
-        <div class="ff"><label class="fl2">file type</label>
-          <select class="fi" id="ff-type"><option value="photo">photo</option><option value="video">video</option><option value="pdf">pdf</option><option value="other">other</option></select>
-        </div>
-        <div class="ff"><label class="fl2">source</label>
-          <select class="fi" id="ff-source"><option value="smugmug">smugmug</option><option value="external">external</option><option value="supabase">supabase</option></select>
-        </div>
+    <div class="mhead"><h2 id="project-modal-title">New project</h2><button class="mclose" onclick="closeModal('project-modal')">×</button></div>
+    <div class="mbody">
+      <div class="ff"><label class="fl">project name *</label><input class="fi" id="p-name" placeholder="e.g. Feature Film - Spring 2026" type="text"></div>
+      <div class="ff"><label class="fl">description</label><textarea class="fi" id="p-desc" placeholder="Brief description..."></textarea></div>
+      <div class="ff"><label class="fl">cover photo url</label><input class="fi" id="p-cover" placeholder="Direct image URL" type="url"></div>
+      <div class="ff"><label class="fl">status</label>
+        <select class="fi" id="p-status"><option value="active">active</option><option value="wrapped">wrapped</option><option value="archived">archived</option></select>
       </div>
-      <div class="ff"><label class="fl2">caption</label><input class="fi" id="ff-caption" placeholder="Brief description" type="text"></div>
-      <div class="ff"><label class="fl2">file size</label><input class="fi" id="ff-size" placeholder="e.g. 4.2 MB" type="text"></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn-c" onclick="closeModal('file-modal')">cancel</button>
-      <button class="btn-p" onclick="saveFile()">add file</button>
-    </div>
-  </div>
-</div>
-
-<!-- Add Permit Modal -->
-<div class="modal-overlay" id="permit-modal">
-  <div class="modal">
-    <div class="modal-head"><h2>Add permit</h2><button class="mc" onclick="closeModal('permit-modal')">×</button></div>
-    <div class="modal-body">
-      <div class="ff"><label class="fl2">permit type *</label><input class="fi" id="fp-type" placeholder="e.g. NYC Parks Film Permit" type="text"></div>
-      <div class="fgrid">
-        <div class="ff"><label class="fl2">status</label>
-          <select class="fi" id="fp-status"><option value="needed">needed</option><option value="filed">filed</option><option value="approved">approved</option><option value="denied">denied</option></select>
-        </div>
-        <div class="ff"><label class="fl2">deadline</label><input class="fi" id="fp-deadline" type="date"></div>
-      </div>
-      <div class="ff"><label class="fl2">issuing body</label><input class="fi" id="fp-body" placeholder="e.g. NYC Mayors Office of Media" type="text"></div>
-      <div class="fgrid">
-        <div class="ff"><label class="fl2">contact name</label><input class="fi" id="fp-contact" placeholder="Name" type="text"></div>
-        <div class="ff"><label class="fl2">contact email</label><input class="fi" id="fp-email" placeholder="email@..." type="email"></div>
-      </div>
-      <div class="ff"><label class="fl2">document url</label><input class="fi" id="fp-doc" placeholder="Link to permit doc" type="url"></div>
-      <div class="ff"><label class="fl2">notes</label><textarea class="fi" id="fp-notes" placeholder="Additional notes..."></textarea></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-c" onclick="closeModal('permit-modal')">cancel</button>
-      <button class="btn-p" onclick="savePermit()">add permit</button>
+    <div class="mfoot">
+      <button class="btn" onclick="closeModal('project-modal')">cancel</button>
+      <button class="btn primary" id="p-save-btn" onclick="saveProject()">save project</button>
     </div>
   </div>
 </div>
@@ -318,505 +267,240 @@ select.fi{cursor:pointer}
 <div class="toast" id="toast"></div>
 
 <script>
-// ---- CONFIG (injected by Vercel from environment variables) ----
-const SUPABASE_URL = 'https://bdnezxdfhapaxhoedtrp.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkbmV6eGRmaGFwYXhob2VkdHJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5OTgwMTAsImV4cCI6MjA5MTU3NDAxMH0.tdyh77PJ4xSOnb4GeLQRHcDWd0l2KRMpgl7Awj7NiB0';
-const GMAPS_KEY    = 'AIzaSyBORHlI6GqQNtL2Ev8RlapOFKrjFgkzJfA';
-const SM_USER      = 'jordanhoffman';
-const SM_BASE      = `https://www.smugmug.com/${SM_USER}`;
-
-// ---- API ----
-const api = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-  headers:{
-    'apikey':SUPABASE_KEY,
-    'Authorization':`Bearer ${SUPABASE_KEY}`,
-    'Content-Type':'application/json',
-    'Prefer':opts.prefer||'return=representation',
-    ...opts.headers
-  },...opts
-}).then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)));
-
-// ---- STATE ----
-let allLocations=[], activeId=null, activeTab='detail', activeFilter='all';
-let googleMap=null, mapMarkers=[], mapLoaded=false;
-let smStack=[], smSelectedPhoto=null;
-
-const PIN_COLORS={identified:'#888680',scouted:'#5b9bd5',pending:'#d4943a',approved:'#4caf82',rejected:'#c26060'};
-const SL={identified:{bg:'rgba(85,83,80,.15)',c:'#888680'},scouted:{bg:'rgba(91,155,213,.15)',c:'#5b9bd5'},pending:{bg:'rgba(212,148,58,.15)',c:'#d4943a'},approved:{bg:'rgba(76,175,130,.15)',c:'#4caf82'},rejected:{bg:'rgba(194,96,96,.15)',c:'#c26060'}};
-
-function sbadge(s){const x=SL[s]||SL.identified;return`<span class="sbadge" style="background:${x.bg};color:${x.c}"><span class="sdot" style="background:${x.c}"></span>${s}</span>`}
-function toast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type} show`;setTimeout(()=>t.className='toast',3000)}
-
-// ---- LOAD ----
-async function loadLocations(){
-  try{
-    const d=await api('locations?select=*&order=created_at.desc');
-    allLocations=d;renderList();
-    document.getElementById('loc-count').textContent=`· ${d.length} location${d.length!==1?'s':''}`;
-  }catch(e){
-    document.getElementById('loc-list').innerHTML=`<div class="loading" style="color:var(--red)">connection error</div>`;
-    toast('Could not connect to database','error');
-  }
-}
-
-// ---- LIST ----
-function renderList(){
-  const q=document.getElementById('search-input').value.toLowerCase();
-  const f=allLocations.filter(l=>{
-    const mf=activeFilter==='all'||l.status===activeFilter;
-    const ms=!q||l.name.toLowerCase().includes(q)||(l.address||'').toLowerCase().includes(q)||(l.city||'').toLowerCase().includes(q)||(l.tags||[]).some(t=>t.toLowerCase().includes(q));
-    return mf&&ms;
-  });
-  const el=document.getElementById('loc-list');
-  if(!f.length){el.innerHTML=`<div class="loading" style="flex-direction:column;gap:4px"><span>no locations</span><span style="font-size:10px;color:var(--text3)">try a different filter</span></div>`;return}
-  el.innerHTML=f.map(l=>`
-    <div class="loc-item${l.id===activeId?' active':''}" onclick="selectLocation('${l.id}')">
-      <div class="li-name">${l.name}</div>
-      <div class="li-addr">${[l.address,l.city,l.state].filter(Boolean).join(', ')||'—'}</div>
-      <div class="li-foot"><span class="sdot dot-${l.status}"></span><span class="stxt s-${l.status}">${l.status}</span></div>
-      ${(l.tags||[]).length?`<div class="li-tags">${l.tags.slice(0,3).map(t=>`<span class="mtag">${t}</span>`).join('')}</div>`:''}
-    </div>`).join('');
-}
-function filterLocations(){renderList();if(activeTab==='map'&&googleMap)refreshMapPins()}
-function setFilter(el){document.querySelectorAll('.fp').forEach(p=>p.classList.remove('active'));el.classList.add('active');activeFilter=el.dataset.status;renderList();if(activeTab==='map'&&googleMap)refreshMapPins()}
-
-// ---- SELECT ----
-function selectLocation(id){
-  activeId=id;renderList();
-  if(activeTab==='map'){setTab('detail')}else{renderTab()}
-}
-
-function setTab(tab){
-  activeTab=tab;
-  ['detail','files','permits','map','smugmug'].forEach(t=>document.getElementById(`tab-${t}`).classList.toggle('active',t===tab));
-  const content=document.getElementById('content');
-  const mapEl=document.getElementById('map-content');
-  const smEl=document.getElementById('smugmug-content');
-  content.style.display=''; mapEl.classList.remove('visible'); smEl.classList.remove('visible');
-  if(tab==='map'){content.style.display='none';mapEl.classList.add('visible');initOrRefreshMap()}
-  else if(tab==='smugmug'){content.style.display='none';smEl.classList.add('visible');smInit()}
-  else renderTab();
-}
-
-async function renderTab(){
-  const loc=allLocations.find(l=>l.id===activeId);
-  if(!loc)return;
-  document.getElementById('main-title').innerHTML=`${loc.name} <span>${[loc.city,loc.state].filter(Boolean).join(', ')}</span>`;
-  if(activeTab==='detail')renderDetail(loc);
-  else if(activeTab==='files')await renderFiles(loc);
-  else if(activeTab==='permits')await renderPermits(loc);
-}
-
-// ---- DETAIL ----
-function renderDetail(loc){
-  const tags=(loc.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('');
-  document.getElementById('content').innerHTML=`
-    <div class="detail-grid">
-      <div class="dc full">
-        ${loc.cover_photo_url?`<img class="cover-photo" src="${loc.cover_photo_url}" alt="${loc.name}" onerror="this.style.display='none'">`:
-        `<div class="cover-ph" onclick="editCoverPhoto('${loc.id}')">+ add cover photo url</div>`}
-      </div>
-      <div class="dc">
-        <div class="ch"><span class="cht">location info</span>${sbadge(loc.status)}</div>
-        <div class="cb">
-          <div class="fr"><span class="fl">address</span><span class="fv">${loc.address||'—'}</span></div>
-          <div class="fr"><span class="fl">city / state</span><span class="fv">${[loc.city,loc.state].filter(Boolean).join(', ')||'—'}</span></div>
-          <div class="fr"><span class="fl">coordinates</span><span class="fv" style="font-family:'DM Mono',monospace;font-size:11px">${loc.lat&&loc.lng?`${Number(loc.lat).toFixed(5)}° N, ${Math.abs(Number(loc.lng)).toFixed(5)}° W`:'—'}</span></div>
-          <div class="fr"><span class="fl">added</span><span class="fv">${new Date(loc.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span></div>
-          ${loc.smugmug_gallery_url?`<div class="fr"><span class="fl">smugmug</span><span class="fv"><a href="${loc.smugmug_gallery_url}" target="_blank">open gallery ↗</a></span></div>`:''}
-          ${loc.lat&&loc.lng?`<div class="fr"><span class="fl">maps</span><span class="fv"><a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank">google maps ↗</a></span></div>`:''}
-        </div>
-      </div>
-      <div class="dc">
-        <div class="ch"><span class="cht">tags</span></div>
-        <div class="cb">${tags?`<div class="tag-list">${tags}</div>`:'<span style="color:var(--text3);font-size:12px">no tags yet</span>'}</div>
-      </div>
-      <div class="dc full">
-        <div class="ch"><span class="cht">scout notes</span></div>
-        <div class="cb"><div class="notes-block">${loc.notes||'<span style="color:var(--text3)">no notes yet</span>'}</div></div>
-      </div>
-      <div class="dc full">
-        <div class="ch"><span class="cht">actions</span></div>
-        <div class="cb">
-          <div class="action-row">
-            <button class="ab" onclick="changeStatus('${loc.id}','scouted')">mark scouted</button>
-            <button class="ab" onclick="changeStatus('${loc.id}','pending')">mark pending</button>
-            <button class="ab" onclick="changeStatus('${loc.id}','approved')">mark approved</button>
-            <button class="ab danger" onclick="deleteLocation('${loc.id}')">delete</button>
-          </div>
-        </div>
-      </div>
-    </div>`;
-}
-
-// ---- FILES ----
-async function renderFiles(loc){
-  document.getElementById('content').innerHTML=`<div class="loading"><div class="spinner"></div>loading files...</div>`;
-  try{
-    const files=await api(`files?location_id=eq.${loc.id}&order=uploaded_at.desc`);
-    const tc={photo:'#4caf82',video:'#5b9bd5',pdf:'#c26060',other:'#888680'};
-    document.getElementById('content').innerHTML=`
-      <div class="detail-grid"><div class="dc full">
-        <div class="ch"><span class="cht">files (${files.length})</span><button class="ab" onclick="openFileModal('${loc.id}')">+ add file</button></div>
-        <div class="cb">${!files.length?'<div style="color:var(--text3);font-size:12px;padding:8px 0">no files yet — add SmugMug URLs via the SmugMug tab or paste directly</div>':
-          files.map(f=>`<div class="file-item">
-            <div class="ficon" style="color:${tc[f.file_type]||'#888'};border-color:${tc[f.file_type]||'#888'}33;background:${tc[f.file_type]||'#888'}11">${f.file_type==='photo'?'IMG':f.file_type==='video'?'VID':f.file_type==='pdf'?'PDF':'FILE'}</div>
-            <div class="fmeta"><div class="fname-t">${f.filename}</div><div class="fsub">${f.source||'—'} · ${f.file_size||'—'} ${f.caption?'· '+f.caption:''}</div></div>
-            ${f.url?`<a class="flink" href="${f.url}" target="_blank">open ↗</a>`:''}
-          </div>`).join('')}
-        </div>
-      </div></div>`;
-  }catch(e){document.getElementById('content').innerHTML=`<div class="loading" style="color:var(--red)">error loading files</div>`}
-}
-
-// ---- PERMITS ----
-async function renderPermits(loc){
-  document.getElementById('content').innerHTML=`<div class="loading"><div class="spinner"></div>loading permits...</div>`;
-  try{
-    const permits=await api(`permits?location_id=eq.${loc.id}&order=created_at.desc`);
-    const pc={needed:['var(--amber)','rgba(212,148,58,.1)'],filed:['var(--blue)','rgba(91,155,213,.1)'],approved:['var(--green)','rgba(76,175,130,.1)'],denied:['var(--red)','rgba(194,96,96,.1)']};
-    document.getElementById('content').innerHTML=`
-      <div class="detail-grid"><div class="dc full">
-        <div class="ch"><span class="cht">permits (${permits.length})</span><button class="ab" onclick="openPermitModal('${loc.id}')">+ add permit</button></div>
-        <div class="cb">${!permits.length?'<div style="color:var(--text3);font-size:12px;padding:8px 0">no permits tracked yet</div>':
-          permits.map(p=>{const[col,bg]=pc[p.status]||['var(--text3)','var(--bg3)'];return`
-            <div class="permit-item" style="border-color:${col}33;background:${bg}">
-              <div class="ph"><span class="pt">${p.permit_type}</span><span class="sbadge" style="background:${bg};color:${col}">${p.status}</span></div>
-              <div class="pd">${p.issuing_body||''} ${p.deadline?'· deadline: '+new Date(p.deadline).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):''}</div>
-              ${p.contact_name||p.contact_email?`<div class="pd" style="margin-top:3px">${p.contact_name||''} ${p.contact_email?'· '+p.contact_email:''}</div>`:''}
-              ${p.notes?`<div class="pd" style="margin-top:3px;font-style:italic">${p.notes}</div>`:''}
-              ${p.doc_url?`<div style="margin-top:6px"><a href="${p.doc_url}" target="_blank" class="flink">view doc ↗</a></div>`:''}
-            </div>`;}).join('')}
-        </div>
-      </div></div>`;
-  }catch(e){document.getElementById('content').innerHTML=`<div class="loading" style="color:var(--red)">error loading permits</div>`}
-}
-
-// ---- SMUGMUG BROWSER ----
-// Uses SmugMug's public JSON feeds — no API key needed for public galleries
-function smInit(){
-  if(smStack.length===0)smGoRoot();
-  else smRender(smStack[smStack.length-1]);
-  smRefreshLocSelect();
-}
-
-async function smGoRoot(){
-  smStack=[];
-  const grid=document.getElementById('sm-grid');
-  grid.innerHTML=`<div class="loading" style="grid-column:1/-1"><div class="spinner"></div>loading galleries...</div>`;
-  document.getElementById('sm-breadcrumb').innerHTML=`<span onclick="smGoRoot()">jordanhoffman.smugmug.com</span>`;
-  try{
-    // SmugMug public JSON feed for root albums
-    const res=await fetch(`https://www.smugmug.com/api/v2/user/${SM_USER}?APIKey=none&_accept=application%2Fjson`,{headers:{Accept:'application/json'}});
-    // Fallback: use the RSS/sitemap approach by scraping the public page via a CORS proxy isn't viable
-    // Instead we'll show the user's known gallery structure via their public profile URL format
-    smShowPublicGalleries();
-  }catch(e){
-    smShowPublicGalleries();
-  }
-}
-
-function smShowPublicGalleries(){
-  // SmugMug public profile — we present the gallery browser using their public URL structure
-  // The user can navigate to specific galleries and we read the photo URLs from the SmugMug
-  // share/embed format which is publicly accessible
-  const grid=document.getElementById('sm-grid');
-  document.getElementById('sm-breadcrumb').innerHTML=`<span onclick="smGoRoot()">jordanhoffman.smugmug.com</span>`;
-
-  // Render a gallery URL input as the bridge — user pastes a SmugMug gallery URL
-  // and we fetch the photos from it using SmugMug's public oEmbed endpoint
-  grid.innerHTML=`
-    <div style="grid-column:1/-1;padding:8px 0">
-      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:16px;margin-bottom:16px">
-        <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);margin-bottom:8px;letter-spacing:.06em">paste any smugmug gallery url to browse its photos</div>
-        <div style="display:flex;gap:8px">
-          <input class="fi" id="sm-url-input" placeholder="https://jordanhoffman.smugmug.com/your-gallery" type="url" style="flex:1;font-size:12px;padding:7px 10px">
-          <button class="ab" onclick="smLoadGallery()" style="white-space:nowrap;flex-shrink:0">load gallery</button>
-        </div>
-        <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:8px">tip: open your smugmug profile in another tab, navigate to a gallery, and paste that url here</div>
-      </div>
-      <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);margin-bottom:10px">or enter a direct photo URL to attach:</div>
-      <div style="display:flex;gap:8px">
-        <input class="fi" id="sm-direct-url" placeholder="https://photos.smugmug.com/photos/..." type="url" style="flex:1;font-size:12px;padding:7px 10px">
-        <button class="ab" onclick="smAttachDirect()" style="white-space:nowrap;flex-shrink:0">attach photo</button>
-      </div>
-    </div>`;
-}
-
-async function smLoadGallery(){
-  const url=document.getElementById('sm-url-input').value.trim();
-  if(!url){toast('Enter a SmugMug gallery URL','error');return}
-  const grid=document.getElementById('sm-grid');
-  grid.innerHTML=`<div class="loading" style="grid-column:1/-1"><div class="spinner"></div>loading gallery...</div>`;
-
-  try{
-    // SmugMug exposes a public JSON feed at any gallery URL with ?format=json appended
-    // We use a CORS proxy to fetch it since SmugMug doesn't set CORS headers for this endpoint
-    const proxyUrl=`https://api.allorigins.win/get?url=${encodeURIComponent(url+'?format=json')}`;
-    const res=await fetch(proxyUrl);
-    const data=await res.json();
-    const parsed=JSON.parse(data.contents);
-
-    if(parsed&&parsed.Album&&parsed.Album.Images){
-      const images=parsed.Album.Images;
-      document.getElementById('sm-breadcrumb').innerHTML=`
-        <span onclick="smGoRoot()">jordanhoffman.smugmug.com</span>
-        <span style="color:var(--text3);margin:0 4px">/</span>
-        <span>${parsed.Album.Name||'gallery'}</span>`;
-      smStack=[{type:'gallery',name:parsed.Album.Name,url,images}];
-      smRenderPhotos(images,parsed.Album.Name);
-    } else {
-      smShowError('No photos found in this gallery. Make sure the gallery is public and the URL is correct.');
-    }
-  }catch(e){
-    smShowError('Could not load this gallery. Try navigating directly to a SmugMug gallery URL (not the root profile).');
-  }
-}
-
-function smRenderPhotos(images,galleryName){
-  const grid=document.getElementById('sm-grid');
-  if(!images||!images.length){smShowError('No photos in this gallery');return}
-  grid.innerHTML=images.map((img,i)=>`
-    <div class="sm-card" onclick="smSelectPhoto(${i})">
-      ${img.ThumbUrl?`<img class="sm-thumb" src="${img.ThumbUrl}" loading="lazy" onerror="this.style.display='none'">`:
-      `<div class="sm-thumb-ph">◎</div>`}
-      <div class="sm-label">${img.FileName||img.Title||'photo'}</div>
-      <div class="sm-sub">${img.OriginalWidth?img.OriginalWidth+'×'+img.OriginalHeight:''}${img.LargestUrl?' · '+img.Format||'':''}</div>
-    </div>`).join('');
-
-  // store images for selection
-  window._smImages=images;
-}
-
-function smShowError(msg){
-  document.getElementById('sm-grid').innerHTML=`
-    <div style="grid-column:1/-1;padding:20px;text-align:center">
-      <div style="color:var(--text3);font-size:12px;font-family:'DM Mono',monospace;margin-bottom:12px">${msg}</div>
-      <button class="ab" onclick="smGoRoot()">← go back</button>
-    </div>`;
-}
-
-function smSelectPhoto(idx){
-  const img=window._smImages&&window._smImages[idx];
-  if(!img)return;
-  smSelectedPhoto={
-    url: img.LargestUrl||img.OriginalUrl||img.ThumbUrl,
-    filename: img.FileName||img.Title||'smugmug-photo',
-    thumb: img.ThumbUrl,
-    caption: img.Caption||'',
-  };
-  // highlight selected
-  document.querySelectorAll('.sm-card').forEach((c,i)=>c.style.borderColor=i===idx?'var(--accent)':'');
-  document.getElementById('sm-attach-hint').style.display='none';
-  document.getElementById('sm-loc-select').style.display='block';
-  toast('Photo selected — choose a location to attach it to');
-}
-
-function smAttachDirect(){
-  const url=document.getElementById('sm-direct-url').value.trim();
-  if(!url){toast('Enter a photo URL','error');return}
-  smSelectedPhoto={url,filename:url.split('/').pop()||'photo',thumb:url,caption:''};
-  document.getElementById('sm-attach-hint').style.display='none';
-  document.getElementById('sm-loc-select').style.display='block';
-  toast('Photo ready — choose a location to attach it');
-}
-
-function smRefreshLocSelect(){
-  const sel=document.getElementById('sm-loc-select');
-  sel.innerHTML='<option value="">attach to location...</option>'+
-    allLocations.map(l=>`<option value="${l.id}">${l.name}</option>`).join('');
-}
-
-async function smAttachPhoto(){
-  const locId=document.getElementById('sm-loc-select').value;
-  if(!locId||!smSelectedPhoto)return;
-  try{
-    await api('files',{method:'POST',body:JSON.stringify({
-      location_id:locId,
-      filename:smSelectedPhoto.filename,
-      url:smSelectedPhoto.url,
-      file_type:'photo',
-      source:'smugmug',
-      caption:smSelectedPhoto.caption||null,
-    })});
-    // also set as cover photo if location has none
-    const loc=allLocations.find(l=>l.id===locId);
-    if(loc&&!loc.cover_photo_url&&smSelectedPhoto.thumb){
-      await api(`locations?id=eq.${locId}`,{method:'PATCH',body:JSON.stringify({cover_photo_url:smSelectedPhoto.thumb}),headers:{'Prefer':'return=minimal'}});
-      loc.cover_photo_url=smSelectedPhoto.thumb;
-    }
-    toast(`Photo attached to ${loc?.name||'location'}`);
-    smSelectedPhoto=null;
-    document.getElementById('sm-loc-select').value='';
-    document.getElementById('sm-loc-select').style.display='none';
-    document.getElementById('sm-attach-hint').style.display='block';
-    document.querySelectorAll('.sm-card').forEach(c=>c.style.borderColor='');
-  }catch(e){toast('Error attaching photo','error')}
-}
-
-// ---- GOOGLE MAPS ----
-function initOrRefreshMap(){if(!mapLoaded)loadGoogleMapsScript();else if(googleMap)refreshMapPins()}
-function loadGoogleMapsScript(){
-  if(document.getElementById('gmaps-script'))return;
-  const s=document.createElement('script');
-  s.id='gmaps-script';
-  s.src=`https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&callback=onGoogleMapsReady`;
-  s.async=true;s.defer=true;document.head.appendChild(s);
-}
-window.onGoogleMapsReady=function(){
-  mapLoaded=true;
-  googleMap=new google.maps.Map(document.getElementById('google-map'),{
-    zoom:12,center:{lat:40.6782,lng:-73.9442},mapTypeId:'roadmap',
-    styles:[
-      {elementType:'geometry',stylers:[{color:'#1a1c1e'}]},
-      {elementType:'labels.text.stroke',stylers:[{color:'#1a1c1e'}]},
-      {elementType:'labels.text.fill',stylers:[{color:'#746855'}]},
-      {featureType:'road',elementType:'geometry',stylers:[{color:'#2c2c2e'}]},
-      {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#9ca5b3'}]},
-      {featureType:'water',elementType:'geometry',stylers:[{color:'#0e1626'}]},
-      {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#515c6d'}]},
-      {featureType:'poi',stylers:[{visibility:'off'}]},
-      {featureType:'transit',stylers:[{visibility:'off'}]},
-    ]
-  });
-  refreshMapPins();
-};
-function refreshMapPins(){
-  if(!googleMap)return;
-  mapMarkers.forEach(m=>m.setMap(null));mapMarkers=[];
-  const q=document.getElementById('search-input').value.toLowerCase();
-  const filtered=allLocations.filter(l=>{
-    if(!l.lat||!l.lng)return false;
-    const mf=activeFilter==='all'||l.status===activeFilter;
-    const ms=!q||l.name.toLowerCase().includes(q)||(l.city||'').toLowerCase().includes(q);
-    return mf&&ms;
-  });
-  document.getElementById('map-pin-count').textContent=filtered.length;
-  if(!filtered.length)return;
-  const bounds=new google.maps.LatLngBounds();
-  const iw=new google.maps.InfoWindow();
-  filtered.forEach(loc=>{
-    const marker=new google.maps.Marker({
-      position:{lat:Number(loc.lat),lng:Number(loc.lng)},
-      map:googleMap,title:loc.name,
-      icon:{path:google.maps.SymbolPath.CIRCLE,scale:10,fillColor:PIN_COLORS[loc.status]||'#888',fillOpacity:1,strokeColor:'#ffffff',strokeWeight:2}
-    });
-    const x=SL[loc.status]||SL.identified;
-    marker.addListener('click',()=>{
-      iw.setContent(`<div class="gm-info">
-        <div class="gm-info-name">${loc.name}</div>
-        <div class="gm-info-addr">${[loc.address,loc.city,loc.state].filter(Boolean).join(', ')||''}</div>
-        <span class="gm-info-badge" style="background:${x.bg};color:${x.c}">${loc.status}</span>
-        ${(loc.tags||[]).length?`<div class="gm-info-tags">${loc.tags.slice(0,4).join(', ')}</div>`:''}
-        ${loc.notes?`<div class="gm-info-tags" style="font-style:italic">${loc.notes.substring(0,80)}${loc.notes.length>80?'...':''}</div>`:''}
-        <button class="gm-info-btn" onclick="openDetailFromMap('${loc.id}')">open full detail →</button>
-      </div>`);
-      iw.open(googleMap,marker);
-    });
-    mapMarkers.push(marker);bounds.extend(marker.getPosition());
-  });
-  if(filtered.length===1){googleMap.setCenter({lat:Number(filtered[0].lat),lng:Number(filtered[0].lng)});googleMap.setZoom(15)}
-  else googleMap.fitBounds(bounds,{padding:60});
-}
-window.openDetailFromMap=function(id){activeId=id;renderList();setTab('detail')};
-
-// ---- KML EXPORT ----
-function exportKML(){
-  const wc=allLocations.filter(l=>l.lat&&l.lng);
-  if(!wc.length){toast('No locations with coordinates','error');return}
-  const icons={identified:'http://maps.google.com/mapfiles/ms/icons/grey-dot.png',scouted:'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',pending:'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png',approved:'http://maps.google.com/mapfiles/ms/icons/green-dot.png',rejected:'http://maps.google.com/mapfiles/ms/icons/red-dot.png'};
-  const ex=s=>s?(s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):'';
-  const pm=wc.map(l=>`  <Placemark>
-    <n>${ex(l.name)}</n>
-    <description>${ex([l.address?`Address: ${[l.address,l.city,l.state].filter(Boolean).join(', ')}`:null,`Status: ${l.status}`,(l.tags||[]).length?`Tags: ${l.tags.join(', ')}`:null,l.notes?`Notes: ${l.notes}`:null,l.smugmug_gallery_url?`SmugMug: ${l.smugmug_gallery_url}`:null].filter(Boolean).join('\n'))}</description>
-    <Style><IconStyle><Icon><href>${icons[l.status]||icons.identified}</href></Icon></IconStyle></Style>
-    <Point><coordinates>${l.lng},${l.lat},0</coordinates></Point>
-  </Placemark>`).join('\n');
-  const kml=`<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n  <n>Scout — ${new Date().toLocaleDateString()}</n>\n${pm}\n</Document>\n</kml>`;
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([kml],{type:'application/vnd.google-earth.kml+xml'}));a.download=`scout-${new Date().toISOString().slice(0,10)}.kml`;a.click();
-  toast(`Exported ${wc.length} locations`);
-}
-
-// ---- CRUD ----
-function openAddModal(){
-  ['f-name','f-address','f-city','f-state','f-lat','f-lng','f-tags','f-smugmug','f-cover','f-notes'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('f-status').value='identified';
-  document.getElementById('add-modal').classList.add('open');
-  document.getElementById('f-name').focus();
+const SUPABASE_URL='https://bdnezxdfhapaxhoedtrp.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkbmV6eGRmaGFwYXhob2VkdHJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5OTgwMTAsImV4cCI6MjA5MTU3NDAxMH0.tdyh77PJ4xSOnb4GeLQRHcDWd0l2KRMpgl7Awj7NiB0';
+const GMAPS_KEY='AIzaSyBORHlI6GqQNtL2Ev8RlapOFKrjFgkzJfA';
+const COLUMBUS_CIRCLE={lat:40.7681,lng:-73.9819};
+const ZONE_MILES=30;
+const ZONE_METERS=ZONE_MILES*1609.34;
+const PIN_COLORS={identified:'#555350',scouted:'#5b9bd5',pending:'#d4943a',approved:'#4caf82',rejected:'#c26060'};
+let allLocations=[],googleMap=null,mapLoaded=false,mapMarkers=[],zoneCircle=null,zoneVisible=false,smTokens=null,editingProjectId=null;
+const hoverCard=document.getElementById('hover-card');
+const db=(path,opts={})=>fetch(`${SUPABASE_URL}/rest/v1/${path}`,{headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json',Prefer:opts.prefer||'return=representation',...opts.headers},...opts}).then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)));
+function toast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type} show`;setTimeout(()=>t.className='toast',3500)}
+function showPage(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById(`${page}-page`).classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b=>{if(b.textContent.trim().toLowerCase()===page)b.classList.add('active')});
+  if(page==='home'&&!mapLoaded)initMap();
+  if(page==='home'&&googleMap)setTimeout(refreshPins,100);
+  if(page==='projects')loadProjects();
+  if(page==='search')loadSearch();
 }
 function closeModal(id){document.getElementById(id).classList.remove('open')}
-
-async function saveLocation(){
-  const name=document.getElementById('f-name').value.trim();
-  if(!name){toast('Location name is required','error');return}
-  const btn=document.getElementById('save-btn');btn.disabled=true;btn.textContent='saving...';
-  const tags=document.getElementById('f-tags').value?document.getElementById('f-tags').value.split(',').map(t=>t.trim()).filter(Boolean):[];
+async function loadLocations(){try{allLocations=await db('locations?select=*&order=created_at.desc');return allLocations}catch(e){toast('Database connection error','error');return[]}}
+function distanceMiles(lat,lng){const R=3958.8,dLat=(lat-COLUMBUS_CIRCLE.lat)*Math.PI/180,dLng=(lng-COLUMBUS_CIRCLE.lng)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(COLUMBUS_CIRCLE.lat*Math.PI/180)*Math.cos(lat*Math.PI/180)*Math.sin(dLng/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))}
+function getFilteredLocations(){
+  const inzoneOnly=document.getElementById('f-inzone').checked;
+  const states=['ny','nj','ct','pa'].filter(s=>document.getElementById(`f-${s}`).checked).map(s=>s.toUpperCase());
+  const statuses=['approved','scouted','pending','identified'].filter(s=>document.getElementById(`f-${s}`).checked);
+  return allLocations.filter(l=>{
+    if(!l.lat||!l.lng)return false;
+    if(l.state_code&&states.length&&!states.includes((l.state_code||'').toUpperCase()))return false;
+    if(statuses.length&&!statuses.includes(l.status))return false;
+    if(inzoneOnly&&distanceMiles(l.lat,l.lng)>ZONE_MILES)return false;
+    return true;
+  });
+}
+function applyFilters(){if(googleMap)refreshPins()}
+function initMap(){
+  if(mapLoaded||document.getElementById('gmaps-script'))return;
+  const s=document.createElement('script');s.id='gmaps-script';
+  s.src=`https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&callback=onMapReady`;
+  s.async=true;s.defer=true;document.head.appendChild(s);
+}
+window.onMapReady=async function(){
+  mapLoaded=true;
+  googleMap=new google.maps.Map(document.getElementById('home-map'),{
+    zoom:11,center:{lat:40.73,lng:-73.95},mapTypeId:'roadmap',backgroundColor:'#000',
+    disableDefaultUI:false,zoomControl:true,streetViewControl:false,mapTypeControl:false,fullscreenControl:false,
+    styles:[
+      {elementType:'geometry',stylers:[{color:'#0a0a0c'}]},
+      {elementType:'labels.text.stroke',stylers:[{color:'#0a0a0c'}]},
+      {elementType:'labels.text.fill',stylers:[{color:'#5a5856'}]},
+      {featureType:'road',elementType:'geometry',stylers:[{color:'#1c1c20'}]},
+      {featureType:'road.arterial',elementType:'geometry',stylers:[{color:'#242428'}]},
+      {featureType:'road.highway',elementType:'geometry',stylers:[{color:'#2e2e34'}]},
+      {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#4a4845'}]},
+      {featureType:'water',elementType:'geometry',stylers:[{color:'#06090f'}]},
+      {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#1a2030'}]},
+      {featureType:'poi',stylers:[{visibility:'off'}]},
+      {featureType:'transit',stylers:[{visibility:'off'}]},
+      {featureType:'administrative',elementType:'geometry',stylers:[{color:'#1a1a1e'}]},
+      {featureType:'administrative.locality',elementType:'labels.text.fill',stylers:[{color:'#3a3835'}]},
+      {featureType:'landscape',elementType:'geometry',stylers:[{color:'#0d0d10'}]},
+    ]
+  });
+  await loadLocations();refreshPins();checkSmugMugAuth();checkSyncStatus();
+};
+function refreshPins(){
+  mapMarkers.forEach(m=>m.setMap(null));mapMarkers=[];
+  const filtered=getFilteredLocations();
+  filtered.forEach(loc=>{
+    const marker=new google.maps.Marker({
+      position:{lat:Number(loc.lat),lng:Number(loc.lng)},map:googleMap,title:loc.name,
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,fillColor:PIN_COLORS[loc.status]||'#555',fillOpacity:.95,strokeColor:'#000',strokeWeight:1.5}
+    });
+    marker.addListener('mouseover',e=>showHoverCard(loc,e.domEvent));
+    marker.addListener('mouseout',()=>hoverCard.classList.remove('visible'));
+    marker.addListener('mousemove',e=>positionHoverCard(e.domEvent));
+    marker.addListener('click',()=>window.open(loc.smugmug_gallery_url||'https://jordanhoffman.smugmug.com','_blank'));
+    mapMarkers.push(marker);
+  });
+  if(filtered.length>0){
+    const bounds=new google.maps.LatLngBounds();
+    filtered.forEach(l=>bounds.extend({lat:Number(l.lat),lng:Number(l.lng)}));
+    if(filtered.length===1){googleMap.setCenter({lat:Number(filtered[0].lat),lng:Number(filtered[0].lng)});googleMap.setZoom(14)}
+    else googleMap.fitBounds(bounds,{padding:80});
+  }
+  if(zoneVisible)showZoneCircle();
+}
+function showHoverCard(loc,domEvent){
+  document.getElementById('hc-name').textContent=loc.name;
+  document.getElementById('hc-addr').textContent=[loc.address,loc.city,loc.state_code||loc.state].filter(Boolean).join(', ')||'—';
+  document.getElementById('hc-status').innerHTML=`<span class="s-${loc.status}">${loc.status}</span>`;
+  document.getElementById('hc-tags').innerHTML=(loc.tags||[]).slice(0,4).map(t=>`<span class="hc-tag">${t}</span>`).join('');
+  const pw=document.getElementById('hc-photo-wrap');
+  pw.innerHTML=loc.cover_photo_url?`<img class="hc-photo" src="${loc.cover_photo_url}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=hc-photo-ph>no photo</div>'">`:`<div class="hc-photo-ph">no cover photo</div>`;
+  hoverCard.classList.add('visible');positionHoverCard(domEvent);
+}
+function positionHoverCard(domEvent){
+  const wrap=document.getElementById('home-map-wrap'),rect=wrap.getBoundingClientRect();
+  let x=domEvent.clientX-rect.left+16,y=domEvent.clientY-rect.top-80;
+  if(x+250>rect.width)x=domEvent.clientX-rect.left-260;
+  if(y<0)y=8;if(y+300>rect.height-80)y=rect.height-380;
+  hoverCard.style.left=x+'px';hoverCard.style.top=y+'px';
+}
+function toggleZoneCircle(){
+  zoneVisible=!zoneVisible;
+  document.getElementById('zone-toggle').classList.toggle('active',zoneVisible);
+  if(zoneVisible)showZoneCircle();else hideZoneCircle();
+}
+function showZoneCircle(){
+  if(!googleMap)return;
+  if(zoneCircle)zoneCircle.setMap(null);
+  zoneCircle=new google.maps.Circle({map:googleMap,center:COLUMBUS_CIRCLE,radius:ZONE_METERS,strokeColor:'#c26060',strokeOpacity:.8,strokeWeight:1.5,fillColor:'#c26060',fillOpacity:.04,clickable:false});
+}
+function hideZoneCircle(){if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null;}}
+function checkSmugMugAuth(){
+  const hash=window.location.hash;
+  if(hash.includes('sm_auth=')){
+    try{const enc=decodeURIComponent(hash.split('sm_auth=')[1]);smTokens=JSON.parse(enc);localStorage.setItem('sm_tokens',JSON.stringify(smTokens));window.location.hash='';toast('SmugMug connected!');updateSmugMugUI(true);return}catch(e){}
+  }
+  const stored=localStorage.getItem('sm_tokens');
+  if(stored){try{smTokens=JSON.parse(stored);updateSmugMugUI(true)}catch(e){}}
+}
+function updateSmugMugUI(connected){
+  const btn=document.getElementById('sm-connect-btn'),sb=document.getElementById('sync-now-btn');
+  if(connected){btn.textContent='smugmug ✓';btn.classList.add('connected');sb.style.display='block'}
+  else{btn.textContent='connect smugmug';btn.classList.remove('connected');sb.style.display='none'}
+}
+async function checkSyncStatus(){
+  try{const log=await db('sync_log?id=eq.1&select=*');if(log&&log[0]&&log[0].last_sync){const d=new Date(log[0].last_sync);document.getElementById('sync-status').textContent=`synced ${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})} · ${log[0].images_count||0} photos`}}catch(e){}
+}
+function openSmugMugConnect(){document.getElementById('sm-modal').classList.add('open')}
+async function startSmugMugAuth(){
+  const btn=document.getElementById('sm-auth-btn');btn.disabled=true;btn.textContent='connecting...';
+  try{const res=await fetch('/api/smugmug?action=auth');const data=await res.json();if(data.authUrl)window.location.href=data.authUrl;else throw new Error('No auth URL')}
+  catch(e){toast('Could not start SmugMug auth','error');btn.disabled=false;btn.textContent='authorize smugmug ↗'}
+}
+async function startSync(){
+  if(!smTokens){toast('Connect SmugMug first','error');return}
+  document.getElementById('sm-modal').classList.add('open');
+  document.getElementById('sm-sync-progress').style.display='block';
+  document.getElementById('sm-auth-btn').style.display='none';
+  const label=document.getElementById('sm-progress-label'),fill=document.getElementById('sm-progress-fill');
+  const tokenB64=btoa(JSON.stringify(smTokens));
   try{
-    const[n]=await api('locations',{method:'POST',body:JSON.stringify({
-      name,address:document.getElementById('f-address').value||null,city:document.getElementById('f-city').value||null,state:document.getElementById('f-state').value||null,
-      lat:document.getElementById('f-lat').value?parseFloat(document.getElementById('f-lat').value):null,lng:document.getElementById('f-lng').value?parseFloat(document.getElementById('f-lng').value):null,
-      status:document.getElementById('f-status').value,tags,smugmug_gallery_url:document.getElementById('f-smugmug').value||null,cover_photo_url:document.getElementById('f-cover').value||null,notes:document.getElementById('f-notes').value||null,
-    })});
-    allLocations.unshift(n);document.getElementById('loc-count').textContent=`· ${allLocations.length} locations`;
-    renderList();closeModal('add-modal');selectLocation(n.id);toast(`${name} added`);
-    if(googleMap)refreshMapPins();smRefreshLocSelect();
-  }catch(e){toast('Error saving location','error')}
-  finally{btn.disabled=false;btn.textContent='save location'}
+    label.textContent='crawling smugmug library...';fill.style.width='15%';
+    const cr=await fetch('/api/smugmug?action=crawl',{headers:{Authorization:`Bearer ${tokenB64}`}});
+    if(!cr.ok)throw new Error(await cr.text());
+    const{library}=await cr.json();
+    label.textContent=`found ${library.albums?.length||0} albums, ${library.images?.length||0} photos — syncing...`;fill.style.width='50%';
+    const sr=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library})});
+    if(!sr.ok)throw new Error(await sr.text());
+    const{stats}=await sr.json();
+    fill.style.width='100%';label.textContent=`synced ${stats.images} photos across ${stats.albums} albums`;
+    await loadLocations();refreshPins();checkSyncStatus();
+    toast(`Library synced — ${stats.images} photos, ${stats.locations} new locations`);
+    setTimeout(()=>{closeModal('sm-modal');document.getElementById('sm-sync-progress').style.display='none';document.getElementById('sm-auth-btn').style.display='block';fill.style.width='0%'},2000);
+  }catch(e){label.textContent=`error: ${e.message}`;fill.style.width='0%';toast('Sync failed — '+e.message,'error');document.getElementById('sm-auth-btn').style.display='block'}
 }
-
-async function changeStatus(id,status){
+async function loadProjects(){
+  const grid=document.getElementById('projects-grid');grid.innerHTML='<div class="loading"><div class="spin"></div>loading...</div>';
+  try{const projects=await db('projects?select=*&order=sort_order.asc,created_at.desc');renderProjects(projects)}
+  catch(e){grid.innerHTML='<div class="loading" style="color:var(--red)">error loading projects</div>'}
+}
+function renderProjects(projects){
+  const grid=document.getElementById('projects-grid');
+  grid.innerHTML=projects.map(p=>`
+    <div class="project-card">
+      ${p.cover_url?`<img class="pc-thumb" src="${p.cover_url}" onerror="this.style.display='none'">`:
+      `<div class="pc-thumb-ph">no cover photo</div>`}
+      <div class="pc-body">
+        <div class="pc-name">${p.name}</div>
+        <div class="pc-meta">${p.status} · ${new Date(p.created_at).toLocaleDateString('en-US',{month:'short',year:'numeric'})}</div>
+        ${p.description?`<div class="pc-meta" style="margin-top:4px;color:var(--text3)">${p.description.substring(0,60)}${p.description.length>60?'...':''}</div>`:''}
+        <div class="pc-actions">
+          <button class="pc-btn" onclick="editProject('${p.id}')">edit</button>
+          <button class="pc-btn" onclick="deleteProject('${p.id}','${p.name.replace(/'/g,"\\\'")}')">delete</button>
+        </div>
+      </div>
+    </div>`).join('')+
+    `<div class="add-project-card" onclick="openNewProject()"><div class="add-icon">+</div><span>new project</span></div>`;
+}
+function openNewProject(){editingProjectId=null;document.getElementById('project-modal-title').textContent='New project';['p-name','p-desc','p-cover'].forEach(id=>document.getElementById(id).value='');document.getElementById('p-status').value='active';document.getElementById('project-modal').classList.add('open');document.getElementById('p-name').focus()}
+async function editProject(id){
+  editingProjectId=id;
+  try{const[p]=await db(`projects?id=eq.${id}&select=*`);document.getElementById('project-modal-title').textContent='Edit project';document.getElementById('p-name').value=p.name||'';document.getElementById('p-desc').value=p.description||'';document.getElementById('p-cover').value=p.cover_url||'';document.getElementById('p-status').value=p.status||'active';document.getElementById('project-modal').classList.add('open')}
+  catch(e){toast('Error loading project','error')}
+}
+async function saveProject(){
+  const name=document.getElementById('p-name').value.trim();if(!name){toast('Project name required','error');return}
+  const btn=document.getElementById('p-save-btn');btn.disabled=true;btn.textContent='saving...';
+  const payload={name,description:document.getElementById('p-desc').value||null,cover_url:document.getElementById('p-cover').value||null,status:document.getElementById('p-status').value,updated_at:new Date().toISOString()};
   try{
-    await api(`locations?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({status}),headers:{'Prefer':'return=minimal'}});
-    const l=allLocations.find(l=>l.id===id);if(l)l.status=status;
-    renderList();if(activeId===id)renderTab();if(googleMap)refreshMapPins();toast(`Status → ${status}`);
-  }catch(e){toast('Error updating status','error')}
+    if(editingProjectId)await db(`projects?id=eq.${editingProjectId}`,{method:'PATCH',body:JSON.stringify(payload),headers:{Prefer:'return=minimal'}});
+    else await db('projects',{method:'POST',body:JSON.stringify(payload)});
+    closeModal('project-modal');toast(editingProjectId?'Project updated':'Project created');loadProjects();
+  }catch(e){toast('Error saving project','error')}
+  finally{btn.disabled=false;btn.textContent='save project'}
 }
-
-async function deleteLocation(id){
-  if(!confirm('Delete this location? Cannot be undone.'))return;
-  try{
-    await api(`locations?id=eq.${id}`,{method:'DELETE',headers:{'Prefer':'return=minimal'}});
-    allLocations=allLocations.filter(l=>l.id!==id);activeId=null;renderList();
-    document.getElementById('content').innerHTML=`<div class="empty-state"><div class="big">◎</div><div>location deleted</div></div>`;
-    document.getElementById('main-title').innerHTML='Select a location';
-    if(googleMap)refreshMapPins();smRefreshLocSelect();toast('Location deleted');
-  }catch(e){toast('Error deleting','error')}
+async function deleteProject(id,name){
+  if(!confirm(`Delete "${name}"? Cannot be undone.`))return;
+  try{await db(`projects?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}});toast('Project deleted');loadProjects()}
+  catch(e){toast('Error deleting','error')}
 }
-
-function editCoverPhoto(id){const url=prompt('Enter cover photo URL:');if(!url)return;changeField(id,{cover_photo_url:url})}
-async function changeField(id,fields){
-  try{await api(`locations?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(fields),headers:{'Prefer':'return=minimal'}});Object.assign(allLocations.find(l=>l.id===id),fields);renderTab();toast('Updated')}
-  catch(e){toast('Error updating','error')}
+async function loadSearch(){await loadLocations();doSearch()}
+function doSearch(){
+  const q=document.getElementById('search-q').value.toLowerCase();
+  const state=document.getElementById('sf-state').value;
+  const status=document.getElementById('sf-status').value;
+  const type=document.getElementById('sf-type').value;
+  const filtered=allLocations.filter(l=>{
+    if(state&&(l.state_code||'').toUpperCase()!==state)return false;
+    if(status&&l.status!==status)return false;
+    if(type&&!(l.tags||[]).some(t=>t.toLowerCase().includes(type))&&(l.category||'')!==type)return false;
+    if(q){const h=[l.name,l.address,l.city,l.notes,...(l.tags||[])].join(' ').toLowerCase();if(!h.includes(q))return false}
+    return true;
+  });
+  const grid=document.getElementById('search-grid');
+  if(!filtered.length){grid.innerHTML='<div class="loading" style="grid-column:1/-1">no locations match</div>';return}
+  grid.innerHTML=filtered.map(l=>`
+    <div class="sg-card" onclick="window.open('${l.smugmug_gallery_url||'https://jordanhoffman.smugmug.com'}','_blank')">
+      ${l.cover_photo_url?`<img class="sg-thumb" src="${l.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`:
+      `<div class="sg-thumb-ph">no photo</div>`}
+      <div class="sg-body">
+        <div class="sg-name">${l.name}</div>
+        <div class="sg-sub s-${l.status}">${l.status} · ${[l.city,l.state_code||l.state].filter(Boolean).join(', ')||'—'}</div>
+        ${(l.tags||[]).length?`<div class="sg-sub" style="margin-top:2px;color:var(--text3)">${l.tags.slice(0,3).join(', ')}</div>`:''}
+      </div>
+    </div>`).join('');
 }
-
-let fileLocId=null;
-function openFileModal(locId){fileLocId=locId;['ff-name','ff-url','ff-caption','ff-size'].forEach(id=>document.getElementById(id).value='');document.getElementById('file-modal').classList.add('open')}
-async function saveFile(){
-  const name=document.getElementById('ff-name').value.trim(),url=document.getElementById('ff-url').value.trim();
-  if(!name||!url){toast('Filename and URL required','error');return}
-  try{
-    await api('files',{method:'POST',body:JSON.stringify({location_id:fileLocId,filename:name,url,file_type:document.getElementById('ff-type').value,source:document.getElementById('ff-source').value,caption:document.getElementById('ff-caption').value||null,file_size:document.getElementById('ff-size').value||null})});
-    closeModal('file-modal');toast('File added');if(activeId===fileLocId)renderFiles(allLocations.find(l=>l.id===activeId));
-  }catch(e){toast('Error adding file','error')}
-}
-
-let permitLocId=null;
-function openPermitModal(locId){permitLocId=locId;['fp-type','fp-body','fp-contact','fp-email','fp-doc','fp-notes','fp-deadline'].forEach(id=>document.getElementById(id).value='');document.getElementById('fp-status').value='needed';document.getElementById('permit-modal').classList.add('open')}
-async function savePermit(){
-  const type=document.getElementById('fp-type').value.trim();if(!type){toast('Permit type required','error');return}
-  try{
-    await api('permits',{method:'POST',body:JSON.stringify({location_id:permitLocId,permit_type:type,status:document.getElementById('fp-status').value,issuing_body:document.getElementById('fp-body').value||null,contact_name:document.getElementById('fp-contact').value||null,contact_email:document.getElementById('fp-email').value||null,deadline:document.getElementById('fp-deadline').value||null,doc_url:document.getElementById('fp-doc').value||null,notes:document.getElementById('fp-notes').value||null})});
-    closeModal('permit-modal');toast('Permit added');if(activeId===permitLocId)renderPermits(allLocations.find(l=>l.id===activeId));
-  }catch(e){toast('Error adding permit','error')}
-}
-
-document.addEventListener('keydown',e=>{
-  if(e.key==='Escape')document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));
-  if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();document.getElementById('search-input').focus()}
-});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'))});
 document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open')}));
-
-loadLocations();
+(async()=>{checkSmugMugAuth();await loadLocations();initMap()})();
 </script>
 </body>
 </html>
