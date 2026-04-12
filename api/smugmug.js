@@ -15,7 +15,7 @@ function buildAuthHeader(method, baseUrl, oauthParams, signatureParams, consumer
     .map(k => `${pct(k)}="${pct(headerParts[k])}"`).join(', ');
 }
 
-function pct(s) { return encodeURIComponent(s); }
+function pct(s) { return encodeURIComponent(s).replace(/!/g, '%21'); }
 
 function makeOauthParams(consumerKey, accessToken) {
   const p = {
