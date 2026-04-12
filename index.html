@@ -354,7 +354,7 @@ select.fi{cursor:pointer}
 <script>
 const SB_URL='https://bdnezxdfhapaxhoedtrp.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkbmV6eGRmaGFwYXhob2VkdHJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5OTgwMTAsImV4cCI6MjA5MTU3NDAxMH0.tdyh77PJ4xSOnb4GeLQRHcDWd0l2KRMpgl7Awj7NiB0';
-const GM_KEY='AIzaSyBORHlI6GqQNtL2Ev8RlapOFKrjFgkzJfA';
+const GEO_KEY='your-new-unrestricted-key-here';
 const SM_BASE='https://location-scout-sand.vercel.app';
 const COLUMBUS={lat:40.7681,lng:-73.9819};
 const ZONE_M=30*1609.34;
@@ -592,7 +592,7 @@ async function geocodeAll(){
     try{
       // Use geocode_query (parsed address) if available, else name
       const q=encodeURIComponent((loc.geocode_query||loc.name)+' NY');
-      const r=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${q}&key=${GM_KEY}`);
+      const r=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${q}&key=${GEO_KEY}`);
       const d=await r.json();
       if(d.results&&d.results[0]){
         const{lat,lng}=d.results[0].geometry.location;
