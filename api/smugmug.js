@@ -48,7 +48,6 @@ async function smRequest(path, accessToken, accessTokenSecret, extraParams = {})
   // Build final URL: base + extraParams + _accept (accept added AFTER signing)
   const finalUrl = new URL(baseUrl);
   Object.entries(extraParams).forEach(([k, v]) => finalUrl.searchParams.set(k, v));
-  finalUrl.searchParams.set('_accept', 'application/json');
 
   const res = await fetch(finalUrl.toString(), {
     headers: { Authorization: authHeader, Accept: 'application/json' }
