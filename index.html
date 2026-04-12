@@ -592,10 +592,10 @@ async function geocodeAll(){
     try{
       // Use geocode_query (parsed address) if available, else name
       const q=encodeURIComponent((loc.geocode_query||loc.name)+' NY');
-      const r=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${q}&key=${GEO_KEY}`);
-      const d=await r.json();
-      if(d.results&&d.results[0]){
-        const{lat,lng}=d.results[0].geometry.location;
+      const r=await fetch(`${SM_BASE}/api/geocode?address=${q}`);
+const d=await r.json();
+if(d.ok&&d.lat){
+  const{lat,lng}=d;
         await db(`locations?id=eq.${loc.id}`,{
           method:'PATCH',body:JSON.stringify({lat,lng}),
           headers:{Prefer:'return=minimal'}
