@@ -418,7 +418,7 @@ async function startSync(){
     if(!cr.ok)throw new Error(await cr.text());
     const{library}=await cr.json();
     label.textContent=`found ${library.albums?.length||0} albums, ${library.images?.length||0} photos — syncing...`;fill.style.width='50%';
-    const sr=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library})});
+    const sr=await fetch('https://location-scout-sand.vercel.app/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library})});
     if(!sr.ok)throw new Error(await sr.text());
     const{stats}=await sr.json();
     fill.style.width='100%';label.textContent=`synced ${stats.images} photos across ${stats.albums} albums`;
