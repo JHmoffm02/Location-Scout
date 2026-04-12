@@ -17,185 +17,138 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;overflow:hidden}
-
-/* Shell */
 #shell{display:flex;flex-direction:column;height:100vh}
-#header{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0}
+#header{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0;position:relative;z-index:10}
 #header h1{font-family:'DM Mono',monospace;font-size:12px;font-weight:400;letter-spacing:.2em;color:var(--accent);text-transform:uppercase}
-#nav{height:48px;display:flex;align-items:center;justify-content:center;gap:0;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+#nav{height:48px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;position:relative;z-index:10}
 .nav-btn{padding:0 32px;height:48px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.1em;color:var(--text3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;text-transform:uppercase}
 .nav-btn:hover{color:var(--text2)}
 .nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
 #pages{flex:1;overflow:hidden;position:relative}
-
-/* Pages — only active one shows */
 .page{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
 .page.active{display:flex}
 
-/* ===== HOME PAGE ===== */
+/* ===== HOME ===== */
 #home-page{background:var(--bg)}
-#map-wrap{flex:1;position:relative}
-#the-map{position:absolute;inset:0}
+#map-wrap{flex:1;position:relative;overflow:hidden}
+#the-map{position:absolute;inset:0;width:100%;height:100%}
 
-/* Sync controls — top right, clean */
-#sync-bar{
-  position:absolute;top:14px;right:14px;z-index:10;
-  display:flex;align-items:center;gap:8px;
-}
-.sync-pill{
-  padding:5px 12px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.06em;
-  border:1px solid var(--border2);border-radius:20px;
-  background:rgba(0,0,0,.65);backdrop-filter:blur(4px);
-  color:var(--text2);cursor:pointer;transition:all .15s;white-space:nowrap;
-}
+/* Sync bar */
+#sync-bar{position:absolute;top:14px;right:14px;z-index:15;display:flex;align-items:center;gap:8px}
+.sync-pill{padding:5px 12px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.06em;border:1px solid var(--border2);border-radius:20px;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);color:var(--text2);cursor:pointer;transition:all .15s;white-space:nowrap}
 .sync-pill:hover{border-color:var(--accent);color:var(--accent)}
 .sync-pill.connected{border-color:var(--green);color:var(--green)}
-#sync-status-pill{
-  padding:4px 10px;font-size:9px;font-family:'DM Mono',monospace;
-  background:rgba(0,0,0,.65);backdrop-filter:blur(4px);
-  color:var(--text3);border-radius:20px;border:1px solid var(--border);
-}
+#sync-status-pill{padding:4px 10px;font-size:9px;font-family:'DM Mono',monospace;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);color:var(--text3);border-radius:20px;border:1px solid var(--border)}
 
-/* Map controls — bottom overlay */
-#map-controls{
-  position:absolute;bottom:0;left:0;right:0;z-index:10;
-  background:linear-gradient(transparent,rgba(0,0,0,.9) 35%);
-  padding:28px 24px 18px;
-  display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;
-}
+/* Map controls */
+#map-controls{position:absolute;bottom:0;left:0;right:0;z-index:15;background:linear-gradient(transparent,rgba(0,0,0,.92) 35%);padding:28px 24px 18px;display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
 .cg{display:flex;flex-direction:column;gap:5px}
 .cl{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase}
 .cr{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .ci{display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
 .ci input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
 .ci label{font-size:11px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer}
-.zone-btn{
-  display:flex;align-items:center;gap:7px;padding:6px 13px;
-  border:1px solid var(--border2);border-radius:20px;
-  background:rgba(0,0,0,.5);cursor:pointer;transition:all .15s;
-}
+.zone-btn{display:flex;align-items:center;gap:7px;padding:5px 12px;border:1px solid var(--border2);border-radius:20px;background:rgba(0,0,0,.5);cursor:pointer;transition:all .15s}
 .zone-btn:hover{border-color:var(--red)}
 .zone-btn.on{border-color:var(--red);background:rgba(194,96,96,.12)}
 .zone-btn label{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer;letter-spacing:.04em}
 .zdot{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--red);flex-shrink:0}
 .zone-btn.on .zdot{background:var(--red)}
-
-/* Geocode btn */
-#geocode-btn{
-  margin-left:auto;padding:6px 14px;font-size:10px;font-family:'DM Mono',monospace;
-  letter-spacing:.06em;border:1px solid var(--amber);border-radius:20px;
-  background:rgba(0,0,0,.5);color:var(--amber);cursor:pointer;transition:all .15s;
-}
+#geocode-btn{padding:5px 13px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.06em;border:1px solid var(--amber);border-radius:20px;background:rgba(0,0,0,.5);color:var(--amber);cursor:pointer;transition:all .15s;margin-left:auto}
 #geocode-btn:hover{background:rgba(212,148,58,.15)}
 #geocode-btn:disabled{opacity:.4;cursor:not-allowed}
 
 /* Hover card */
-.hcard{
-  position:absolute;z-index:20;width:230px;
-  background:var(--bg2);border:1px solid var(--border2);border-radius:10px;
-  overflow:hidden;pointer-events:none;
-  opacity:0;transform:translateY(4px);transition:opacity .12s,transform .12s;
-}
-.hcard.show{opacity:1;transform:translateY(0)}
-.hcard-img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--bg4);display:block}
+.hcard{position:absolute;z-index:20;width:240px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;overflow:hidden;pointer-events:none;opacity:0;transform:translateY(4px);transition:opacity .12s,transform .12s;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+.hcard.show{opacity:1;transform:translateY(0);pointer-events:auto}
+.hcard-img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--bg4);display:block;cursor:pointer}
 .hcard-ph{width:100%;aspect-ratio:16/9;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3)}
 .hcard-body{padding:9px 11px}
-.hcard-name{font-size:12px;font-weight:500;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hcard-addr{font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hcard-tags{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:4px}
-.hcard-tag{font-size:8px;padding:1px 5px;border-radius:3px;background:var(--bg4);border:1px solid var(--border);color:var(--text3);font-family:'DM Mono',monospace}
-.hcard-hint{font-size:8px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:3px}
-.hcard-status{font-size:8px;font-family:'DM Mono',monospace}
-
-/* Status colors */
+.hcard-name{font-size:12px;font-weight:500;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.hcard-name:hover{color:var(--accent)}
+.hcard-addr{font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:4px}
+.hcard-row{display:flex;justify-content:space-between;align-items:center;margin-top:4px}
+.hcard-status{font-size:9px;font-family:'DM Mono',monospace}
+.hcard-actions{display:flex;gap:6px}
+.hcard-action{font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);cursor:pointer;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:transparent;transition:all .12s}
+.hcard-action:hover{border-color:var(--accent2);color:var(--accent)}
+.hcard-action.primary{color:var(--accent);border-color:var(--accent2)}
 .s-identified{color:#555350}.s-scouted{color:#5b9bd5}.s-pending{color:#d4943a}.s-approved{color:#4caf82}.s-rejected{color:#c26060}
 
-/* ===== PROJECTS PAGE ===== */
-#projects-page{background:var(--bg2);flex-direction:column}
-.pg-header{
-  padding:16px 28px;border-bottom:1px solid var(--border);
-  display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;
+/* ===== SLIDE-IN DETAIL PANEL ===== */
+#detail-panel{
+  position:absolute;top:0;right:0;bottom:0;z-index:30;
+  width:360px;background:var(--bg2);border-left:1px solid var(--border2);
+  display:flex;flex-direction:column;
+  transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);
+  overflow:hidden;
 }
+#detail-panel.open{transform:translateX(0)}
+.dp-header{padding:16px 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.dp-name{font-size:16px;font-weight:500;line-height:1.3;flex:1}
+.dp-close{background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0}
+.dp-close:hover{color:var(--text)}
+.dp-scroll{flex:1;overflow-y:auto;padding:16px 18px}
+.dp-scroll::-webkit-scrollbar{width:3px}
+.dp-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.dp-photo{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg4);display:block;margin-bottom:14px}
+.dp-photo-ph{width:100%;aspect-ratio:16/9;border-radius:6px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);margin-bottom:14px}
+.dp-section{margin-bottom:16px}
+.dp-label{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);text-transform:uppercase;margin-bottom:6px}
+.dp-value{font-size:12px;color:var(--text2);line-height:1.6}
+.dp-value.mono{font-family:'DM Mono',monospace;font-size:11px}
+.dp-status{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:4px;font-size:10px;font-family:'DM Mono',monospace;font-weight:500;margin-bottom:12px}
+.dp-notes{font-size:12px;color:var(--text2);line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.dp-tags{display:flex;flex-wrap:wrap;gap:5px}
+.dp-tag{font-size:10px;padding:3px 8px;border-radius:4px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace}
+.dp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
+.dp-btn{padding:7px 14px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.05em;border-radius:6px;cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .15s}
+.dp-btn:hover{border-color:var(--accent2);color:var(--accent)}
+.dp-btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.dp-btn.primary:hover{opacity:.85}
+
+/* ===== PROJECTS ===== */
+#projects-page{background:var(--bg2)}
+.pg-header{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap}
 .pg-header h2{font-size:14px;font-weight:500;flex:1}
-.pg-breadcrumb{
-  font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);
-  display:flex;align-items:center;gap:6px;flex:1;flex-wrap:wrap;
-}
-.pg-breadcrumb span{color:var(--accent);cursor:pointer}
-.pg-breadcrumb span:hover{text-decoration:underline}
-.pg-breadcrumb .sep{color:var(--text3)}
-.pg-scroll{flex:1;overflow-y:auto;padding:20px 28px}
+.pg-bc{font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);display:flex;align-items:center;gap:5px;flex:1;flex-wrap:wrap}
+.pg-bc span{color:var(--accent);cursor:pointer}
+.pg-bc span:hover{text-decoration:underline}
+.pg-bc .sep{color:var(--border2)}
+.pg-scroll{flex:1;overflow-y:auto;padding:20px 24px}
 .pg-scroll::-webkit-scrollbar{width:3px}
 .pg-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 
-/* Grid card — 16:9 */
-.gcard{
-  background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);
-  overflow:hidden;cursor:pointer;transition:border-color .15s;
-}
+/* Grid card */
+.gcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s}
 .gcard:hover{border-color:var(--border2)}
-.gcard-thumb-wrap{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
-.gcard-thumb{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
-.gcard-thumb-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em}
-.gcard-name-overlay{
-  position:absolute;bottom:0;left:0;right:0;
-  background:linear-gradient(transparent,rgba(0,0,0,.8));
-  padding:14px 8px 6px;
-  font-size:10px;font-family:'DM Mono',monospace;color:var(--text);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.gcard-meta{padding:6px 9px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;border-top:1px solid var(--border)}
-.gcard-folder{
-  display:flex;align-items:center;justify-content:center;
-  aspect-ratio:16/9;background:var(--bg4);
-  font-family:'DM Mono',monospace;color:var(--text3);
-  flex-direction:column;gap:6px;
-}
-.gcard-folder .folder-icon{font-size:22px;opacity:.4}
-.gcard-folder .folder-name{font-size:11px;font-weight:500;color:var(--text2);text-align:center;padding:0 8px}
-.gcard-folder .folder-count{font-size:9px;color:var(--text3)}
-.add-card{
-  border:1px dashed var(--border2);border-radius:var(--radius);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:8px;cursor:pointer;aspect-ratio:16/9;
-  transition:border-color .15s;background:transparent;
-}
+.gcard-tw{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
+.gcard-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.gcard-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:9px;font-family:'DM Mono',monospace}
+.gcard-overlay{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.82));padding:16px 8px 6px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gcard-meta{padding:5px 9px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;border-top:1px solid var(--border)}
+.gcard-folder .gcard-tw{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px}
+.folder-icon{font-size:20px;opacity:.35;color:var(--text2)}
+.folder-nm{font-size:11px;font-weight:500;color:var(--text2);text-align:center;padding:0 8px}
+.folder-ct{font-size:9px;color:var(--text3);font-family:'DM Mono',monospace}
+.add-card{border:1px dashed var(--border2);border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;cursor:pointer;aspect-ratio:16/9;transition:border-color .15s;background:transparent}
 .add-card:hover{border-color:var(--accent2)}
 .add-card span{font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em}
 
-/* ===== SEARCH PAGE ===== */
-#search-page{background:var(--bg2);flex-direction:column}
-.sh-bar{
-  padding:14px 24px;border-bottom:1px solid var(--border);
-  display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0;
-}
-.sh-input{
-  flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--border2);
-  border-radius:var(--radius);padding:8px 14px;font-size:13px;color:var(--text);
-  font-family:'DM Sans',sans-serif;outline:none;
-}
+/* ===== SEARCH ===== */
+#search-page{background:var(--bg2)}
+.sh-bar{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0}
+.sh-input{flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:8px 14px;font-size:13px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none}
 .sh-input:focus{border-color:var(--accent2)}
 .sh-input::placeholder{color:var(--text3)}
-.sh-sel{
-  padding:8px 12px;font-size:11px;font-family:'DM Mono',monospace;
-  background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);
-  color:var(--text2);cursor:pointer;outline:none;
-}
-#search-grid{
-  flex:1;overflow-y:auto;padding:16px 24px;
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;
-  align-content:start;
-}
+.sh-sel{padding:8px 11px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none}
+#search-grid{flex:1;overflow-y:auto;padding:16px 24px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-content:start}
 #search-grid::-webkit-scrollbar{width:3px}
 #search-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
-/* Shared UI */
-.btn{
-  padding:7px 16px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.06em;
-  border-radius:var(--radius);cursor:pointer;transition:all .15s;
-  border:1px solid var(--border2);background:transparent;color:var(--text2);
-}
+/* Shared */
+.btn{padding:7px 16px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.06em;border-radius:var(--radius);cursor:pointer;transition:all .15s;border:1px solid var(--border2);background:transparent;color:var(--text2)}
 .btn:hover{border-color:var(--accent2);color:var(--accent)}
 .btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .btn.primary:hover{opacity:.85}
@@ -216,27 +169,25 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .fi::placeholder{color:var(--text3)}
 textarea.fi{resize:vertical;min-height:70px;line-height:1.6}
 select.fi{cursor:pointer}
-.toast{position:fixed;bottom:18px;right:18px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:11px;font-family:'DM Mono',monospace;z-index:300;transform:translateY(60px);opacity:0;transition:all .25s;max-width:280px;pointer-events:none}
+.toast{position:fixed;bottom:18px;right:18px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:11px;font-family:'DM Mono',monospace;z-index:400;transform:translateY(60px);opacity:0;transition:all .25s;max-width:280px;pointer-events:none}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.ok{border-color:var(--green);color:var(--green)}
 .toast.err{border-color:var(--red);color:var(--red)}
 .toast.inf{border-color:var(--blue);color:var(--blue)}
 .spin{width:13px;height:13px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
-.empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;grid-column:1/-1}
-
-/* Sync modal */
-.sm-steps{display:flex;flex-direction:column;gap:10px}
-.sm-step{display:flex;gap:10px;align-items:flex-start;font-size:12px;color:var(--text2);line-height:1.5}
-.sm-num{width:20px;height:20px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;flex-shrink:0;margin-top:1px}
+.empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;grid-column:1/-1;min-height:120px}
 .prog-bar{height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;margin-top:8px}
 .prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
 .prog-label{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);margin-bottom:4px;min-height:16px}
+.sm-steps{display:flex;flex-direction:column;gap:10px}
+.sm-step{display:flex;gap:10px;align-items:flex-start;font-size:12px;color:var(--text2);line-height:1.5}
+.sm-num{width:20px;height:20px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;flex-shrink:0;margin-top:1px}
 
 @media(max-width:700px){
   .grid-3{grid-template-columns:1fr 1fr}
   #search-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
-  #map-controls{gap:12px;padding:20px 14px 14px}
+  #detail-panel{width:100%}
 }
 </style>
 </head>
@@ -244,9 +195,9 @@ select.fi{cursor:pointer}
 <div id="shell">
   <div id="header"><h1>Jordan B. Hoffman &nbsp;·&nbsp; Locations</h1></div>
   <div id="nav">
-    <button class="nav-btn active" data-page="home" onclick="showPage('home',this)">Home</button>
-    <button class="nav-btn" data-page="projects" onclick="showPage('projects',this)">Projects</button>
-    <button class="nav-btn" data-page="search" onclick="showPage('search',this)">Search</button>
+    <button class="nav-btn active" onclick="showPage('home',this)">Home</button>
+    <button class="nav-btn" onclick="showPage('projects',this)">Projects</button>
+    <button class="nav-btn" onclick="showPage('search',this)">Search</button>
   </div>
   <div id="pages">
 
@@ -255,23 +206,41 @@ select.fi{cursor:pointer}
       <div id="map-wrap">
         <div id="the-map"></div>
 
+        <!-- Sync controls -->
         <div id="sync-bar">
           <span id="sync-status-pill">not synced</span>
           <button class="sync-pill" id="sm-btn" onclick="openSyncModal()">connect smugmug</button>
           <button class="sync-pill" id="sync-btn" onclick="startSync()" style="display:none">sync now</button>
         </div>
 
+        <!-- Hover card -->
         <div class="hcard" id="hcard">
-          <div id="hcard-img-wrap"></div>
+          <div id="hcard-media"></div>
           <div class="hcard-body">
-            <div class="hcard-name" id="hcard-name"></div>
+            <div class="hcard-name" id="hcard-name" onclick="openDetail(currentHoverLoc)"></div>
             <div class="hcard-addr" id="hcard-addr"></div>
-            <div class="hcard-tags" id="hcard-tags"></div>
-            <div class="hcard-status" id="hcard-status"></div>
-            <div class="hcard-hint">click · open smugmug gallery ↗</div>
+            <div class="hcard-row">
+              <div class="hcard-status" id="hcard-status"></div>
+              <div class="hcard-actions">
+                <button class="hcard-action primary" onclick="openDetail(currentHoverLoc)">detail</button>
+                <button class="hcard-action" onclick="openSmugmug(currentHoverLoc)">gallery ↗</button>
+              </div>
+            </div>
           </div>
         </div>
 
+        <!-- Slide-in detail panel -->
+        <div id="detail-panel">
+          <div class="dp-header">
+            <div class="dp-name" id="dp-name"></div>
+            <button class="dp-close" onclick="closeDetail()">×</button>
+          </div>
+          <div class="dp-scroll" id="dp-scroll">
+            <div id="dp-content"></div>
+          </div>
+        </div>
+
+        <!-- Map controls -->
         <div id="map-controls">
           <div class="cg">
             <div class="cl">State</div>
@@ -299,7 +268,7 @@ select.fi{cursor:pointer}
           </div>
           <div class="zone-btn" id="zone-ring-btn" onclick="toggleZone()">
             <div class="zdot"></div>
-            <label>30mi zone line</label>
+            <label>30mi zone</label>
           </div>
           <button id="geocode-btn" onclick="geocodeAll()">geocode addresses</button>
         </div>
@@ -309,15 +278,11 @@ select.fi{cursor:pointer}
     <!-- PROJECTS -->
     <div class="page" id="projects-page">
       <div class="pg-header">
-        <div class="pg-breadcrumb" id="pg-breadcrumb">
-          <span onclick="browseFolder(null)">Master Library</span>
-        </div>
+        <div class="pg-bc" id="pg-bc"><span onclick="browseFolder(null)">Master Library</span></div>
         <button class="btn primary" onclick="openNewProject()">+ new project</button>
       </div>
       <div class="pg-scroll">
-        <div class="grid-3" id="projects-grid">
-          <div class="empty"><div class="spin"></div>&nbsp;loading...</div>
-        </div>
+        <div class="grid-3" id="projects-grid"><div class="empty"><div class="spin"></div>&nbsp;loading...</div></div>
       </div>
     </div>
 
@@ -340,7 +305,6 @@ select.fi{cursor:pointer}
       </div>
       <div id="search-grid"><div class="empty"><div class="spin"></div>&nbsp;loading...</div></div>
     </div>
-
   </div>
 </div>
 
@@ -351,10 +315,10 @@ select.fi{cursor:pointer}
     <div class="mb">
       <div class="sm-steps" id="sm-steps">
         <div class="sm-step"><div class="sm-num">1</div><div>Click Authorize — SmugMug will ask you to grant access.</div></div>
-        <div class="sm-step"><div class="sm-num">2</div><div>Approve on SmugMug, you'll be redirected back here.</div></div>
-        <div class="sm-step"><div class="sm-num">3</div><div>Hit Sync Now to pull your full library into the database.</div></div>
+        <div class="sm-step"><div class="sm-num">2</div><div>Approve on SmugMug, you'll be redirected back here automatically.</div></div>
+        <div class="sm-step"><div class="sm-num">3</div><div>Hit Sync Now to pull your full library including descriptions and metadata.</div></div>
       </div>
-      <div id="sync-progress" style="display:none">
+      <div id="sync-prog" style="display:none">
         <div class="prog-label" id="prog-label"></div>
         <div class="prog-bar"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
       </div>
@@ -366,14 +330,14 @@ select.fi{cursor:pointer}
   </div>
 </div>
 
-<!-- New Project Modal -->
+<!-- Project Modal -->
 <div class="modal-ov" id="proj-modal">
   <div class="modal">
-    <div class="mh"><h2 id="proj-modal-title">New project</h2><button class="mx" onclick="closeModal('proj-modal')">×</button></div>
+    <div class="mh"><h2 id="proj-title">New project</h2><button class="mx" onclick="closeModal('proj-modal')">×</button></div>
     <div class="mb">
       <div class="ff"><label class="fl">project name *</label><input class="fi" id="p-name" type="text" placeholder="e.g. Feature Film — Spring 2026"></div>
-      <div class="ff"><label class="fl">description</label><textarea class="fi" id="p-desc" placeholder="Brief description..."></textarea></div>
-      <div class="ff"><label class="fl">cover photo url</label><input class="fi" id="p-cover" type="url" placeholder="Direct image URL"></div>
+      <div class="ff"><label class="fl">description</label><textarea class="fi" id="p-desc"></textarea></div>
+      <div class="ff"><label class="fl">cover photo url</label><input class="fi" id="p-cover" type="url"></div>
       <div class="ff"><label class="fl">status</label>
         <select class="fi" id="p-status"><option value="active">active</option><option value="wrapped">wrapped</option><option value="archived">archived</option></select>
       </div>
@@ -391,26 +355,17 @@ select.fi{cursor:pointer}
 const SB_URL='https://bdnezxdfhapaxhoedtrp.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkbmV6eGRmaGFwYXhob2VkdHJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5OTgwMTAsImV4cCI6MjA5MTU3NDAxMH0.tdyh77PJ4xSOnb4GeLQRHcDWd0l2KRMpgl7Awj7NiB0';
 const GM_KEY='AIzaSyBORHlI6GqQNtL2Ev8RlapOFKrjFgkzJfA';
-const SM_ORIGIN='https://location-scout-sand.vercel.app';
+const SM_BASE='https://location-scout-sand.vercel.app';
 const COLUMBUS={lat:40.7681,lng:-73.9819};
 const ZONE_M=30*1609.34;
-const PIN_COLORS={identified:'#555350',scouted:'#5b9bd5',pending:'#d4943a',approved:'#4caf82',rejected:'#c26060'};
+const PIN={identified:'#555350',scouted:'#5b9bd5',pending:'#d4943a',approved:'#4caf82',rejected:'#c26060'};
+const SL={identified:{bg:'rgba(85,83,80,.2)',c:'#888680'},scouted:{bg:'rgba(91,155,213,.2)',c:'#5b9bd5'},pending:{bg:'rgba(212,148,58,.2)',c:'#d4943a'},approved:{bg:'rgba(76,175,130,.2)',c:'#4caf82'},rejected:{bg:'rgba(194,96,96,.2)',c:'#c26060'}};
 
-let locations=[], gmap=null, mapReady=false, markers=[], zoneCircle=null, zoneOn=false;
-let smTokens=null, editProjId=null, folderStack=[];
+let locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false;
+let smTokens=null,editProjId=null,currentHoverLoc=null;
 
-// ---- DB ----
-const db=(path,opts={})=>fetch(`${SB_URL}/rest/v1/${path}`,{
-  headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,'Content-Type':'application/json',
-    Prefer:opts.prefer||'return=representation',...opts.headers},...opts
-}).then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)));
-
-// ---- TOAST ----
-function toast(msg,type='ok'){
-  const t=document.getElementById('toast');
-  t.textContent=msg;t.className=`toast ${type} show`;
-  setTimeout(()=>t.className='toast',3500);
-}
+const db=(p,o={})=>fetch(`${SB_URL}/rest/v1/${p}`,{headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,'Content-Type':'application/json',Prefer:o.prefer||'return=representation',...o.headers},...o}).then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)));
+function toast(m,t='ok'){const el=document.getElementById('toast');el.textContent=m;el.className=`toast ${t} show`;setTimeout(()=>el.className='toast',3500)}
 
 // ---- NAV ----
 function showPage(page,btn){
@@ -418,30 +373,25 @@ function showPage(page,btn){
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById(`${page}-page`).classList.add('active');
   btn.classList.add('active');
-  if(page==='home'){
-    if(!mapReady)loadMapScript();
-    else if(gmap)setTimeout(()=>google.maps.event.trigger(gmap,'resize'),50);
-  }
+  closeDetail();
+  if(page==='home'){if(!mapReady)loadMapScript();else if(gmap)setTimeout(()=>google.maps.event.trigger(gmap,'resize'),50)}
   if(page==='projects')browseFolder(null);
   if(page==='search'){loadLocations().then(doSearch)}
 }
-
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 
-// ---- LOAD LOCATIONS ----
+// ---- DATA ----
 async function loadLocations(){
   try{locations=await db('locations?select=*&order=name.asc');return locations}
   catch(e){toast('DB error','err');return[]}
 }
 
-// ---- DISTANCE ----
 function miles(lat,lng){
   const R=3958.8,dLat=(lat-COLUMBUS.lat)*Math.PI/180,dLng=(lng-COLUMBUS.lng)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(COLUMBUS.lat*Math.PI/180)*Math.cos(lat*Math.PI/180)*Math.sin(dLng/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
-
-function hasCoords(l){return l.lat&&l.lng&&(l.lat!==0||l.lng!==0)}
+function hasCoords(l){return l.lat&&l.lng&&!(l.lat===0&&l.lng===0)}
 
 // ---- MAP ----
 function loadMapScript(){
@@ -454,10 +404,9 @@ function loadMapScript(){
 window.initMap=async function(){
   mapReady=true;
   gmap=new google.maps.Map(document.getElementById('the-map'),{
-    zoom:11,center:{lat:40.73,lng:-73.97},
-    backgroundColor:'#000',
-    disableDefaultUI:false,zoomControl:true,
-    streetViewControl:false,mapTypeControl:false,fullscreenControl:false,
+    zoom:11,center:{lat:40.73,lng:-73.97},backgroundColor:'#000',
+    disableDefaultUI:false,zoomControl:true,streetViewControl:false,
+    mapTypeControl:false,fullscreenControl:false,
     styles:[
       {elementType:'geometry',stylers:[{color:'#0a0a0c'}]},
       {elementType:'labels.text.stroke',stylers:[{color:'#0a0a0c'}]},
@@ -473,6 +422,10 @@ window.initMap=async function(){
       {featureType:'administrative.locality',elementType:'labels.text.fill',stylers:[{color:'#383835'}]},
       {featureType:'landscape',elementType:'geometry',stylers:[{color:'#0d0d10'}]},
     ]
+  });
+  // Hide hover card when clicking map
+  gmap.addListener('click',()=>{
+    document.getElementById('hcard').classList.remove('show');
   });
   await loadLocations();
   refreshPins();
@@ -492,7 +445,6 @@ function getFiltered(){
     return true;
   });
 }
-
 function applyFilters(){if(gmap)refreshPins()}
 
 function refreshPins(){
@@ -503,56 +455,118 @@ function refreshPins(){
       position:{lat:Number(loc.lat),lng:Number(loc.lng)},
       map:gmap,title:loc.name,
       icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,
-        fillColor:PIN_COLORS[loc.status]||'#555',fillOpacity:.95,
+        fillColor:PIN[loc.status]||'#555',fillOpacity:.95,
         strokeColor:'#000',strokeWeight:1.5}
     });
-    m.addListener('mouseover',e=>showHcard(loc,e.domEvent));
-    m.addListener('mouseout',()=>document.getElementById('hcard').classList.remove('show'));
+    m.addListener('mouseover',e=>{showHcard(loc,e.domEvent);currentHoverLoc=loc});
+    m.addListener('mouseout',e=>{
+      // Small delay so user can move to hcard
+      setTimeout(()=>{
+        const h=document.getElementById('hcard');
+        if(!h.matches(':hover'))h.classList.remove('show');
+      },200);
+    });
     m.addListener('mousemove',e=>posHcard(e.domEvent));
-    m.addListener('click',()=>window.open(loc.smugmug_gallery_url||'https://jordanhoffman.smugmug.com','_blank'));
+    m.addListener('click',()=>{currentHoverLoc=loc;openDetail(loc)});
     markers.push(m);
   });
   if(filtered.length>0){
-    if(filtered.length===1){
-      gmap.setCenter({lat:Number(filtered[0].lat),lng:Number(filtered[0].lng)});
-      gmap.setZoom(14);
-    } else {
-      const b=new google.maps.LatLngBounds();
-      filtered.forEach(l=>b.extend({lat:Number(l.lat),lng:Number(l.lng)}));
-      gmap.fitBounds(b,{padding:80});
-    }
+    if(filtered.length===1){gmap.setCenter({lat:Number(filtered[0].lat),lng:Number(filtered[0].lng)});gmap.setZoom(14)}
+    else{const b=new google.maps.LatLngBounds();filtered.forEach(l=>b.extend({lat:Number(l.lat),lng:Number(l.lng)}));gmap.fitBounds(b,{padding:80})}
   }
   if(zoneOn)drawZone();
 }
 
+// ---- HOVER CARD ----
 function showHcard(loc,ev){
+  currentHoverLoc=loc;
   const h=document.getElementById('hcard');
   document.getElementById('hcard-name').textContent=loc.name;
   document.getElementById('hcard-addr').textContent=[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')||'—';
-  document.getElementById('hcard-status').innerHTML=`<span class="s-${loc.status}">${loc.status}</span>`;
-  document.getElementById('hcard-tags').innerHTML=(loc.tags||[]).slice(0,4).map(t=>`<span class="hcard-tag">${t}</span>`).join('');
-  const iw=document.getElementById('hcard-img-wrap');
-  iw.innerHTML=loc.cover_photo_url
-    ?`<img class="hcard-img" src="${loc.cover_photo_url}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=hcard-ph>no photo</div>'">`
+  const sl=SL[loc.status]||SL.identified;
+  document.getElementById('hcard-status').innerHTML=`<span style="color:${sl.c}">${loc.status}</span>`;
+  const m=document.getElementById('hcard-media');
+  m.innerHTML=loc.cover_photo_url
+    ?`<img class="hcard-img" src="${loc.cover_photo_url}" loading="lazy" onclick="openDetail(currentHoverLoc)" onerror="this.parentElement.innerHTML='<div class=hcard-ph>no photo</div>'">`
     :`<div class="hcard-ph">no cover photo</div>`;
   h.classList.add('show');posHcard(ev);
 }
-
 function posHcard(ev){
   const wrap=document.getElementById('map-wrap'),r=wrap.getBoundingClientRect();
   const h=document.getElementById('hcard');
-  let x=ev.clientX-r.left+16,y=ev.clientY-r.top-80;
-  if(x+240>r.width)x=ev.clientX-r.left-250;
+  let x=ev.clientX-r.left+18,y=ev.clientY-r.top-90;
+  if(x+250>r.width)x=ev.clientX-r.left-260;
   if(y<0)y=8;
-  if(y+300>r.height-100)y=r.height-380;
+  if(y+280>r.height-120)y=r.height-380;
   h.style.left=x+'px';h.style.top=y+'px';
 }
 
-// Zone circle
+// Keep hcard open when hovering over it
+document.getElementById('hcard').addEventListener('mouseleave',()=>{
+  document.getElementById('hcard').classList.remove('show');
+});
+
+// ---- DETAIL PANEL ----
+function openDetail(loc){
+  if(!loc)return;
+  document.getElementById('hcard').classList.remove('show');
+  document.getElementById('dp-name').textContent=loc.name;
+  const sl=SL[loc.status]||SL.identified;
+  const tags=(loc.tags||[]).map(t=>`<span class="dp-tag">${t}</span>`).join('');
+  document.getElementById('dp-content').innerHTML=`
+    ${loc.cover_photo_url
+      ?`<img class="dp-photo" src="${loc.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`
+      :`<div class="dp-photo-ph">no cover photo</div>`}
+    <span class="dp-status" style="background:${sl.bg};color:${sl.c}">${loc.status}</span>
+    ${loc.address||loc.city?`
+    <div class="dp-section">
+      <div class="dp-label">Address</div>
+      <div class="dp-value">${[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')||'—'}</div>
+    </div>`:''}
+    ${hasCoords(loc)?`
+    <div class="dp-section">
+      <div class="dp-label">Coordinates</div>
+      <div class="dp-value mono">${Number(loc.lat).toFixed(5)}° N, ${Math.abs(Number(loc.lng)).toFixed(5)}° W
+        ${miles(loc.lat,loc.lng)<=30?'<span style="color:var(--green);margin-left:8px">in zone</span>':'<span style="color:var(--text3);margin-left:8px">out of zone</span>'}
+      </div>
+    </div>`:''}
+    ${loc.notes?`
+    <div class="dp-section">
+      <div class="dp-label">Scout notes</div>
+      <div class="dp-notes">${loc.notes}</div>
+    </div>`:''}
+    ${tags?`
+    <div class="dp-section">
+      <div class="dp-label">Tags</div>
+      <div class="dp-tags">${tags}</div>
+    </div>`:''}
+    ${loc.scout_name||loc.scout_date?`
+    <div class="dp-section">
+      <div class="dp-label">Scouted by</div>
+      <div class="dp-value mono">${[loc.scout_name,loc.scout_date].filter(Boolean).join(' · ')}</div>
+    </div>`:''}
+    <div class="dp-actions">
+      ${loc.smugmug_gallery_url?`<button class="dp-btn primary" onclick="window.open('${loc.smugmug_gallery_url}','_blank')">open gallery ↗</button>`:''}
+      ${hasCoords(loc)?`<button class="dp-btn" onclick="window.open('https://www.google.com/maps?q=${loc.lat},${loc.lng}','_blank')">maps ↗</button>`:''}
+    </div>`;
+  document.getElementById('detail-panel').classList.add('open');
+  document.getElementById('dp-scroll').scrollTop=0;
+}
+
+function closeDetail(){
+  document.getElementById('detail-panel').classList.remove('open');
+}
+
+function openSmugmug(loc){
+  if(!loc)return;
+  window.open(loc.smugmug_gallery_url||'https://jordanhoffman.smugmug.com','_blank');
+}
+
+// ---- ZONE ----
 function toggleZone(){
   zoneOn=!zoneOn;
   document.getElementById('zone-ring-btn').classList.toggle('on',zoneOn);
-  if(zoneOn)drawZone();else{if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null;}}
+  if(zoneOn)drawZone();else{if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null}}
 }
 function drawZone(){
   if(!gmap)return;
@@ -567,18 +581,21 @@ function drawZone(){
 // ---- GEOCODE ----
 async function geocodeAll(){
   const btn=document.getElementById('geocode-btn');
-  const toGeocode=locations.filter(l=>!hasCoords(l)&&l.name);
-  if(!toGeocode.length){toast('All locations already have coordinates','inf');return}
-  if(!confirm(`Geocode ${toGeocode.length} locations without coordinates? This uses Google Geocoding API and may take a minute.`))return;
-  btn.disabled=true;btn.textContent='geocoding...';
+  const toGeo=locations.filter(l=>!hasCoords(l));
+  if(!toGeo.length){toast('All locations have coordinates','inf');return}
+  if(!confirm(`Geocode ${toGeo.length} locations without coordinates?\nUses the parsed address from SmugMug descriptions where available.`))return;
+  btn.disabled=true;btn.textContent=`geocoding 0/${toGeo.length}...`;
   let done=0,failed=0;
-  for(const loc of toGeocode){
+  for(let i=0;i<toGeo.length;i++){
+    const loc=toGeo[i];
+    btn.textContent=`geocoding ${i+1}/${toGeo.length}...`;
     try{
-      const q=encodeURIComponent(loc.name+' NY');
-      const res=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${q}&key=${GM_KEY}`);
-      const data=await res.json();
-      if(data.results&&data.results[0]){
-        const{lat,lng}=data.results[0].geometry.location;
+      // Use geocode_query (parsed address) if available, else name
+      const q=encodeURIComponent((loc.geocode_query||loc.name)+' NY');
+      const r=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${q}&key=${GM_KEY}`);
+      const d=await r.json();
+      if(d.results&&d.results[0]){
+        const{lat,lng}=d.results[0].geometry.location;
         await db(`locations?id=eq.${loc.id}`,{
           method:'PATCH',body:JSON.stringify({lat,lng}),
           headers:{Prefer:'return=minimal'}
@@ -588,11 +605,10 @@ async function geocodeAll(){
         done++;
       } else failed++;
     }catch(e){failed++;}
-    // Rate limit — 10 per second
     await new Promise(r=>setTimeout(r,120));
   }
   btn.disabled=false;btn.textContent='geocode addresses';
-  toast(`Geocoded ${done} locations${failed?`, ${failed} failed`:''}`,done>0?'ok':'err');
+  toast(`Geocoded ${done}${failed?`, ${failed} failed`:''}`,done>0?'ok':'err');
   if(done>0&&gmap)refreshPins();
 }
 
@@ -601,55 +617,43 @@ function checkAuth(){
   const hash=window.location.hash;
   if(hash.includes('sm_auth=')){
     try{
-      const enc=decodeURIComponent(hash.split('sm_auth=')[1]);
-      smTokens=JSON.parse(enc);
+      smTokens=JSON.parse(decodeURIComponent(hash.split('sm_auth=')[1]));
       localStorage.setItem('sm_tokens',JSON.stringify(smTokens));
-      window.location.hash='';
-      toast('SmugMug connected!');
-      updateAuthUI(true);return;
+      window.location.hash='';toast('SmugMug connected!');updateAuthUI(true);return;
     }catch(e){}
   }
   const s=localStorage.getItem('sm_tokens');
-  if(s){try{smTokens=JSON.parse(s);updateAuthUI(true)}catch(e){}}
+  if(s)try{smTokens=JSON.parse(s);updateAuthUI(true)}catch(e){}
 }
-
 function updateAuthUI(ok){
   const b=document.getElementById('sm-btn'),s=document.getElementById('sync-btn');
   if(ok){b.textContent='smugmug ✓';b.classList.add('connected');s.style.display='block'}
   else{b.textContent='connect smugmug';b.classList.remove('connected');s.style.display='none'}
 }
-
 async function checkSyncStatus(){
   try{
     const r=await db('sync_log?id=eq.1&select=*');
     if(r&&r[0]&&r[0].last_sync){
       const d=new Date(r[0].last_sync);
-      document.getElementById('sync-status-pill').textContent=
-        `synced ${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})} · ${r[0].images_count||0} photos`;
+      document.getElementById('sync-status-pill').textContent=`synced ${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})} · ${r[0].images_count||0} photos`;
     }
   }catch(e){}
 }
-
 function openSyncModal(){document.getElementById('sync-modal').classList.add('open')}
-
 async function doAuth(){
   const btn=document.getElementById('auth-btn');
   btn.disabled=true;btn.textContent='connecting...';
   try{
-    const r=await fetch(`${SM_ORIGIN}/api/smugmug?action=auth`);
+    const r=await fetch(`${SM_BASE}/api/smugmug?action=auth`);
     const d=await r.json();
     if(d.authUrl)window.location.href=d.authUrl;
     else throw new Error('No auth URL');
-  }catch(e){
-    toast('Auth failed — check Vercel logs','err');
-    btn.disabled=false;btn.textContent='authorize smugmug ↗';
-  }
+  }catch(e){toast('Auth failed','err');btn.disabled=false;btn.textContent='authorize smugmug ↗'}
 }
-
 async function startSync(){
   if(!smTokens){toast('Connect SmugMug first','err');return}
   document.getElementById('sync-modal').classList.add('open');
-  document.getElementById('sync-progress').style.display='block';
+  document.getElementById('sync-prog').style.display='block';
   document.getElementById('sm-steps').style.display='none';
   document.getElementById('auth-btn').style.display='none';
   const label=document.getElementById('prog-label');
@@ -657,38 +661,37 @@ async function startSync(){
   const tb=btoa(JSON.stringify(smTokens));
   try{
     label.textContent='crawling smugmug library...';fill.style.width='10%';
-    const cr=await fetch(`${SM_ORIGIN}/api/smugmug?action=crawl`,{headers:{Authorization:`Bearer ${tb}`}});
+    const cr=await fetch(`${SM_BASE}/api/smugmug?action=crawl`,{headers:{Authorization:`Bearer ${tb}`}});
     if(!cr.ok)throw new Error(await cr.text());
     const{library}=await cr.json();
     label.textContent=`found ${library.albums?.length||0} albums, ${library.images?.length||0} photos`;
-    fill.style.width='40%';
-
-    // Sync folders + albums first
-    await fetch(`${SM_ORIGIN}/api/sync`,{method:'POST',headers:{'Content-Type':'application/json'},
+    fill.style.width='30%';
+    // Sync folders + albums first (includes description parsing)
+    const ar=await fetch(`${SM_BASE}/api/sync`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({library:{folders:library.folders,albums:library.albums,images:[]}})});
-
-    // Sync images in chunks of 200
+    const as=await ar.json();
+    label.textContent=`synced ${as.stats?.albums||0} albums, parsing descriptions...`;
+    fill.style.width='45%';
+    // Sync images in chunks
     const imgs=library.images||[];
     const chunks=Math.ceil(imgs.length/200);
-    let totalImages=0,totalLocs=0;
+    let totalImgs=0,totalLocs=0;
     for(let i=0;i<imgs.length;i+=200){
       const chunk=imgs.slice(i,i+200);
       const cn=Math.floor(i/200)+1;
       label.textContent=`syncing photos... ${cn}/${chunks}`;
-      fill.style.width=(40+(cn/chunks)*55)+'%';
-      const sr=await fetch(`${SM_ORIGIN}/api/sync`,{method:'POST',headers:{'Content-Type':'application/json'},
+      fill.style.width=(45+(cn/chunks)*50)+'%';
+      const sr=await fetch(`${SM_BASE}/api/sync`,{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({library:{folders:[],albums:[],images:chunk}})});
-      if(sr.ok){const r=await sr.json();totalImages+=r.stats?.images||0;totalLocs+=r.stats?.locations||0;}
+      if(sr.ok){const r=await sr.json();totalImgs+=r.stats?.images||0;totalLocs+=r.stats?.locations||0;}
     }
     fill.style.width='100%';
-    label.textContent=`✓ synced ${totalImages} photos, ${totalLocs} new locations`;
-    await loadLocations();
-    if(gmap)refreshPins();
-    checkSyncStatus();
-    toast(`Synced ${totalImages} photos across ${library.albums?.length||0} albums`);
+    label.textContent=`✓ synced ${totalImgs} photos, ${as.stats?.updated||0} locations updated`;
+    await loadLocations();if(gmap)refreshPins();checkSyncStatus();
+    toast(`Sync complete — ${totalImgs} photos, descriptions parsed`);
     setTimeout(()=>{
       closeModal('sync-modal');
-      document.getElementById('sync-progress').style.display='none';
+      document.getElementById('sync-prog').style.display='none';
       document.getElementById('sm-steps').style.display='flex';
       document.getElementById('auth-btn').style.display='block';
       fill.style.width='0%';
@@ -700,109 +703,81 @@ async function startSync(){
   }
 }
 
-// ---- PROJECTS / FOLDER BROWSER ----
+// ---- PROJECTS ----
 async function browseFolder(path){
   const grid=document.getElementById('projects-grid');
-  const bc=document.getElementById('pg-breadcrumb');
+  const bc=document.getElementById('pg-bc');
   grid.innerHTML='<div class="empty"><div class="spin"></div>&nbsp;loading...</div>';
-
   if(!path){
-    folderStack=[];
     bc.innerHTML=`<span onclick="browseFolder(null)">Master Library</span>`;
-    // Show top level folders from SmugMug
-    await showSmugFolders(null);
   } else {
-    // Build breadcrumb
     const parts=path.split('/');
-    let crumbs=`<span onclick="browseFolder(null)">Master Library</span>`;
-    let cumPath='';
+    let html=`<span onclick="browseFolder(null)">Master Library</span>`;
+    let cum='';
     parts.forEach((p,i)=>{
-      cumPath+=((i>0?'/':'')+p);
-      const cp=cumPath;
-      if(i<parts.length-1){
-        crumbs+=`<span class="sep">/</span><span onclick="browseFolder('${cp}')">${p}</span>`;
-      } else {
-        crumbs+=`<span class="sep">/</span><span>${p}</span>`;
-      }
+      cum+=(i>0?'/':'')+p;
+      const cp=cum;
+      html+=`<span class="sep"> / </span>`;
+      if(i<parts.length-1)html+=`<span onclick="browseFolder('${cp}')">${p}</span>`;
+      else html+=`<span style="color:var(--text2)">${p}</span>`;
     });
-    bc.innerHTML=crumbs;
-    await showSmugFolders(path);
+    bc.innerHTML=html;
   }
-}
-
-async function showSmugFolders(parentPath){
-  const grid=document.getElementById('projects-grid');
   try{
-    let foldersQ,albumsQ;
-    if(!parentPath){
-      // Root — get top level folders (path has no slash)
-      foldersQ=await db(`smugmug_folders?select=*&order=name.asc`);
-      albumsQ=[];
+    let folders=[],albums=[];
+    if(!path){
+      folders=await db('smugmug_folders?select=*&order=name.asc');
+      // Root level — only show top-level folders (no slash in path or single segment)
+      folders=folders.filter(f=>f.path&&!f.path.includes('/'));
     } else {
-      // Get sub-folders and albums at this path
-      foldersQ=await db(`smugmug_folders?path=like.${encodeURIComponent(parentPath+'/%')}&select=*&order=name.asc`);
-      // Filter to direct children only (one level deeper)
-      const depth=parentPath.split('/').length;
-      foldersQ=foldersQ.filter(f=>f.path&&f.path.split('/').length===depth+1);
-      albumsQ=await db(`smugmug_albums?path=like.${encodeURIComponent(parentPath+'/%')}&select=*&order=name.asc`);
-      albumsQ=albumsQ.filter(a=>a.path&&a.path.split('/').length===depth+1);
+      const depth=path.split('/').length;
+      const allFolders=await db(`smugmug_folders?select=*&order=name.asc`);
+      folders=allFolders.filter(f=>f.path&&f.path.startsWith(path+'/')&&f.path.split('/').length===depth+1);
+      const allAlbums=await db(`smugmug_albums?select=*&order=name.asc`);
+      albums=allAlbums.filter(a=>a.path&&a.path.startsWith(path+'/')&&a.path.split('/').length===depth+1);
     }
-
-    const cards=[];
-
+    let cards='';
     // Folder cards
-    foldersQ.forEach(f=>{
-      cards.push(`
-        <div class="gcard" onclick="browseFolder('${f.path}')">
-          <div class="gcard-thumb-wrap gcard-folder">
-            <div class="folder-icon">▤</div>
-            <div class="folder-name">${f.name}</div>
-          </div>
-          <div class="gcard-meta">folder</div>
-        </div>`);
+    folders.forEach(f=>{
+      cards+=`<div class="gcard gcard-folder" onclick="browseFolder('${f.path}')">
+        <div class="gcard-tw">
+          <div class="folder-icon">▤</div>
+          <div class="folder-nm">${f.name}</div>
+        </div>
+        <div class="gcard-meta">folder</div>
+      </div>`;
     });
-
-    // Album cards — link to location if exists
-    for(const a of albumsQ){
-      const loc=locations.find(l=>l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url);
+    // Album cards
+    for(const a of albums){
+      const loc=locations.find(l=>l.smugmug_album_key===a.sm_key);
       const thumb=loc?.cover_photo_url||'';
-      const statusBit=loc?`<span class="s-${loc.status}">${loc.status}</span>`:'<span style="color:var(--text3)">not linked</span>';
-      cards.push(`
-        <div class="gcard" onclick="window.open('${a.web_url||'#'}','_blank')">
-          <div class="gcard-thumb-wrap">
-            ${thumb?`<img class="gcard-thumb" src="${thumb}" loading="lazy" onerror="this.style.display='none'">`:''}
-            <div class="gcard-thumb-ph">${thumb?'':'no cover'}</div>
-            <div class="gcard-name-overlay">${a.name}</div>
+      const sl=loc?SL[loc.status]||SL.identified:null;
+      cards+=`<div class="gcard" onclick="window.open('${a.web_url||'#'}','_blank')">
+        <div class="gcard-tw">
+          ${thumb?`<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">`:``}
+          <div class="gcard-ph">${thumb?'':'no cover'}</div>
+          <div class="gcard-overlay">${a.name}</div>
+        </div>
+        <div class="gcard-meta">${sl?`<span style="color:${sl.c}">${loc.status}</span> · `:''}${a.image_count||0} photos</div>
+      </div>`;
+    }
+    if(!path){
+      // Also show custom projects at root
+      const projs=await db('projects?select=*&order=sort_order.asc,created_at.desc');
+      projs.forEach(p=>{
+        cards=`<div class="gcard" onclick="toast('Full project view — next session','inf')">
+          <div class="gcard-tw">
+            ${p.cover_url?`<img class="gcard-img" src="${p.cover_url}" loading="lazy">`:``}
+            <div class="gcard-ph">${p.cover_url?'':'no cover'}</div>
+            <div class="gcard-overlay">${p.name}</div>
           </div>
-          <div class="gcard-meta">${statusBit} · ${a.image_count||0} photos</div>
-        </div>`);
+          <div class="gcard-meta">${p.status} project</div>
+        </div>`+cards;
+      });
+      cards+=`<div class="add-card" onclick="openNewProject()"><div style="font-size:20px;color:var(--text3);opacity:.35">+</div><span>new project</span></div>`;
     }
-
-    if(!parentPath){
-      // At root, also show projects
-      const projects=await db('projects?select=*&order=sort_order.asc,created_at.desc');
-      if(projects.length){
-        cards.unshift(...projects.map(p=>`
-          <div class="gcard" onclick="toast('Full project view — next session','inf')">
-            <div class="gcard-thumb-wrap">
-              ${p.cover_url?`<img class="gcard-thumb" src="${p.cover_url}" loading="lazy">`:``}
-              <div class="gcard-thumb-ph">${p.cover_url?'':'no cover'}</div>
-              <div class="gcard-name-overlay">${p.name}</div>
-            </div>
-            <div class="gcard-meta">${p.status} project</div>
-          </div>`));
-      }
-    }
-
-    if(!cards.length){
-      grid.innerHTML='<div class="empty">empty folder</div>';
-    } else {
-      grid.innerHTML=cards.join('')+
-        (parentPath?'':`<div class="add-card" onclick="openNewProject()"><div style="font-size:22px;color:var(--text3);opacity:.4">+</div><span>new project</span></div>`);
-    }
-  }catch(e){
-    grid.innerHTML=`<div class="empty">error loading: ${e.message}</div>`;
-  }
+    grid.innerHTML=cards||'<div class="empty">empty folder</div>';
+  }catch(e){grid.innerHTML=`<div class="empty">error: ${e.message}</div>`}
 }
 
 // ---- SEARCH ----
@@ -811,55 +786,55 @@ async function doSearch(){
   const q=document.getElementById('sq').value.toLowerCase();
   const status=document.getElementById('sf-status').value;
   const state=document.getElementById('sf-state').value;
-  const filtered=locations.filter(l=>{
+  const f=locations.filter(l=>{
     if(status&&l.status!==status)return false;
     if(state&&(l.state_code||'').toUpperCase()!==state)return false;
-    if(q){
-      const hay=[l.name,l.address,l.city,l.notes,...(l.tags||[])].join(' ').toLowerCase();
-      if(!hay.includes(q))return false;
-    }
+    if(q){const h=[l.name,l.address,l.city,l.notes,...(l.tags||[])].join(' ').toLowerCase();if(!h.includes(q))return false}
     return true;
   });
   const grid=document.getElementById('search-grid');
-  if(!filtered.length){grid.innerHTML='<div class="empty">no results</div>';return}
-  grid.innerHTML=filtered.map(l=>`
-    <div class="gcard" onclick="window.open('${l.smugmug_gallery_url||'https://jordanhoffman.smugmug.com'}','_blank')">
-      <div class="gcard-thumb-wrap">
-        ${l.cover_photo_url?`<img class="gcard-thumb" src="${l.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`:``}
-        <div class="gcard-thumb-ph">${l.cover_photo_url?'':'no photo'}</div>
-        <div class="gcard-name-overlay">${l.name}</div>
+  if(!f.length){grid.innerHTML='<div class="empty">no results</div>';return}
+  grid.innerHTML=f.map(l=>{
+    const sl=SL[l.status]||SL.identified;
+    return`<div class="gcard" onclick="showPage('home',document.querySelector('.nav-btn'));openDetail(locations.find(x=>x.id==='${l.id}'))">
+      <div class="gcard-tw">
+        ${l.cover_photo_url?`<img class="gcard-img" src="${l.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`:``}
+        <div class="gcard-ph">${l.cover_photo_url?'':'no photo'}</div>
+        <div class="gcard-overlay">${l.name}</div>
       </div>
-      <div class="gcard-meta s-${l.status}">${l.status} · ${[l.city,l.state_code].filter(Boolean).join(', ')||'—'}</div>
-    </div>`).join('');
+      <div class="gcard-meta" style="color:${sl.c}">${l.status} · ${[l.city,l.state_code].filter(Boolean).join(', ')||'—'}</div>
+    </div>`;
+  }).join('');
 }
 
 // ---- PROJECTS CRUD ----
 function openNewProject(){
-  editProjId=null;
-  document.getElementById('proj-modal-title').textContent='New project';
+  editProjId=null;document.getElementById('proj-title').textContent='New project';
   ['p-name','p-desc','p-cover'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('p-status').value='active';
   document.getElementById('proj-modal').classList.add('open');
   document.getElementById('p-name').focus();
 }
-
 async function saveProject(){
   const name=document.getElementById('p-name').value.trim();
   if(!name){toast('Name required','err');return}
   const btn=document.getElementById('p-save');btn.disabled=true;btn.textContent='saving...';
-  const payload={name,description:document.getElementById('p-desc').value||null,cover_url:document.getElementById('p-cover').value||null,status:document.getElementById('p-status').value,updated_at:new Date().toISOString()};
   try{
+    const payload={name,description:document.getElementById('p-desc').value||null,cover_url:document.getElementById('p-cover').value||null,status:document.getElementById('p-status').value,updated_at:new Date().toISOString()};
     if(editProjId)await db(`projects?id=eq.${editProjId}`,{method:'PATCH',body:JSON.stringify(payload),headers:{Prefer:'return=minimal'}});
     else await db('projects',{method:'POST',body:JSON.stringify(payload)});
-    closeModal('proj-modal');toast(editProjId?'Project updated':'Project created');
-    browseFolder(null);
+    closeModal('proj-modal');toast(editProjId?'Updated':'Created');browseFolder(null);
   }catch(e){toast('Error saving','err')}
   finally{btn.disabled=false;btn.textContent='save'}
 }
 
-// ---- KEYBOARD + MODAL CLOSE ----
+// ---- KEYBOARD ----
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape')document.querySelectorAll('.modal-ov.open').forEach(m=>m.classList.remove('open'));
+  if(e.key==='Escape'){
+    document.querySelectorAll('.modal-ov.open').forEach(m=>m.classList.remove('open'));
+    closeDetail();
+    document.getElementById('hcard').classList.remove('show');
+  }
 });
 document.querySelectorAll('.modal-ov').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open')}));
 
@@ -867,7 +842,7 @@ document.querySelectorAll('.modal-ov').forEach(m=>m.addEventListener('click',e=>
 (async()=>{
   checkAuth();
   await loadLocations();
-  loadMapScript(); // load map immediately for home page
+  loadMapScript();
 })();
 </script>
 </body>
