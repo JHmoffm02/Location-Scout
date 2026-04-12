@@ -397,7 +397,7 @@ function hasCoords(l){return l.lat&&l.lng&&!(l.lat===0&&l.lng===0)}
 function loadMapScript(){
   if(document.getElementById('gms'))return;
   const s=document.createElement('script');s.id='gms';s.async=true;
-  s.src=`https://maps.googleapis.com/maps/api/js?key=${GM_KEY}&callback=initMap&loading=async`;
+  s.src=`https://maps.googleapis.com/maps/api/js?key=${GEO_KEY}&callback=initMap&loading=async`;
   document.head.appendChild(s);
 }
 
