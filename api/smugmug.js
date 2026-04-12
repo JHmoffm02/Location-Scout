@@ -114,11 +114,26 @@ async function crawlLibrary(accessToken, accessTokenSecret) {
   const nodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
   if (!nodeUri) throw new Error('Could not get user node URI');
 
-  async function crawlNode(nodeUri, path = '') {
+async function crawlNode(nodeUri, path = '') {
     let nodeRes;
     try {
-      nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret, { _expand: 'ChildNodes' });
+      nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret);
     } catch(e) { console.error('crawlNode error:', e.message); return; }
+
+    // Fetch children separately
+    const childrenUri = nodeRes.Response?.Node?.Uris?.ChildNodes?.Uri;
+    if (childrenUri) {
+      let childRes;
+      try { childRes = await smRequest(childrenUri, accessToken, accessTokenSecret); } catch(e) {}
+      if (childRes?.Response?.Node) {
+        const children = childRes.Response.Node;
+        const childArr = Array.isArray(children) ? children : [children];
+        for (const child of childArr) {
+          if (child && child.Uri) await crawlNode(child.Uri, path);
+        }
+        return;
+      }
+    }
     const node = nodeRes.Response?.Node;
     if (!node) return;
     const nodePath = path ? `${path}/${node.Name}` : node.Name;
