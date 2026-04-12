@@ -9,166 +9,162 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0e0f11;
-  --bg2: #161719;
-  --bg3: #1e2022;
-  --border: rgba(255,255,255,0.07);
-  --border2: rgba(255,255,255,0.13);
-  --text: #e8e6e0;
-  --text2: #888680;
-  --text3: #555350;
-  --accent: #c8a96e;
-  --accent2: #a08650;
-  --green: #4caf82;
-  --blue: #5b9bd5;
-  --amber: #d4943a;
-  --red: #c26060;
-  --radius: 10px;
-  --sidebar: 260px;
+  --bg:#0e0f11;--bg2:#161719;--bg3:#1e2022;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --text:#e8e6e0;--text2:#888680;--text3:#555350;
+  --accent:#c8a96e;--accent2:#a08650;
+  --green:#4caf82;--blue:#5b9bd5;--amber:#d4943a;--red:#c26060;
+  --radius:10px;--sidebar:260px;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; }
-#app { display: flex; height: 100vh; }
-#sidebar { width: var(--sidebar); background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
-#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.sidebar-head { padding: 20px 16px 14px; border-bottom: 1px solid var(--border); }
-.sidebar-head .logo { font-family: 'DM Mono', monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.12em; font-weight: 500; }
-.sidebar-head .project-name { font-size: 11px; color: var(--text3); margin-top: 3px; font-family: 'DM Mono', monospace; }
-.sidebar-search { padding: 10px 12px; border-bottom: 1px solid var(--border); }
-.sidebar-search input { width: 100%; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 7px 10px; font-size: 12px; color: var(--text); font-family: 'DM Sans', sans-serif; outline: none; }
-.sidebar-search input::placeholder { color: var(--text3); }
-.sidebar-search input:focus { border-color: var(--accent2); }
-.filter-row { display: flex; gap: 5px; padding: 8px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-.filter-pill { padding: 3px 9px; border-radius: 99px; font-size: 10px; border: 1px solid var(--border2); color: var(--text2); cursor: pointer; font-family: 'DM Mono', monospace; letter-spacing: 0.04em; transition: all 0.15s; }
-.filter-pill:hover { border-color: var(--accent2); color: var(--accent); }
-.filter-pill.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-#loc-list { flex: 1; overflow-y: auto; }
-#loc-list::-webkit-scrollbar { width: 3px; }
-#loc-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-.loc-item { padding: 11px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
-.loc-item:hover { background: var(--bg3); }
-.loc-item.active { background: var(--bg3); border-left: 2px solid var(--accent); padding-left: 14px; }
-.loc-item-name { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.loc-item-addr { font-size: 11px; color: var(--text3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'DM Mono', monospace; }
-.loc-item-footer { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-.status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.status-text { font-size: 10px; font-family: 'DM Mono', monospace; letter-spacing: 0.04em; }
-.loc-item-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.mini-tag { font-size: 9px; padding: 1px 6px; border-radius: 3px; background: var(--bg); border: 1px solid var(--border2); color: var(--text3); font-family: 'DM Mono', monospace; }
-.add-btn { margin: 12px; padding: 10px; background: transparent; border: 1px solid var(--accent2); border-radius: var(--radius); color: var(--accent); font-size: 12px; font-family: 'DM Mono', monospace; cursor: pointer; letter-spacing: 0.06em; transition: all 0.15s; }
-.add-btn:hover { background: var(--accent); color: var(--bg); }
-#topbar { padding: 14px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: var(--bg2); flex-shrink: 0; flex-wrap: wrap; }
-#topbar h1 { font-size: 15px; font-weight: 500; flex: 1; min-width: 120px; }
-#topbar h1 span { color: var(--text3); font-weight: 300; font-family: 'DM Mono', monospace; font-size: 12px; margin-left: 8px; }
-.tab-btn { padding: 6px 14px; font-size: 11px; border-radius: 6px; border: 1px solid var(--border2); background: transparent; color: var(--text2); cursor: pointer; font-family: 'DM Mono', monospace; letter-spacing: 0.05em; transition: all 0.15s; white-space: nowrap; }
-.tab-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-.tab-btn:hover:not(.active) { border-color: var(--accent2); color: var(--accent); }
-#content { flex: 1; overflow-y: auto; padding: 24px; }
-#content::-webkit-scrollbar { width: 3px; }
-#content::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-#map-content { flex: 1; overflow: hidden; display: none; position: relative; }
-#map-content.visible { display: flex; flex-direction: column; }
-#google-map { flex: 1; width: 100%; }
-.map-toolbar { padding: 10px 16px; background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.map-stat { font-size: 11px; color: var(--text3); font-family: 'DM Mono', monospace; }
-.map-stat strong { color: var(--text2); }
-.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--text3); font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: 0.06em; }
-.empty-state .big { font-size: 32px; margin-bottom: 8px; opacity: 0.3; }
-.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.detail-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.detail-card.full { grid-column: 1 / -1; }
-.card-head { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-.card-head-title { font-size: 10px; font-family: 'DM Mono', monospace; letter-spacing: 0.1em; color: var(--text3); }
-.card-body { padding: 14px 16px; }
-.field-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; gap: 12px; }
-.field-row:last-child { border-bottom: none; }
-.field-label { color: var(--text3); font-family: 'DM Mono', monospace; font-size: 11px; flex-shrink: 0; }
-.field-val { color: var(--text); text-align: right; word-break: break-all; }
-.field-val a { color: var(--accent); text-decoration: none; }
-.field-val a:hover { text-decoration: underline; }
-.status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 4px; font-size: 10px; font-family: 'DM Mono', monospace; letter-spacing: 0.05em; font-weight: 500; }
-.tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
-.tag { padding: 3px 9px; border-radius: 4px; font-size: 10px; font-family: 'DM Mono', monospace; background: var(--bg3); border: 1px solid var(--border2); color: var(--text2); }
-.notes-block { background: var(--bg3); border-radius: 6px; padding: 12px; font-size: 12px; color: var(--text2); line-height: 1.7; font-style: italic; min-height: 60px; }
-.file-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
-.file-item:last-child { border-bottom: none; }
-.file-icon { width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-family: 'DM Mono', monospace; font-weight: 500; flex-shrink: 0; border: 1px solid var(--border2); }
-.file-meta { flex: 1; min-width: 0; }
-.file-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-.file-sub { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; margin-top: 2px; }
-.file-link { color: var(--accent); font-size: 11px; font-family: 'DM Mono', monospace; text-decoration: none; flex-shrink: 0; }
-.file-link:hover { text-decoration: underline; }
-.permit-item { padding: 10px 12px; background: var(--bg3); border-radius: 6px; margin-bottom: 8px; border: 1px solid var(--border); }
-.permit-item:last-child { margin-bottom: 0; }
-.permit-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-.permit-type { font-size: 12px; font-weight: 500; color: var(--text); }
-.permit-detail { font-size: 11px; color: var(--text3); font-family: 'DM Mono', monospace; }
-.cover-photo { width: 100%; height: 180px; object-fit: cover; display: block; background: var(--bg3); }
-.cover-placeholder { width: 100%; height: 180px; display: flex; align-items: center; justify-content: center; background: var(--bg3); color: var(--text3); font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: 0.08em; cursor: pointer; transition: background 0.15s; }
-.cover-placeholder:hover { background: var(--bg); }
-.action-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.action-btn { padding: 7px 14px; border-radius: 6px; font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: 0.05em; cursor: pointer; border: 1px solid var(--border2); background: transparent; color: var(--text2); transition: all 0.15s; text-decoration: none; display: inline-block; }
-.action-btn:hover { border-color: var(--accent2); color: var(--accent); }
-.action-btn.danger:hover { border-color: var(--red); color: var(--red); }
-.action-btn.kml { border-color: #4caf82; color: #4caf82; }
-.action-btn.kml:hover { background: rgba(76,175,130,0.1); }
-.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
-.modal-overlay.open { display: flex; }
-.modal { background: var(--bg2); border: 1px solid var(--border2); border-radius: 14px; width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto; }
-.modal-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-.modal-head h2 { font-size: 14px; font-weight: 500; }
-.modal-close { background: none; border: none; color: var(--text3); font-size: 18px; cursor: pointer; line-height: 1; padding: 4px; }
-.modal-close:hover { color: var(--text); }
-.modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
-.form-field { display: flex; flex-direction: column; gap: 5px; }
-.form-label { font-size: 10px; font-family: 'DM Mono', monospace; letter-spacing: 0.08em; color: var(--text3); }
-.form-input { background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 12px; font-size: 13px; color: var(--text); font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.15s; }
-.form-input:focus { border-color: var(--accent2); }
-.form-input::placeholder { color: var(--text3); }
-textarea.form-input { resize: vertical; min-height: 80px; line-height: 1.6; }
-select.form-input { cursor: pointer; }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
-.btn-primary { padding: 9px 20px; background: var(--accent); color: var(--bg); border: none; border-radius: 6px; font-size: 12px; font-family: 'DM Mono', monospace; letter-spacing: 0.06em; cursor: pointer; font-weight: 500; transition: opacity 0.15s; }
-.btn-primary:hover { opacity: 0.85; }
-.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-cancel { padding: 9px 20px; background: transparent; color: var(--text2); border: 1px solid var(--border2); border-radius: 6px; font-size: 12px; font-family: 'DM Mono', monospace; letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s; }
-.btn-cancel:hover { border-color: var(--accent2); color: var(--accent); }
-.toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; padding: 12px 16px; font-size: 12px; font-family: 'DM Mono', monospace; z-index: 200; transform: translateY(60px); opacity: 0; transition: all 0.3s; max-width: 300px; }
-.toast.show { transform: translateY(0); opacity: 1; }
-.toast.success { border-color: var(--green); color: var(--green); }
-.toast.error { border-color: var(--red); color: var(--red); }
-.loading { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text3); font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: 0.08em; padding: 40px; }
-.spinner { width: 14px; height: 14px; border: 1.5px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.s-identified { color: var(--text3); }
-.s-scouted { color: var(--blue); }
-.s-pending { color: var(--amber); }
-.s-approved { color: var(--green); }
-.s-rejected { color: var(--red); }
-.dot-identified { background: var(--text3); }
-.dot-scouted { background: var(--blue); }
-.dot-pending { background: var(--amber); }
-.dot-approved { background: var(--green); }
-.dot-rejected { background: var(--red); }
-.bg-identified { background: rgba(85,83,80,0.15); }
-.bg-scouted { background: rgba(91,155,213,0.15); }
-.bg-pending { background: rgba(212,148,58,0.15); }
-.bg-approved { background: rgba(76,175,130,0.15); }
-.bg-rejected { background: rgba(194,96,96,0.15); }
-/* Google Maps info window overrides */
-.gm-info { font-family: 'DM Sans', sans-serif; min-width: 180px; }
-.gm-info-name { font-size: 14px; font-weight: 500; margin-bottom: 4px; color: #1a1a1a; }
-.gm-info-addr { font-size: 12px; color: #666; margin-bottom: 8px; }
-.gm-info-status { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 99px; font-weight: 500; margin-bottom: 8px; }
-.gm-info-tags { font-size: 11px; color: #888; margin-bottom: 8px; }
-.gm-info-link { font-size: 12px; color: #185FA5; cursor: pointer; text-decoration: underline; background: none; border: none; padding: 0; font-family: 'DM Sans', sans-serif; }
-@media (max-width: 700px) {
-  :root { --sidebar: 0px; }
-  #sidebar { display: none; }
-  .detail-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px}
+#app{display:flex;height:100vh}
+#sidebar{width:var(--sidebar);background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.sidebar-head{padding:20px 16px 14px;border-bottom:1px solid var(--border)}
+.sidebar-head .logo{font-family:'DM Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.12em;font-weight:500}
+.sidebar-head .sub{font-size:11px;color:var(--text3);margin-top:3px;font-family:'DM Mono',monospace}
+.sidebar-search{padding:10px 12px;border-bottom:1px solid var(--border)}
+.sidebar-search input{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none}
+.sidebar-search input::placeholder{color:var(--text3)}
+.sidebar-search input:focus{border-color:var(--accent2)}
+.filter-row{display:flex;gap:5px;padding:8px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.fp{padding:3px 9px;border-radius:99px;font-size:10px;border:1px solid var(--border2);color:var(--text2);cursor:pointer;font-family:'DM Mono',monospace;letter-spacing:.04em;transition:all .15s}
+.fp:hover{border-color:var(--accent2);color:var(--accent)}
+.fp.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+#loc-list{flex:1;overflow-y:auto}
+#loc-list::-webkit-scrollbar{width:3px}
+#loc-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.loc-item{padding:11px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+.loc-item:hover{background:var(--bg3)}
+.loc-item.active{background:var(--bg3);border-left:2px solid var(--accent);padding-left:14px}
+.li-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li-addr{font-size:11px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'DM Mono',monospace}
+.li-foot{display:flex;align-items:center;gap:6px;margin-top:6px}
+.sdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.stxt{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.04em}
+.li-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.mtag{font-size:9px;padding:1px 6px;border-radius:3px;background:var(--bg);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace}
+.add-btn{margin:12px;padding:10px;background:transparent;border:1px solid var(--accent2);border-radius:var(--radius);color:var(--accent);font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;letter-spacing:.06em;transition:all .15s}
+.add-btn:hover{background:var(--accent);color:var(--bg)}
+#topbar{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg2);flex-shrink:0;flex-wrap:wrap}
+#topbar h1{font-size:15px;font-weight:500;flex:1;min-width:100px}
+#topbar h1 span{color:var(--text3);font-weight:300;font-family:'DM Mono',monospace;font-size:12px;margin-left:8px}
+.tb{padding:6px 14px;font-size:11px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-family:'DM Mono',monospace;letter-spacing:.05em;transition:all .15s;white-space:nowrap}
+.tb.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.tb:hover:not(.active){border-color:var(--accent2);color:var(--accent)}
+#content{flex:1;overflow-y:auto;padding:24px}
+#content::-webkit-scrollbar{width:3px}
+#content::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+#map-content{flex:1;overflow:hidden;display:none;flex-direction:column}
+#map-content.visible{display:flex}
+#google-map{flex:1;width:100%}
+.map-toolbar{padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mstat{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace}
+.mstat strong{color:var(--text2)}
+#smugmug-content{flex:1;overflow:hidden;display:none;flex-direction:column}
+#smugmug-content.visible{display:flex}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text3);font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.06em}
+.empty-state .big{font-size:32px;margin-bottom:8px;opacity:.3}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.dc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.dc.full{grid-column:1/-1}
+.ch{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.cht{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.1em;color:var(--text3)}
+.cb{padding:14px 16px}
+.fr{display:flex;justify-content:space-between;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;gap:12px}
+.fr:last-child{border-bottom:none}
+.fl{color:var(--text3);font-family:'DM Mono',monospace;font-size:11px;flex-shrink:0}
+.fv{color:var(--text);text-align:right;word-break:break-all}
+.fv a{color:var(--accent);text-decoration:none}
+.fv a:hover{text-decoration:underline}
+.sbadge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:4px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.05em;font-weight:500}
+.tag-list{display:flex;flex-wrap:wrap;gap:5px}
+.tag{padding:3px 9px;border-radius:4px;font-size:10px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);color:var(--text2)}
+.notes-block{background:var(--bg3);border-radius:6px;padding:12px;font-size:12px;color:var(--text2);line-height:1.7;font-style:italic;min-height:60px}
+.file-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+.file-item:last-child{border-bottom:none}
+.ficon{width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;font-weight:500;flex-shrink:0;border:1px solid var(--border2)}
+.fmeta{flex:1;min-width:0}
+.fname-t{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fsub{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px}
+.flink{color:var(--accent);font-size:11px;font-family:'DM Mono',monospace;text-decoration:none;flex-shrink:0}
+.flink:hover{text-decoration:underline}
+.permit-item{padding:10px 12px;background:var(--bg3);border-radius:6px;margin-bottom:8px;border:1px solid var(--border)}
+.permit-item:last-child{margin-bottom:0}
+.ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.pt{font-size:12px;font-weight:500}
+.pd{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace}
+.cover-photo{width:100%;height:180px;object-fit:cover;display:block;background:var(--bg3)}
+.cover-ph{width:100%;height:180px;display:flex;align-items:center;justify-content:center;background:var(--bg3);color:var(--text3);font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.08em;cursor:pointer;transition:background .15s}
+.cover-ph:hover{background:var(--bg)}
+.action-row{display:flex;gap:8px;flex-wrap:wrap}
+.ab{padding:7px 14px;border-radius:6px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.05em;cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .15s;text-decoration:none;display:inline-block}
+.ab:hover{border-color:var(--accent2);color:var(--accent)}
+.ab.danger:hover{border-color:var(--red);color:var(--red)}
+.ab.kml{border-color:var(--green);color:var(--green)}
+.ab.kml:hover{background:rgba(76,175,130,.1)}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto}
+.modal-head{padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.modal-head h2{font-size:14px;font-weight:500}
+.mc{background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;line-height:1;padding:4px}
+.mc:hover{color:var(--text)}
+.modal-body{padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+.ff{display:flex;flex-direction:column;gap:5px}
+.fl2{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.08em;color:var(--text3)}
+.fi{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s;width:100%}
+.fi:focus{border-color:var(--accent2)}
+.fi::placeholder{color:var(--text3)}
+textarea.fi{resize:vertical;min-height:80px;line-height:1.6}
+select.fi{cursor:pointer}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.modal-footer{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+.btn-p{padding:9px 20px;background:var(--accent);color:var(--bg);border:none;border-radius:6px;font-size:12px;font-family:'DM Mono',monospace;letter-spacing:.06em;cursor:pointer;font-weight:500;transition:opacity .15s}
+.btn-p:hover{opacity:.85}
+.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-c{padding:9px 20px;background:transparent;color:var(--text2);border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:'DM Mono',monospace;letter-spacing:.06em;cursor:pointer;transition:all .15s}
+.btn-c:hover{border-color:var(--accent2);color:var(--accent)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px 16px;font-size:12px;font-family:'DM Mono',monospace;z-index:200;transform:translateY(60px);opacity:0;transition:all .3s;max-width:300px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.success{border-color:var(--green);color:var(--green)}
+.toast.error{border-color:var(--red);color:var(--red)}
+.loading{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text3);font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.08em;padding:40px}
+.spinner{width:14px;height:14px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.s-identified{color:var(--text3)}.s-scouted{color:var(--blue)}.s-pending{color:var(--amber)}.s-approved{color:var(--green)}.s-rejected{color:var(--red)}
+.dot-identified{background:var(--text3)}.dot-scouted{background:var(--blue)}.dot-pending{background:var(--amber)}.dot-approved{background:var(--green)}.dot-rejected{background:var(--red)}
+.bg-identified{background:rgba(85,83,80,.15)}.bg-scouted{background:rgba(91,155,213,.15)}.bg-pending{background:rgba(212,148,58,.15)}.bg-approved{background:rgba(76,175,130,.15)}.bg-rejected{background:rgba(194,96,96,.15)}
+
+/* SmugMug browser */
+.sm-toolbar{padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sm-breadcrumb{font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);flex:1}
+.sm-breadcrumb span{color:var(--accent);cursor:pointer}
+.sm-breadcrumb span:hover{text-decoration:underline}
+#sm-grid{flex:1;overflow-y:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;align-content:start}
+#sm-grid::-webkit-scrollbar{width:3px}
+#sm-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.sm-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s}
+.sm-card:hover{border-color:var(--accent2)}
+.sm-thumb{width:100%;height:110px;object-fit:cover;background:var(--bg3);display:block}
+.sm-thumb-ph{width:100%;height:110px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--text3)}
+.sm-label{padding:8px 10px;font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sm-sub{padding:0 10px 8px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace}
+.sm-attach-bar{padding:12px 16px;background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.sm-attach-bar select{flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none}
+.sm-no-loc{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace}
+
+/* Google Maps info */
+.gm-info{font-family:'DM Sans',sans-serif;min-width:180px}
+.gm-info-name{font-size:14px;font-weight:500;margin-bottom:4px;color:#1a1a1a}
+.gm-info-addr{font-size:12px;color:#666;margin-bottom:8px}
+.gm-info-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:99px;font-weight:500;margin-bottom:8px}
+.gm-info-tags{font-size:11px;color:#888;margin-bottom:8px}
+.gm-info-btn{font-size:12px;color:#185FA5;cursor:pointer;text-decoration:underline;background:none;border:none;padding:0;font-family:'DM Sans',sans-serif}
+
+@media(max-width:700px){:root{--sidebar:0px}#sidebar{display:none}.detail-grid{grid-template-columns:1fr}}
+@media(max-width:900px){.detail-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -176,17 +172,17 @@ select.form-input { cursor: pointer; }
   <div id="sidebar">
     <div class="sidebar-head">
       <div class="logo">SCOUT</div>
-      <div class="project-name">location manager</div>
+      <div class="sub">location manager</div>
     </div>
     <div class="sidebar-search">
       <input type="text" id="search-input" placeholder="search locations..." oninput="filterLocations()">
     </div>
     <div class="filter-row">
-      <div class="filter-pill active" data-status="all" onclick="setFilter(this)">all</div>
-      <div class="filter-pill" data-status="identified" onclick="setFilter(this)">identified</div>
-      <div class="filter-pill" data-status="scouted" onclick="setFilter(this)">scouted</div>
-      <div class="filter-pill" data-status="pending" onclick="setFilter(this)">pending</div>
-      <div class="filter-pill" data-status="approved" onclick="setFilter(this)">approved</div>
+      <div class="fp active" data-status="all" onclick="setFilter(this)">all</div>
+      <div class="fp" data-status="identified" onclick="setFilter(this)">identified</div>
+      <div class="fp" data-status="scouted" onclick="setFilter(this)">scouted</div>
+      <div class="fp" data-status="pending" onclick="setFilter(this)">pending</div>
+      <div class="fp" data-status="approved" onclick="setFilter(this)">approved</div>
     </div>
     <div id="loc-list"><div class="loading"><div class="spinner"></div>loading...</div></div>
     <button class="add-btn" onclick="openAddModal()">+ add location</button>
@@ -195,26 +191,41 @@ select.form-input { cursor: pointer; }
   <div id="main">
     <div id="topbar">
       <h1 id="main-title">Select a location <span id="loc-count"></span></h1>
-      <button class="tab-btn active" id="tab-detail" onclick="setTab('detail')">detail</button>
-      <button class="tab-btn" id="tab-files" onclick="setTab('files')">files</button>
-      <button class="tab-btn" id="tab-permits" onclick="setTab('permits')">permits</button>
-      <button class="tab-btn" id="tab-map" onclick="setTab('map')">map</button>
+      <button class="tb active" id="tab-detail" onclick="setTab('detail')">detail</button>
+      <button class="tb" id="tab-files" onclick="setTab('files')">files</button>
+      <button class="tb" id="tab-permits" onclick="setTab('permits')">permits</button>
+      <button class="tb" id="tab-map" onclick="setTab('map')">map</button>
+      <button class="tb" id="tab-smugmug" onclick="setTab('smugmug')">smugmug</button>
     </div>
+
     <div id="content">
-      <div class="empty-state">
-        <div class="big">◎</div>
-        <div>no location selected</div>
-        <div style="color:var(--text3);font-size:10px">pick one from the list or add new</div>
-      </div>
+      <div class="empty-state"><div class="big">◎</div><div>no location selected</div><div style="color:var(--text3);font-size:10px">pick one from the list or add new</div></div>
     </div>
+
     <div id="map-content">
       <div class="map-toolbar">
-        <span class="map-stat"><strong id="map-pin-count">0</strong> pins on map</span>
-        <span class="map-stat" style="margin-left:8px">click any pin to open detail</span>
+        <span class="mstat"><strong id="map-pin-count">0</strong> pins</span>
+        <span class="mstat">· click any pin to open detail</span>
         <div style="flex:1"></div>
-        <button class="action-btn kml" onclick="exportKML()">⬇ export KML for Google My Maps</button>
+        <button class="ab kml" onclick="exportKML()">⬇ export KML</button>
       </div>
       <div id="google-map"></div>
+    </div>
+
+    <div id="smugmug-content">
+      <div class="sm-toolbar">
+        <div class="sm-breadcrumb" id="sm-breadcrumb">
+          <span onclick="smGoRoot()">jordanhoffman.smugmug.com</span>
+        </div>
+        <button class="ab" onclick="smGoRoot()" style="font-size:10px;padding:5px 10px">↑ root</button>
+      </div>
+      <div id="sm-grid"><div class="loading"><div class="spinner"></div>loading smugmug...</div></div>
+      <div class="sm-attach-bar">
+        <span class="sm-no-loc" id="sm-attach-hint">select a photo above to attach it to a location</span>
+        <select id="sm-loc-select" style="display:none" onchange="smAttachPhoto()">
+          <option value="">attach to location...</option>
+        </select>
+      </div>
     </div>
   </div>
 </div>
@@ -222,69 +233,32 @@ select.form-input { cursor: pointer; }
 <!-- Add Location Modal -->
 <div class="modal-overlay" id="add-modal">
   <div class="modal">
-    <div class="modal-head">
-      <h2>Add location</h2>
-      <button class="modal-close" onclick="closeModal('add-modal')">×</button>
-    </div>
+    <div class="modal-head"><h2>Add location</h2><button class="mc" onclick="closeModal('add-modal')">×</button></div>
     <div class="modal-body">
-      <div class="form-field">
-        <label class="form-label">location name *</label>
-        <input class="form-input" id="f-name" placeholder="e.g. Brooklyn Waterfront" type="text">
+      <div class="ff"><label class="fl2">location name *</label><input class="fi" id="f-name" placeholder="e.g. Brooklyn Waterfront" type="text"></div>
+      <div class="ff"><label class="fl2">address</label><input class="fi" id="f-address" placeholder="Street address" type="text"></div>
+      <div class="fgrid">
+        <div class="ff"><label class="fl2">city</label><input class="fi" id="f-city" placeholder="Brooklyn" type="text"></div>
+        <div class="ff"><label class="fl2">state</label><input class="fi" id="f-state" placeholder="NY" type="text"></div>
       </div>
-      <div class="form-field">
-        <label class="form-label">address</label>
-        <input class="form-input" id="f-address" placeholder="Street address" type="text">
+      <div class="fgrid">
+        <div class="ff"><label class="fl2">latitude</label><input class="fi" id="f-lat" placeholder="40.6748" type="number" step="any"></div>
+        <div class="ff"><label class="fl2">longitude</label><input class="fi" id="f-lng" placeholder="-74.0168" type="number" step="any"></div>
       </div>
-      <div class="form-grid">
-        <div class="form-field">
-          <label class="form-label">city</label>
-          <input class="form-input" id="f-city" placeholder="Brooklyn" type="text">
-        </div>
-        <div class="form-field">
-          <label class="form-label">state</label>
-          <input class="form-input" id="f-state" placeholder="NY" type="text">
-        </div>
-      </div>
-      <div class="form-grid">
-        <div class="form-field">
-          <label class="form-label">latitude</label>
-          <input class="form-input" id="f-lat" placeholder="40.6748" type="number" step="any">
-        </div>
-        <div class="form-field">
-          <label class="form-label">longitude</label>
-          <input class="form-input" id="f-lng" placeholder="-74.0168" type="number" step="any">
-        </div>
-      </div>
-      <div class="form-field">
-        <label class="form-label">status</label>
-        <select class="form-input" id="f-status">
-          <option value="identified">identified</option>
-          <option value="scouted">scouted</option>
-          <option value="pending">pending</option>
-          <option value="approved">approved</option>
-          <option value="rejected">rejected</option>
+      <div class="ff"><label class="fl2">status</label>
+        <select class="fi" id="f-status">
+          <option value="identified">identified</option><option value="scouted">scouted</option>
+          <option value="pending">pending</option><option value="approved">approved</option><option value="rejected">rejected</option>
         </select>
       </div>
-      <div class="form-field">
-        <label class="form-label">tags (comma separated)</label>
-        <input class="form-input" id="f-tags" placeholder="Exterior, Water, Industrial, Golden hour" type="text">
-      </div>
-      <div class="form-field">
-        <label class="form-label">smugmug gallery url</label>
-        <input class="form-input" id="f-smugmug" placeholder="https://yourname.smugmug.com/..." type="url">
-      </div>
-      <div class="form-field">
-        <label class="form-label">cover photo url</label>
-        <input class="form-input" id="f-cover" placeholder="Direct image URL for thumbnail" type="url">
-      </div>
-      <div class="form-field">
-        <label class="form-label">scout notes</label>
-        <textarea class="form-input" id="f-notes" placeholder="Lighting conditions, access notes, contacts, restrictions..."></textarea>
-      </div>
+      <div class="ff"><label class="fl2">tags (comma separated)</label><input class="fi" id="f-tags" placeholder="Exterior, Water, Industrial" type="text"></div>
+      <div class="ff"><label class="fl2">smugmug gallery url</label><input class="fi" id="f-smugmug" placeholder="https://jordanhoffman.smugmug.com/..." type="url"></div>
+      <div class="ff"><label class="fl2">cover photo url</label><input class="fi" id="f-cover" placeholder="Direct image URL" type="url"></div>
+      <div class="ff"><label class="fl2">scout notes</label><textarea class="fi" id="f-notes" placeholder="Lighting, access, contacts, restrictions..."></textarea></div>
     </div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('add-modal')">cancel</button>
-      <button class="btn-primary" id="save-btn" onclick="saveLocation()">save location</button>
+      <button class="btn-c" onclick="closeModal('add-modal')">cancel</button>
+      <button class="btn-p" id="save-btn" onclick="saveLocation()">save location</button>
     </div>
   </div>
 </div>
@@ -292,50 +266,24 @@ select.form-input { cursor: pointer; }
 <!-- Add File Modal -->
 <div class="modal-overlay" id="file-modal">
   <div class="modal">
-    <div class="modal-head">
-      <h2>Add file reference</h2>
-      <button class="modal-close" onclick="closeModal('file-modal')">×</button>
-    </div>
+    <div class="modal-head"><h2>Add file reference</h2><button class="mc" onclick="closeModal('file-modal')">×</button></div>
     <div class="modal-body">
-      <div class="form-field">
-        <label class="form-label">filename *</label>
-        <input class="form-input" id="ff-name" placeholder="e.g. rooftop_01.jpg" type="text">
-      </div>
-      <div class="form-field">
-        <label class="form-label">url *</label>
-        <input class="form-input" id="ff-url" placeholder="SmugMug or other URL" type="url">
-      </div>
-      <div class="form-grid">
-        <div class="form-field">
-          <label class="form-label">file type</label>
-          <select class="form-input" id="ff-type">
-            <option value="photo">photo</option>
-            <option value="video">video</option>
-            <option value="pdf">pdf</option>
-            <option value="other">other</option>
-          </select>
+      <div class="ff"><label class="fl2">filename *</label><input class="fi" id="ff-name" placeholder="e.g. rooftop_01.jpg" type="text"></div>
+      <div class="ff"><label class="fl2">url *</label><input class="fi" id="ff-url" placeholder="SmugMug or other URL" type="url"></div>
+      <div class="fgrid">
+        <div class="ff"><label class="fl2">file type</label>
+          <select class="fi" id="ff-type"><option value="photo">photo</option><option value="video">video</option><option value="pdf">pdf</option><option value="other">other</option></select>
         </div>
-        <div class="form-field">
-          <label class="form-label">source</label>
-          <select class="form-input" id="ff-source">
-            <option value="smugmug">smugmug</option>
-            <option value="external">external</option>
-            <option value="supabase">supabase</option>
-          </select>
+        <div class="ff"><label class="fl2">source</label>
+          <select class="fi" id="ff-source"><option value="smugmug">smugmug</option><option value="external">external</option><option value="supabase">supabase</option></select>
         </div>
       </div>
-      <div class="form-field">
-        <label class="form-label">caption</label>
-        <input class="form-input" id="ff-caption" placeholder="Brief description" type="text">
-      </div>
-      <div class="form-field">
-        <label class="form-label">file size</label>
-        <input class="form-input" id="ff-size" placeholder="e.g. 4.2 MB" type="text">
-      </div>
+      <div class="ff"><label class="fl2">caption</label><input class="fi" id="ff-caption" placeholder="Brief description" type="text"></div>
+      <div class="ff"><label class="fl2">file size</label><input class="fi" id="ff-size" placeholder="e.g. 4.2 MB" type="text"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('file-modal')">cancel</button>
-      <button class="btn-primary" onclick="saveFile()">add file</button>
+      <button class="btn-c" onclick="closeModal('file-modal')">cancel</button>
+      <button class="btn-p" onclick="saveFile()">add file</button>
     </div>
   </div>
 </div>
@@ -343,56 +291,26 @@ select.form-input { cursor: pointer; }
 <!-- Add Permit Modal -->
 <div class="modal-overlay" id="permit-modal">
   <div class="modal">
-    <div class="modal-head">
-      <h2>Add permit</h2>
-      <button class="modal-close" onclick="closeModal('permit-modal')">×</button>
-    </div>
+    <div class="modal-head"><h2>Add permit</h2><button class="mc" onclick="closeModal('permit-modal')">×</button></div>
     <div class="modal-body">
-      <div class="form-field">
-        <label class="form-label">permit type *</label>
-        <input class="form-input" id="fp-type" placeholder="e.g. NYC Parks Film Permit" type="text">
-      </div>
-      <div class="form-grid">
-        <div class="form-field">
-          <label class="form-label">status</label>
-          <select class="form-input" id="fp-status">
-            <option value="needed">needed</option>
-            <option value="filed">filed</option>
-            <option value="approved">approved</option>
-            <option value="denied">denied</option>
-          </select>
+      <div class="ff"><label class="fl2">permit type *</label><input class="fi" id="fp-type" placeholder="e.g. NYC Parks Film Permit" type="text"></div>
+      <div class="fgrid">
+        <div class="ff"><label class="fl2">status</label>
+          <select class="fi" id="fp-status"><option value="needed">needed</option><option value="filed">filed</option><option value="approved">approved</option><option value="denied">denied</option></select>
         </div>
-        <div class="form-field">
-          <label class="form-label">deadline</label>
-          <input class="form-input" id="fp-deadline" type="date">
-        </div>
+        <div class="ff"><label class="fl2">deadline</label><input class="fi" id="fp-deadline" type="date"></div>
       </div>
-      <div class="form-field">
-        <label class="form-label">issuing body</label>
-        <input class="form-input" id="fp-body" placeholder="e.g. NYC Mayors Office of Media" type="text">
+      <div class="ff"><label class="fl2">issuing body</label><input class="fi" id="fp-body" placeholder="e.g. NYC Mayors Office of Media" type="text"></div>
+      <div class="fgrid">
+        <div class="ff"><label class="fl2">contact name</label><input class="fi" id="fp-contact" placeholder="Name" type="text"></div>
+        <div class="ff"><label class="fl2">contact email</label><input class="fi" id="fp-email" placeholder="email@..." type="email"></div>
       </div>
-      <div class="form-grid">
-        <div class="form-field">
-          <label class="form-label">contact name</label>
-          <input class="form-input" id="fp-contact" placeholder="Name" type="text">
-        </div>
-        <div class="form-field">
-          <label class="form-label">contact email</label>
-          <input class="form-input" id="fp-email" placeholder="email@..." type="email">
-        </div>
-      </div>
-      <div class="form-field">
-        <label class="form-label">document url</label>
-        <input class="form-input" id="fp-doc" placeholder="Link to filed permit doc" type="url">
-      </div>
-      <div class="form-field">
-        <label class="form-label">notes</label>
-        <textarea class="form-input" id="fp-notes" placeholder="Any additional notes..."></textarea>
-      </div>
+      <div class="ff"><label class="fl2">document url</label><input class="fi" id="fp-doc" placeholder="Link to permit doc" type="url"></div>
+      <div class="ff"><label class="fl2">notes</label><textarea class="fi" id="fp-notes" placeholder="Additional notes..."></textarea></div>
     </div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('permit-modal')">cancel</button>
-      <button class="btn-primary" onclick="savePermit()">add permit</button>
+      <button class="btn-c" onclick="closeModal('permit-modal')">cancel</button>
+      <button class="btn-p" onclick="savePermit()">add permit</button>
     </div>
   </div>
 </div>
@@ -400,192 +318,131 @@ select.form-input { cursor: pointer; }
 <div class="toast" id="toast"></div>
 
 <script>
-const SUPABASE_URL = 'https://bdnezxdfhapaxhoedtrp.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkbmV6eGRmaGFwYXhob2VkdHJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5OTgwMTAsImV4cCI6MjA5MTU3NDAxMH0.tdyh77PJ4xSOnb4GeLQRHcDWd0l2KRMpgl7Awj7NiB0';
-const GMAPS_KEY = 'AIzaSyBORHlI6GqQNtL2Ev8RlapOFKrjFgkzJfA';
+// ---- CONFIG (injected by Vercel from environment variables) ----
+const SUPABASE_URL = '__SUPABASE_URL__';
+const SUPABASE_KEY = '__SUPABASE_KEY__';
+const GMAPS_KEY    = '__GMAPS_KEY__';
+const SM_USER      = 'jordanhoffman';
+const SM_BASE      = `https://www.smugmug.com/${SM_USER}`;
 
+// ---- API ----
 const api = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-  headers: {
-    'apikey': SUPABASE_KEY,
-    'Authorization': `Bearer ${SUPABASE_KEY}`,
-    'Content-Type': 'application/json',
-    'Prefer': opts.prefer || 'return=representation',
+  headers:{
+    'apikey':SUPABASE_KEY,
+    'Authorization':`Bearer ${SUPABASE_KEY}`,
+    'Content-Type':'application/json',
+    'Prefer':opts.prefer||'return=representation',
     ...opts.headers
-  },
-  ...opts
-}).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)));
+  },...opts
+}).then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)));
 
-let allLocations = [];
-let activeId = null;
-let activeTab = 'detail';
-let activeFilter = 'all';
-let googleMap = null;
-let mapMarkers = [];
-let mapLoaded = false;
+// ---- STATE ----
+let allLocations=[], activeId=null, activeTab='detail', activeFilter='all';
+let googleMap=null, mapMarkers=[], mapLoaded=false;
+let smStack=[], smSelectedPhoto=null;
 
-// Status pin colors for Google Maps
-const PIN_COLORS = {
-  identified: '#888680',
-  scouted:    '#5b9bd5',
-  pending:    '#d4943a',
-  approved:   '#4caf82',
-  rejected:   '#c26060'
-};
+const PIN_COLORS={identified:'#888680',scouted:'#5b9bd5',pending:'#d4943a',approved:'#4caf82',rejected:'#c26060'};
+const SL={identified:{bg:'rgba(85,83,80,.15)',c:'#888680'},scouted:{bg:'rgba(91,155,213,.15)',c:'#5b9bd5'},pending:{bg:'rgba(212,148,58,.15)',c:'#d4943a'},approved:{bg:'rgba(76,175,130,.15)',c:'#4caf82'},rejected:{bg:'rgba(194,96,96,.15)',c:'#c26060'}};
 
-const STATUS_LABELS = {
-  identified: { bg:'rgba(85,83,80,0.15)',   color:'#888680' },
-  scouted:    { bg:'rgba(91,155,213,0.15)',  color:'#5b9bd5' },
-  pending:    { bg:'rgba(212,148,58,0.15)',  color:'#d4943a' },
-  approved:   { bg:'rgba(76,175,130,0.15)', color:'#4caf82' },
-  rejected:   { bg:'rgba(194,96,96,0.15)',  color:'#c26060' }
-};
-
-function statusBadge(s) {
-  const c = STATUS_LABELS[s] || STATUS_LABELS.identified;
-  return `<span class="status-badge" style="background:${c.bg};color:${c.color}">
-    <span class="status-dot" style="background:${c.color};width:6px;height:6px;border-radius:50%;display:inline-block"></span>${s}
-  </span>`;
-}
-
-function showToast(msg, type='success') {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = `toast ${type} show`;
-  setTimeout(() => t.className = 'toast', 3000);
-}
+function sbadge(s){const x=SL[s]||SL.identified;return`<span class="sbadge" style="background:${x.bg};color:${x.c}"><span class="sdot" style="background:${x.c}"></span>${s}</span>`}
+function toast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type} show`;setTimeout(()=>t.className='toast',3000)}
 
 // ---- LOAD ----
-async function loadLocations() {
-  try {
-    const data = await api('locations?select=*&order=created_at.desc');
-    allLocations = data;
-    renderList();
-    document.getElementById('loc-count').textContent = `· ${data.length} location${data.length!==1?'s':''}`;
-  } catch(e) {
-    document.getElementById('loc-list').innerHTML = `<div class="loading" style="color:var(--red)">connection error</div>`;
-    showToast('Could not connect to database', 'error');
+async function loadLocations(){
+  try{
+    const d=await api('locations?select=*&order=created_at.desc');
+    allLocations=d;renderList();
+    document.getElementById('loc-count').textContent=`· ${d.length} location${d.length!==1?'s':''}`;
+  }catch(e){
+    document.getElementById('loc-list').innerHTML=`<div class="loading" style="color:var(--red)">connection error</div>`;
+    toast('Could not connect to database','error');
   }
 }
 
 // ---- LIST ----
-function renderList() {
-  const search = document.getElementById('search-input').value.toLowerCase();
-  const filtered = allLocations.filter(l => {
-    const matchFilter = activeFilter === 'all' || l.status === activeFilter;
-    const matchSearch = !search ||
-      l.name.toLowerCase().includes(search) ||
-      (l.address||'').toLowerCase().includes(search) ||
-      (l.city||'').toLowerCase().includes(search) ||
-      (l.tags||[]).some(t => t.toLowerCase().includes(search));
-    return matchFilter && matchSearch;
+function renderList(){
+  const q=document.getElementById('search-input').value.toLowerCase();
+  const f=allLocations.filter(l=>{
+    const mf=activeFilter==='all'||l.status===activeFilter;
+    const ms=!q||l.name.toLowerCase().includes(q)||(l.address||'').toLowerCase().includes(q)||(l.city||'').toLowerCase().includes(q)||(l.tags||[]).some(t=>t.toLowerCase().includes(q));
+    return mf&&ms;
   });
-  const el = document.getElementById('loc-list');
-  if (!filtered.length) {
-    el.innerHTML = `<div class="loading" style="flex-direction:column;gap:4px"><span>no locations</span><span style="font-size:10px;color:var(--text3)">try a different filter</span></div>`;
-    return;
-  }
-  el.innerHTML = filtered.map(l => `
+  const el=document.getElementById('loc-list');
+  if(!f.length){el.innerHTML=`<div class="loading" style="flex-direction:column;gap:4px"><span>no locations</span><span style="font-size:10px;color:var(--text3)">try a different filter</span></div>`;return}
+  el.innerHTML=f.map(l=>`
     <div class="loc-item${l.id===activeId?' active':''}" onclick="selectLocation('${l.id}')">
-      <div class="loc-item-name">${l.name}</div>
-      <div class="loc-item-addr">${[l.address,l.city,l.state].filter(Boolean).join(', ')||'—'}</div>
-      <div class="loc-item-footer">
-        <span class="status-dot dot-${l.status}"></span>
-        <span class="status-text s-${l.status}">${l.status}</span>
-      </div>
-      ${(l.tags||[]).length ? `<div class="loc-item-tags">${l.tags.slice(0,3).map(t=>`<span class="mini-tag">${t}</span>`).join('')}</div>` : ''}
-    </div>
-  `).join('');
+      <div class="li-name">${l.name}</div>
+      <div class="li-addr">${[l.address,l.city,l.state].filter(Boolean).join(', ')||'—'}</div>
+      <div class="li-foot"><span class="sdot dot-${l.status}"></span><span class="stxt s-${l.status}">${l.status}</span></div>
+      ${(l.tags||[]).length?`<div class="li-tags">${l.tags.slice(0,3).map(t=>`<span class="mtag">${t}</span>`).join('')}</div>`:''}
+    </div>`).join('');
 }
-
-function filterLocations() { renderList(); if (activeTab==='map' && googleMap) refreshMapPins(); }
-function setFilter(el) {
-  document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
-  el.classList.add('active');
-  activeFilter = el.dataset.status;
-  renderList();
-  if (activeTab==='map' && googleMap) refreshMapPins();
-}
+function filterLocations(){renderList();if(activeTab==='map'&&googleMap)refreshMapPins()}
+function setFilter(el){document.querySelectorAll('.fp').forEach(p=>p.classList.remove('active'));el.classList.add('active');activeFilter=el.dataset.status;renderList();if(activeTab==='map'&&googleMap)refreshMapPins()}
 
 // ---- SELECT ----
-function selectLocation(id) {
-  activeId = id;
-  renderList();
-  if (activeTab === 'map') {
-    // Switch to detail when clicking from map sidebar
-    setTab('detail');
-  } else {
-    renderTab();
-  }
+function selectLocation(id){
+  activeId=id;renderList();
+  if(activeTab==='map'){setTab('detail')}else{renderTab()}
 }
 
-function setTab(tab) {
-  activeTab = tab;
-  ['detail','files','permits','map'].forEach(t => {
-    document.getElementById(`tab-${t}`).classList.toggle('active', t===tab);
-  });
-  const content = document.getElementById('content');
-  const mapContent = document.getElementById('map-content');
-  if (tab === 'map') {
-    content.style.display = 'none';
-    mapContent.classList.add('visible');
-    initOrRefreshMap();
-  } else {
-    content.style.display = '';
-    mapContent.classList.remove('visible');
-    renderTab();
-  }
+function setTab(tab){
+  activeTab=tab;
+  ['detail','files','permits','map','smugmug'].forEach(t=>document.getElementById(`tab-${t}`).classList.toggle('active',t===tab));
+  const content=document.getElementById('content');
+  const mapEl=document.getElementById('map-content');
+  const smEl=document.getElementById('smugmug-content');
+  content.style.display=''; mapEl.classList.remove('visible'); smEl.classList.remove('visible');
+  if(tab==='map'){content.style.display='none';mapEl.classList.add('visible');initOrRefreshMap()}
+  else if(tab==='smugmug'){content.style.display='none';smEl.classList.add('visible');smInit()}
+  else renderTab();
 }
 
-async function renderTab() {
-  const loc = allLocations.find(l => l.id === activeId);
-  if (!loc) return;
-  document.getElementById('main-title').innerHTML = `${loc.name} <span>${[loc.city,loc.state].filter(Boolean).join(', ')}</span>`;
-  if (activeTab === 'detail') renderDetail(loc);
-  else if (activeTab === 'files') await renderFiles(loc);
-  else if (activeTab === 'permits') await renderPermits(loc);
+async function renderTab(){
+  const loc=allLocations.find(l=>l.id===activeId);
+  if(!loc)return;
+  document.getElementById('main-title').innerHTML=`${loc.name} <span>${[loc.city,loc.state].filter(Boolean).join(', ')}</span>`;
+  if(activeTab==='detail')renderDetail(loc);
+  else if(activeTab==='files')await renderFiles(loc);
+  else if(activeTab==='permits')await renderPermits(loc);
 }
 
 // ---- DETAIL ----
-function renderDetail(loc) {
-  const tags = (loc.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('');
-  document.getElementById('content').innerHTML = `
+function renderDetail(loc){
+  const tags=(loc.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('');
+  document.getElementById('content').innerHTML=`
     <div class="detail-grid">
-      <div class="detail-card full">
-        ${loc.cover_photo_url
-          ? `<img class="cover-photo" src="${loc.cover_photo_url}" alt="${loc.name}" onerror="this.style.display='none'">`
-          : `<div class="cover-placeholder" onclick="editCoverPhoto('${loc.id}')">+ add cover photo url</div>`}
+      <div class="dc full">
+        ${loc.cover_photo_url?`<img class="cover-photo" src="${loc.cover_photo_url}" alt="${loc.name}" onerror="this.style.display='none'">`:
+        `<div class="cover-ph" onclick="editCoverPhoto('${loc.id}')">+ add cover photo url</div>`}
       </div>
-      <div class="detail-card">
-        <div class="card-head"><span class="card-head-title">location info</span>${statusBadge(loc.status)}</div>
-        <div class="card-body">
-          <div class="field-row"><span class="field-label">address</span><span class="field-val">${loc.address||'—'}</span></div>
-          <div class="field-row"><span class="field-label">city / state</span><span class="field-val">${[loc.city,loc.state].filter(Boolean).join(', ')||'—'}</span></div>
-          <div class="field-row"><span class="field-label">coordinates</span><span class="field-val" style="font-family:'DM Mono',monospace;font-size:11px">${loc.lat&&loc.lng ? `${Number(loc.lat).toFixed(5)}° N, ${Math.abs(Number(loc.lng)).toFixed(5)}° W` : '—'}</span></div>
-          <div class="field-row"><span class="field-label">added</span><span class="field-val">${new Date(loc.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span></div>
-          ${loc.smugmug_gallery_url ? `<div class="field-row"><span class="field-label">smugmug</span><span class="field-val"><a href="${loc.smugmug_gallery_url}" target="_blank">open gallery ↗</a></span></div>` : ''}
-          ${loc.lat&&loc.lng ? `<div class="field-row"><span class="field-label">view on map</span><span class="field-val"><a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank">google maps ↗</a></span></div>` : ''}
+      <div class="dc">
+        <div class="ch"><span class="cht">location info</span>${sbadge(loc.status)}</div>
+        <div class="cb">
+          <div class="fr"><span class="fl">address</span><span class="fv">${loc.address||'—'}</span></div>
+          <div class="fr"><span class="fl">city / state</span><span class="fv">${[loc.city,loc.state].filter(Boolean).join(', ')||'—'}</span></div>
+          <div class="fr"><span class="fl">coordinates</span><span class="fv" style="font-family:'DM Mono',monospace;font-size:11px">${loc.lat&&loc.lng?`${Number(loc.lat).toFixed(5)}° N, ${Math.abs(Number(loc.lng)).toFixed(5)}° W`:'—'}</span></div>
+          <div class="fr"><span class="fl">added</span><span class="fv">${new Date(loc.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span></div>
+          ${loc.smugmug_gallery_url?`<div class="fr"><span class="fl">smugmug</span><span class="fv"><a href="${loc.smugmug_gallery_url}" target="_blank">open gallery ↗</a></span></div>`:''}
+          ${loc.lat&&loc.lng?`<div class="fr"><span class="fl">maps</span><span class="fv"><a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank">google maps ↗</a></span></div>`:''}
         </div>
       </div>
-      <div class="detail-card">
-        <div class="card-head"><span class="card-head-title">tags</span></div>
-        <div class="card-body">
-          ${tags ? `<div class="tag-list">${tags}</div>` : '<span style="color:var(--text3);font-size:12px">no tags yet</span>'}
-        </div>
+      <div class="dc">
+        <div class="ch"><span class="cht">tags</span></div>
+        <div class="cb">${tags?`<div class="tag-list">${tags}</div>`:'<span style="color:var(--text3);font-size:12px">no tags yet</span>'}</div>
       </div>
-      <div class="detail-card full">
-        <div class="card-head"><span class="card-head-title">scout notes</span></div>
-        <div class="card-body">
-          <div class="notes-block">${loc.notes || '<span style="color:var(--text3)">no notes yet</span>'}</div>
-        </div>
+      <div class="dc full">
+        <div class="ch"><span class="cht">scout notes</span></div>
+        <div class="cb"><div class="notes-block">${loc.notes||'<span style="color:var(--text3)">no notes yet</span>'}</div></div>
       </div>
-      <div class="detail-card full">
-        <div class="card-head"><span class="card-head-title">actions</span></div>
-        <div class="card-body">
+      <div class="dc full">
+        <div class="ch"><span class="cht">actions</span></div>
+        <div class="cb">
           <div class="action-row">
-            <button class="action-btn" onclick="changeStatus('${loc.id}','scouted')">mark scouted</button>
-            <button class="action-btn" onclick="changeStatus('${loc.id}','pending')">mark pending</button>
-            <button class="action-btn" onclick="changeStatus('${loc.id}','approved')">mark approved</button>
-            <button class="action-btn danger" onclick="deleteLocation('${loc.id}')">delete location</button>
+            <button class="ab" onclick="changeStatus('${loc.id}','scouted')">mark scouted</button>
+            <button class="ab" onclick="changeStatus('${loc.id}','pending')">mark pending</button>
+            <button class="ab" onclick="changeStatus('${loc.id}','approved')">mark approved</button>
+            <button class="ab danger" onclick="deleteLocation('${loc.id}')">delete</button>
           </div>
         </div>
       </div>
@@ -593,405 +450,371 @@ function renderDetail(loc) {
 }
 
 // ---- FILES ----
-async function renderFiles(loc) {
-  document.getElementById('content').innerHTML = `<div class="loading"><div class="spinner"></div>loading files...</div>`;
-  try {
-    const files = await api(`files?location_id=eq.${loc.id}&order=uploaded_at.desc`);
-    const typeColors = { photo:'#4caf82', video:'#5b9bd5', pdf:'#c26060', other:'#888680' };
-    document.getElementById('content').innerHTML = `
-      <div class="detail-grid">
-        <div class="detail-card full">
-          <div class="card-head">
-            <span class="card-head-title">files (${files.length})</span>
-            <button class="action-btn" onclick="openFileModal('${loc.id}')">+ add file</button>
-          </div>
-          <div class="card-body">
-            ${!files.length ? '<div style="color:var(--text3);font-size:12px;padding:8px 0">no files yet — add SmugMug URLs or other references</div>' :
-              files.map(f => `
-                <div class="file-item">
-                  <div class="file-icon" style="color:${typeColors[f.file_type]||'#888'};border-color:${typeColors[f.file_type]||'#888'}33;background:${typeColors[f.file_type]||'#888'}11">
-                    ${f.file_type==='photo'?'IMG':f.file_type==='video'?'VID':f.file_type==='pdf'?'PDF':'FILE'}
-                  </div>
-                  <div class="file-meta">
-                    <div class="file-name">${f.filename}</div>
-                    <div class="file-sub">${f.source||'—'} · ${f.file_size||'—'} ${f.caption?'· '+f.caption:''}</div>
-                  </div>
-                  ${f.url ? `<a class="file-link" href="${f.url}" target="_blank">open ↗</a>` : ''}
-                </div>`).join('')}
-          </div>
+async function renderFiles(loc){
+  document.getElementById('content').innerHTML=`<div class="loading"><div class="spinner"></div>loading files...</div>`;
+  try{
+    const files=await api(`files?location_id=eq.${loc.id}&order=uploaded_at.desc`);
+    const tc={photo:'#4caf82',video:'#5b9bd5',pdf:'#c26060',other:'#888680'};
+    document.getElementById('content').innerHTML=`
+      <div class="detail-grid"><div class="dc full">
+        <div class="ch"><span class="cht">files (${files.length})</span><button class="ab" onclick="openFileModal('${loc.id}')">+ add file</button></div>
+        <div class="cb">${!files.length?'<div style="color:var(--text3);font-size:12px;padding:8px 0">no files yet — add SmugMug URLs via the SmugMug tab or paste directly</div>':
+          files.map(f=>`<div class="file-item">
+            <div class="ficon" style="color:${tc[f.file_type]||'#888'};border-color:${tc[f.file_type]||'#888'}33;background:${tc[f.file_type]||'#888'}11">${f.file_type==='photo'?'IMG':f.file_type==='video'?'VID':f.file_type==='pdf'?'PDF':'FILE'}</div>
+            <div class="fmeta"><div class="fname-t">${f.filename}</div><div class="fsub">${f.source||'—'} · ${f.file_size||'—'} ${f.caption?'· '+f.caption:''}</div></div>
+            ${f.url?`<a class="flink" href="${f.url}" target="_blank">open ↗</a>`:''}
+          </div>`).join('')}
         </div>
-      </div>`;
-  } catch(e) {
-    document.getElementById('content').innerHTML = `<div class="loading" style="color:var(--red)">error loading files</div>`;
-  }
+      </div></div>`;
+  }catch(e){document.getElementById('content').innerHTML=`<div class="loading" style="color:var(--red)">error loading files</div>`}
 }
 
 // ---- PERMITS ----
-async function renderPermits(loc) {
-  document.getElementById('content').innerHTML = `<div class="loading"><div class="spinner"></div>loading permits...</div>`;
-  try {
-    const permits = await api(`permits?location_id=eq.${loc.id}&order=created_at.desc`);
-    const pColors = {
-      needed:   ['var(--amber)','rgba(212,148,58,0.1)'],
-      filed:    ['var(--blue)','rgba(91,155,213,0.1)'],
-      approved: ['var(--green)','rgba(76,175,130,0.1)'],
-      denied:   ['var(--red)','rgba(194,96,96,0.1)']
-    };
-    document.getElementById('content').innerHTML = `
-      <div class="detail-grid">
-        <div class="detail-card full">
-          <div class="card-head">
-            <span class="card-head-title">permits (${permits.length})</span>
-            <button class="action-btn" onclick="openPermitModal('${loc.id}')">+ add permit</button>
-          </div>
-          <div class="card-body">
-            ${!permits.length ? '<div style="color:var(--text3);font-size:12px;padding:8px 0">no permits tracked yet</div>' :
-              permits.map(p => {
-                const [col, bg] = pColors[p.status]||['var(--text3)','var(--bg3)'];
-                return `<div class="permit-item" style="border-color:${col}33;background:${bg}">
-                  <div class="permit-header">
-                    <span class="permit-type">${p.permit_type}</span>
-                    <span class="status-badge" style="background:${bg};color:${col}">${p.status}</span>
-                  </div>
-                  <div class="permit-detail">${p.issuing_body||''} ${p.deadline?'· deadline: '+new Date(p.deadline).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):''}</div>
-                  ${p.contact_name||p.contact_email?`<div class="permit-detail" style="margin-top:3px">${p.contact_name||''} ${p.contact_email?'· '+p.contact_email:''}</div>`:''}
-                  ${p.notes?`<div class="permit-detail" style="margin-top:3px;font-style:italic">${p.notes}</div>`:''}
-                  ${p.doc_url?`<div style="margin-top:6px"><a href="${p.doc_url}" target="_blank" class="file-link">view doc ↗</a></div>`:''}
-                </div>`;
-              }).join('')}
-          </div>
+async function renderPermits(loc){
+  document.getElementById('content').innerHTML=`<div class="loading"><div class="spinner"></div>loading permits...</div>`;
+  try{
+    const permits=await api(`permits?location_id=eq.${loc.id}&order=created_at.desc`);
+    const pc={needed:['var(--amber)','rgba(212,148,58,.1)'],filed:['var(--blue)','rgba(91,155,213,.1)'],approved:['var(--green)','rgba(76,175,130,.1)'],denied:['var(--red)','rgba(194,96,96,.1)']};
+    document.getElementById('content').innerHTML=`
+      <div class="detail-grid"><div class="dc full">
+        <div class="ch"><span class="cht">permits (${permits.length})</span><button class="ab" onclick="openPermitModal('${loc.id}')">+ add permit</button></div>
+        <div class="cb">${!permits.length?'<div style="color:var(--text3);font-size:12px;padding:8px 0">no permits tracked yet</div>':
+          permits.map(p=>{const[col,bg]=pc[p.status]||['var(--text3)','var(--bg3)'];return`
+            <div class="permit-item" style="border-color:${col}33;background:${bg}">
+              <div class="ph"><span class="pt">${p.permit_type}</span><span class="sbadge" style="background:${bg};color:${col}">${p.status}</span></div>
+              <div class="pd">${p.issuing_body||''} ${p.deadline?'· deadline: '+new Date(p.deadline).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):''}</div>
+              ${p.contact_name||p.contact_email?`<div class="pd" style="margin-top:3px">${p.contact_name||''} ${p.contact_email?'· '+p.contact_email:''}</div>`:''}
+              ${p.notes?`<div class="pd" style="margin-top:3px;font-style:italic">${p.notes}</div>`:''}
+              ${p.doc_url?`<div style="margin-top:6px"><a href="${p.doc_url}" target="_blank" class="flink">view doc ↗</a></div>`:''}
+            </div>`;}).join('')}
         </div>
-      </div>`;
-  } catch(e) {
-    document.getElementById('content').innerHTML = `<div class="loading" style="color:var(--red)">error loading permits</div>`;
+      </div></div>`;
+  }catch(e){document.getElementById('content').innerHTML=`<div class="loading" style="color:var(--red)">error loading permits</div>`}
+}
+
+// ---- SMUGMUG BROWSER ----
+// Uses SmugMug's public JSON feeds — no API key needed for public galleries
+function smInit(){
+  if(smStack.length===0)smGoRoot();
+  else smRender(smStack[smStack.length-1]);
+  smRefreshLocSelect();
+}
+
+async function smGoRoot(){
+  smStack=[];
+  const grid=document.getElementById('sm-grid');
+  grid.innerHTML=`<div class="loading" style="grid-column:1/-1"><div class="spinner"></div>loading galleries...</div>`;
+  document.getElementById('sm-breadcrumb').innerHTML=`<span onclick="smGoRoot()">jordanhoffman.smugmug.com</span>`;
+  try{
+    // SmugMug public JSON feed for root albums
+    const res=await fetch(`https://www.smugmug.com/api/v2/user/${SM_USER}?APIKey=none&_accept=application%2Fjson`,{headers:{Accept:'application/json'}});
+    // Fallback: use the RSS/sitemap approach by scraping the public page via a CORS proxy isn't viable
+    // Instead we'll show the user's known gallery structure via their public profile URL format
+    smShowPublicGalleries();
+  }catch(e){
+    smShowPublicGalleries();
   }
+}
+
+function smShowPublicGalleries(){
+  // SmugMug public profile — we present the gallery browser using their public URL structure
+  // The user can navigate to specific galleries and we read the photo URLs from the SmugMug
+  // share/embed format which is publicly accessible
+  const grid=document.getElementById('sm-grid');
+  document.getElementById('sm-breadcrumb').innerHTML=`<span onclick="smGoRoot()">jordanhoffman.smugmug.com</span>`;
+
+  // Render a gallery URL input as the bridge — user pastes a SmugMug gallery URL
+  // and we fetch the photos from it using SmugMug's public oEmbed endpoint
+  grid.innerHTML=`
+    <div style="grid-column:1/-1;padding:8px 0">
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:16px;margin-bottom:16px">
+        <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);margin-bottom:8px;letter-spacing:.06em">paste any smugmug gallery url to browse its photos</div>
+        <div style="display:flex;gap:8px">
+          <input class="fi" id="sm-url-input" placeholder="https://jordanhoffman.smugmug.com/your-gallery" type="url" style="flex:1;font-size:12px;padding:7px 10px">
+          <button class="ab" onclick="smLoadGallery()" style="white-space:nowrap;flex-shrink:0">load gallery</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:8px">tip: open your smugmug profile in another tab, navigate to a gallery, and paste that url here</div>
+      </div>
+      <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text3);margin-bottom:10px">or enter a direct photo URL to attach:</div>
+      <div style="display:flex;gap:8px">
+        <input class="fi" id="sm-direct-url" placeholder="https://photos.smugmug.com/photos/..." type="url" style="flex:1;font-size:12px;padding:7px 10px">
+        <button class="ab" onclick="smAttachDirect()" style="white-space:nowrap;flex-shrink:0">attach photo</button>
+      </div>
+    </div>`;
+}
+
+async function smLoadGallery(){
+  const url=document.getElementById('sm-url-input').value.trim();
+  if(!url){toast('Enter a SmugMug gallery URL','error');return}
+  const grid=document.getElementById('sm-grid');
+  grid.innerHTML=`<div class="loading" style="grid-column:1/-1"><div class="spinner"></div>loading gallery...</div>`;
+
+  try{
+    // SmugMug exposes a public JSON feed at any gallery URL with ?format=json appended
+    // We use a CORS proxy to fetch it since SmugMug doesn't set CORS headers for this endpoint
+    const proxyUrl=`https://api.allorigins.win/get?url=${encodeURIComponent(url+'?format=json')}`;
+    const res=await fetch(proxyUrl);
+    const data=await res.json();
+    const parsed=JSON.parse(data.contents);
+
+    if(parsed&&parsed.Album&&parsed.Album.Images){
+      const images=parsed.Album.Images;
+      document.getElementById('sm-breadcrumb').innerHTML=`
+        <span onclick="smGoRoot()">jordanhoffman.smugmug.com</span>
+        <span style="color:var(--text3);margin:0 4px">/</span>
+        <span>${parsed.Album.Name||'gallery'}</span>`;
+      smStack=[{type:'gallery',name:parsed.Album.Name,url,images}];
+      smRenderPhotos(images,parsed.Album.Name);
+    } else {
+      smShowError('No photos found in this gallery. Make sure the gallery is public and the URL is correct.');
+    }
+  }catch(e){
+    smShowError('Could not load this gallery. Try navigating directly to a SmugMug gallery URL (not the root profile).');
+  }
+}
+
+function smRenderPhotos(images,galleryName){
+  const grid=document.getElementById('sm-grid');
+  if(!images||!images.length){smShowError('No photos in this gallery');return}
+  grid.innerHTML=images.map((img,i)=>`
+    <div class="sm-card" onclick="smSelectPhoto(${i})">
+      ${img.ThumbUrl?`<img class="sm-thumb" src="${img.ThumbUrl}" loading="lazy" onerror="this.style.display='none'">`:
+      `<div class="sm-thumb-ph">◎</div>`}
+      <div class="sm-label">${img.FileName||img.Title||'photo'}</div>
+      <div class="sm-sub">${img.OriginalWidth?img.OriginalWidth+'×'+img.OriginalHeight:''}${img.LargestUrl?' · '+img.Format||'':''}</div>
+    </div>`).join('');
+
+  // store images for selection
+  window._smImages=images;
+}
+
+function smShowError(msg){
+  document.getElementById('sm-grid').innerHTML=`
+    <div style="grid-column:1/-1;padding:20px;text-align:center">
+      <div style="color:var(--text3);font-size:12px;font-family:'DM Mono',monospace;margin-bottom:12px">${msg}</div>
+      <button class="ab" onclick="smGoRoot()">← go back</button>
+    </div>`;
+}
+
+function smSelectPhoto(idx){
+  const img=window._smImages&&window._smImages[idx];
+  if(!img)return;
+  smSelectedPhoto={
+    url: img.LargestUrl||img.OriginalUrl||img.ThumbUrl,
+    filename: img.FileName||img.Title||'smugmug-photo',
+    thumb: img.ThumbUrl,
+    caption: img.Caption||'',
+  };
+  // highlight selected
+  document.querySelectorAll('.sm-card').forEach((c,i)=>c.style.borderColor=i===idx?'var(--accent)':'');
+  document.getElementById('sm-attach-hint').style.display='none';
+  document.getElementById('sm-loc-select').style.display='block';
+  toast('Photo selected — choose a location to attach it to');
+}
+
+function smAttachDirect(){
+  const url=document.getElementById('sm-direct-url').value.trim();
+  if(!url){toast('Enter a photo URL','error');return}
+  smSelectedPhoto={url,filename:url.split('/').pop()||'photo',thumb:url,caption:''};
+  document.getElementById('sm-attach-hint').style.display='none';
+  document.getElementById('sm-loc-select').style.display='block';
+  toast('Photo ready — choose a location to attach it');
+}
+
+function smRefreshLocSelect(){
+  const sel=document.getElementById('sm-loc-select');
+  sel.innerHTML='<option value="">attach to location...</option>'+
+    allLocations.map(l=>`<option value="${l.id}">${l.name}</option>`).join('');
+}
+
+async function smAttachPhoto(){
+  const locId=document.getElementById('sm-loc-select').value;
+  if(!locId||!smSelectedPhoto)return;
+  try{
+    await api('files',{method:'POST',body:JSON.stringify({
+      location_id:locId,
+      filename:smSelectedPhoto.filename,
+      url:smSelectedPhoto.url,
+      file_type:'photo',
+      source:'smugmug',
+      caption:smSelectedPhoto.caption||null,
+    })});
+    // also set as cover photo if location has none
+    const loc=allLocations.find(l=>l.id===locId);
+    if(loc&&!loc.cover_photo_url&&smSelectedPhoto.thumb){
+      await api(`locations?id=eq.${locId}`,{method:'PATCH',body:JSON.stringify({cover_photo_url:smSelectedPhoto.thumb}),headers:{'Prefer':'return=minimal'}});
+      loc.cover_photo_url=smSelectedPhoto.thumb;
+    }
+    toast(`Photo attached to ${loc?.name||'location'}`);
+    smSelectedPhoto=null;
+    document.getElementById('sm-loc-select').value='';
+    document.getElementById('sm-loc-select').style.display='none';
+    document.getElementById('sm-attach-hint').style.display='block';
+    document.querySelectorAll('.sm-card').forEach(c=>c.style.borderColor='');
+  }catch(e){toast('Error attaching photo','error')}
 }
 
 // ---- GOOGLE MAPS ----
-function initOrRefreshMap() {
-  if (!mapLoaded) {
-    loadGoogleMapsScript();
-  } else if (googleMap) {
-    refreshMapPins();
-  }
+function initOrRefreshMap(){if(!mapLoaded)loadGoogleMapsScript();else if(googleMap)refreshMapPins()}
+function loadGoogleMapsScript(){
+  if(document.getElementById('gmaps-script'))return;
+  const s=document.createElement('script');
+  s.id='gmaps-script';
+  s.src=`https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&callback=onGoogleMapsReady`;
+  s.async=true;s.defer=true;document.head.appendChild(s);
 }
-
-function loadGoogleMapsScript() {
-  if (document.getElementById('gmaps-script')) return;
-  const s = document.createElement('script');
-  s.id = 'gmaps-script';
-  s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&callback=onGoogleMapsReady`;
-  s.async = true;
-  s.defer = true;
-  document.head.appendChild(s);
-}
-
-window.onGoogleMapsReady = function() {
-  mapLoaded = true;
-  const mapEl = document.getElementById('google-map');
-  googleMap = new google.maps.Map(mapEl, {
-    zoom: 12,
-    center: { lat: 40.6782, lng: -73.9442 }, // Brooklyn default
-    mapTypeId: 'roadmap',
-    styles: [
-      { elementType: 'geometry', stylers: [{ color: '#1a1c1e' }] },
-      { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1c1e' }] },
-      { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
-      { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2c2c2e' }] },
-      { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca5b3' }] },
-      { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
-      { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6d' }] },
-      { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-      { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-      { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#2c2c2e' }] },
-      { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#9aa0a6' }] },
-      { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#bdbdbd' }] },
-    ],
-    disableDefaultUI: false,
-    zoomControl: true,
-    streetViewControl: true,
-    fullscreenControl: true,
+window.onGoogleMapsReady=function(){
+  mapLoaded=true;
+  googleMap=new google.maps.Map(document.getElementById('google-map'),{
+    zoom:12,center:{lat:40.6782,lng:-73.9442},mapTypeId:'roadmap',
+    styles:[
+      {elementType:'geometry',stylers:[{color:'#1a1c1e'}]},
+      {elementType:'labels.text.stroke',stylers:[{color:'#1a1c1e'}]},
+      {elementType:'labels.text.fill',stylers:[{color:'#746855'}]},
+      {featureType:'road',elementType:'geometry',stylers:[{color:'#2c2c2e'}]},
+      {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#9ca5b3'}]},
+      {featureType:'water',elementType:'geometry',stylers:[{color:'#0e1626'}]},
+      {featureType:'water',elementType:'labels.text.fill',stylers:[{color:'#515c6d'}]},
+      {featureType:'poi',stylers:[{visibility:'off'}]},
+      {featureType:'transit',stylers:[{visibility:'off'}]},
+    ]
   });
   refreshMapPins();
 };
-
-function refreshMapPins() {
-  if (!googleMap) return;
-  mapMarkers.forEach(m => m.setMap(null));
-  mapMarkers = [];
-
-  const search = document.getElementById('search-input').value.toLowerCase();
-  const filtered = allLocations.filter(l => {
-    if (!l.lat || !l.lng) return false;
-    const matchFilter = activeFilter === 'all' || l.status === activeFilter;
-    const matchSearch = !search || l.name.toLowerCase().includes(search) ||
-      (l.city||'').toLowerCase().includes(search) ||
-      (l.tags||[]).some(t => t.toLowerCase().includes(search));
-    return matchFilter && matchSearch;
+function refreshMapPins(){
+  if(!googleMap)return;
+  mapMarkers.forEach(m=>m.setMap(null));mapMarkers=[];
+  const q=document.getElementById('search-input').value.toLowerCase();
+  const filtered=allLocations.filter(l=>{
+    if(!l.lat||!l.lng)return false;
+    const mf=activeFilter==='all'||l.status===activeFilter;
+    const ms=!q||l.name.toLowerCase().includes(q)||(l.city||'').toLowerCase().includes(q);
+    return mf&&ms;
   });
-
-  document.getElementById('map-pin-count').textContent = filtered.length;
-
-  if (!filtered.length) return;
-
-  const bounds = new google.maps.LatLngBounds();
-  const infoWindow = new google.maps.InfoWindow();
-
-  filtered.forEach(loc => {
-    const color = PIN_COLORS[loc.status] || '#888';
-    const marker = new google.maps.Marker({
-      position: { lat: Number(loc.lat), lng: Number(loc.lng) },
-      map: googleMap,
-      title: loc.name,
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 10,
-        fillColor: color,
-        fillOpacity: 1,
-        strokeColor: '#ffffff',
-        strokeWeight: 2,
-      }
+  document.getElementById('map-pin-count').textContent=filtered.length;
+  if(!filtered.length)return;
+  const bounds=new google.maps.LatLngBounds();
+  const iw=new google.maps.InfoWindow();
+  filtered.forEach(loc=>{
+    const marker=new google.maps.Marker({
+      position:{lat:Number(loc.lat),lng:Number(loc.lng)},
+      map:googleMap,title:loc.name,
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:10,fillColor:PIN_COLORS[loc.status]||'#888',fillOpacity:1,strokeColor:'#ffffff',strokeWeight:2}
     });
-
-    const c = STATUS_LABELS[loc.status] || STATUS_LABELS.identified;
-    const tagsHtml = (loc.tags||[]).slice(0,4).join(', ');
-    const infoContent = `
-      <div class="gm-info">
+    const x=SL[loc.status]||SL.identified;
+    marker.addListener('click',()=>{
+      iw.setContent(`<div class="gm-info">
         <div class="gm-info-name">${loc.name}</div>
         <div class="gm-info-addr">${[loc.address,loc.city,loc.state].filter(Boolean).join(', ')||''}</div>
-        <span class="gm-info-status" style="background:${c.bg};color:${c.color}">${loc.status}</span>
-        ${tagsHtml ? `<div class="gm-info-tags">${tagsHtml}</div>` : ''}
-        ${loc.notes ? `<div class="gm-info-tags" style="font-style:italic;margin-bottom:8px">${loc.notes.substring(0,80)}${loc.notes.length>80?'...':''}</div>` : ''}
-        <button class="gm-info-link" onclick="openDetailFromMap('${loc.id}')">open full detail →</button>
-      </div>`;
-
-    marker.addListener('click', () => {
-      infoWindow.setContent(infoContent);
-      infoWindow.open(googleMap, marker);
+        <span class="gm-info-badge" style="background:${x.bg};color:${x.c}">${loc.status}</span>
+        ${(loc.tags||[]).length?`<div class="gm-info-tags">${loc.tags.slice(0,4).join(', ')}</div>`:''}
+        ${loc.notes?`<div class="gm-info-tags" style="font-style:italic">${loc.notes.substring(0,80)}${loc.notes.length>80?'...':''}</div>`:''}
+        <button class="gm-info-btn" onclick="openDetailFromMap('${loc.id}')">open full detail →</button>
+      </div>`);
+      iw.open(googleMap,marker);
     });
-
-    mapMarkers.push(marker);
-    bounds.extend(marker.getPosition());
+    mapMarkers.push(marker);bounds.extend(marker.getPosition());
   });
-
-  if (filtered.length === 1) {
-    googleMap.setCenter({ lat: Number(filtered[0].lat), lng: Number(filtered[0].lng) });
-    googleMap.setZoom(15);
-  } else {
-    googleMap.fitBounds(bounds, { padding: 60 });
-  }
+  if(filtered.length===1){googleMap.setCenter({lat:Number(filtered[0].lat),lng:Number(filtered[0].lng)});googleMap.setZoom(15)}
+  else googleMap.fitBounds(bounds,{padding:60});
 }
-
-window.openDetailFromMap = function(id) {
-  activeId = id;
-  renderList();
-  setTab('detail');
-};
+window.openDetailFromMap=function(id){activeId=id;renderList();setTab('detail')};
 
 // ---- KML EXPORT ----
-function exportKML() {
-  const withCoords = allLocations.filter(l => l.lat && l.lng);
-  if (!withCoords.length) {
-    showToast('No locations with coordinates to export', 'error');
-    return;
-  }
-
-  const statusIcons = {
-    identified: 'http://maps.google.com/mapfiles/ms/icons/grey-dot.png',
-    scouted:    'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
-    pending:    'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
-    approved:   'http://maps.google.com/mapfiles/ms/icons/green-dot.png',
-    rejected:   'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
-  };
-
-  const placemarks = withCoords.map(loc => {
-    const icon = statusIcons[loc.status] || statusIcons.identified;
-    const tags = (loc.tags||[]).join(', ');
-    const desc = [
-      loc.address ? `Address: ${[loc.address,loc.city,loc.state].filter(Boolean).join(', ')}` : '',
-      `Status: ${loc.status}`,
-      tags ? `Tags: ${tags}` : '',
-      loc.notes ? `Notes: ${loc.notes}` : '',
-      loc.smugmug_gallery_url ? `SmugMug: ${loc.smugmug_gallery_url}` : '',
-      `Added: ${new Date(loc.created_at).toLocaleDateString()}`,
-    ].filter(Boolean).join('\n');
-
-    return `  <Placemark>
-    <name>${escXML(loc.name)}</name>
-    <description>${escXML(desc)}</description>
-    <Style><IconStyle><Icon><href>${icon}</href></Icon></IconStyle></Style>
-    <Point><coordinates>${loc.lng},${loc.lat},0</coordinates></Point>
-  </Placemark>`;
-  }).join('\n');
-
-  const kml = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-<Document>
-  <name>Scout — Location Database</name>
-  <description>Exported from Scout app on ${new Date().toLocaleDateString()}</description>
-${placemarks}
-</Document>
-</kml>`;
-
-  const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `scout-locations-${new Date().toISOString().slice(0,10)}.kml`;
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast(`Exported ${withCoords.length} locations as KML`);
+function exportKML(){
+  const wc=allLocations.filter(l=>l.lat&&l.lng);
+  if(!wc.length){toast('No locations with coordinates','error');return}
+  const icons={identified:'http://maps.google.com/mapfiles/ms/icons/grey-dot.png',scouted:'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',pending:'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png',approved:'http://maps.google.com/mapfiles/ms/icons/green-dot.png',rejected:'http://maps.google.com/mapfiles/ms/icons/red-dot.png'};
+  const ex=s=>s?(s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):'';
+  const pm=wc.map(l=>`  <Placemark>
+    <n>${ex(l.name)}</n>
+    <description>${ex([l.address?`Address: ${[l.address,l.city,l.state].filter(Boolean).join(', ')}`:null,`Status: ${l.status}`,(l.tags||[]).length?`Tags: ${l.tags.join(', ')}`:null,l.notes?`Notes: ${l.notes}`:null,l.smugmug_gallery_url?`SmugMug: ${l.smugmug_gallery_url}`:null].filter(Boolean).join('\n'))}</description>
+    <Style><IconStyle><Icon><href>${icons[l.status]||icons.identified}</href></Icon></IconStyle></Style>
+    <Point><coordinates>${l.lng},${l.lat},0</coordinates></Point>
+  </Placemark>`).join('\n');
+  const kml=`<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n  <n>Scout — ${new Date().toLocaleDateString()}</n>\n${pm}\n</Document>\n</kml>`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([kml],{type:'application/vnd.google-earth.kml+xml'}));a.download=`scout-${new Date().toISOString().slice(0,10)}.kml`;a.click();
+  toast(`Exported ${wc.length} locations`);
 }
 
-function escXML(str) {
-  if (!str) return '';
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ---- SAVE LOCATION ----
-function openAddModal() {
-  ['f-name','f-address','f-city','f-state','f-lat','f-lng','f-tags','f-smugmug','f-cover','f-notes'].forEach(id => document.getElementById(id).value='');
-  document.getElementById('f-status').value = 'identified';
+// ---- CRUD ----
+function openAddModal(){
+  ['f-name','f-address','f-city','f-state','f-lat','f-lng','f-tags','f-smugmug','f-cover','f-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f-status').value='identified';
   document.getElementById('add-modal').classList.add('open');
   document.getElementById('f-name').focus();
 }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id){document.getElementById(id).classList.remove('open')}
 
-async function saveLocation() {
-  const name = document.getElementById('f-name').value.trim();
-  if (!name) { showToast('Location name is required', 'error'); return; }
-  const btn = document.getElementById('save-btn');
-  btn.disabled = true; btn.textContent = 'saving...';
-  const tagsRaw = document.getElementById('f-tags').value;
-  const tags = tagsRaw ? tagsRaw.split(',').map(t=>t.trim()).filter(Boolean) : [];
-  const payload = {
-    name,
-    address: document.getElementById('f-address').value||null,
-    city: document.getElementById('f-city').value||null,
-    state: document.getElementById('f-state').value||null,
-    lat: document.getElementById('f-lat').value ? parseFloat(document.getElementById('f-lat').value) : null,
-    lng: document.getElementById('f-lng').value ? parseFloat(document.getElementById('f-lng').value) : null,
-    status: document.getElementById('f-status').value,
-    tags,
-    smugmug_gallery_url: document.getElementById('f-smugmug').value||null,
-    cover_photo_url: document.getElementById('f-cover').value||null,
-    notes: document.getElementById('f-notes').value||null,
-  };
-  try {
-    const [newLoc] = await api('locations', { method:'POST', body: JSON.stringify(payload) });
-    allLocations.unshift(newLoc);
-    document.getElementById('loc-count').textContent = `· ${allLocations.length} location${allLocations.length!==1?'s':''}`;
-    renderList();
-    closeModal('add-modal');
-    selectLocation(newLoc.id);
-    showToast(`${name} added`);
-    if (googleMap) refreshMapPins();
-  } catch(e) {
-    showToast('Error saving location', 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = 'save location';
-  }
-}
-
-async function changeStatus(id, status) {
-  try {
-    await api(`locations?id=eq.${id}`, { method:'PATCH', body: JSON.stringify({status}), headers:{'Prefer':'return=minimal'} });
-    const loc = allLocations.find(l=>l.id===id);
-    if (loc) loc.status = status;
-    renderList();
-    if (activeId === id) renderTab();
-    if (googleMap) refreshMapPins();
-    showToast(`Status → ${status}`);
-  } catch(e) { showToast('Error updating status','error'); }
-}
-
-async function deleteLocation(id) {
-  if (!confirm('Delete this location? This cannot be undone.')) return;
-  try {
-    await api(`locations?id=eq.${id}`, { method:'DELETE', headers:{'Prefer':'return=minimal'} });
-    allLocations = allLocations.filter(l=>l.id!==id);
-    activeId = null;
-    renderList();
-    document.getElementById('content').innerHTML = `<div class="empty-state"><div class="big">◎</div><div>location deleted</div></div>`;
-    document.getElementById('main-title').innerHTML = 'Select a location';
-    if (googleMap) refreshMapPins();
-    showToast('Location deleted');
-  } catch(e) { showToast('Error deleting','error'); }
-}
-
-function editCoverPhoto(id) {
-  const url = prompt('Enter cover photo URL (direct image link):');
-  if (!url) return;
-  changeField(id, {cover_photo_url: url});
-}
-async function changeField(id, fields) {
-  try {
-    await api(`locations?id=eq.${id}`, { method:'PATCH', body: JSON.stringify(fields), headers:{'Prefer':'return=minimal'} });
-    Object.assign(allLocations.find(l=>l.id===id), fields);
-    renderTab();
-    showToast('Updated');
-  } catch(e) { showToast('Error updating','error'); }
-}
-
-// ---- FILES ----
-let fileLocationId = null;
-function openFileModal(locId) {
-  fileLocationId = locId;
-  ['ff-name','ff-url','ff-caption','ff-size'].forEach(id => document.getElementById(id).value='');
-  document.getElementById('file-modal').classList.add('open');
-}
-async function saveFile() {
-  const name = document.getElementById('ff-name').value.trim();
-  const url = document.getElementById('ff-url').value.trim();
-  if (!name||!url) { showToast('Filename and URL required','error'); return; }
-  try {
-    await api('files', { method:'POST', body: JSON.stringify({
-      location_id: fileLocationId, filename: name, url,
-      file_type: document.getElementById('ff-type').value,
-      source: document.getElementById('ff-source').value,
-      caption: document.getElementById('ff-caption').value||null,
-      file_size: document.getElementById('ff-size').value||null,
+async function saveLocation(){
+  const name=document.getElementById('f-name').value.trim();
+  if(!name){toast('Location name is required','error');return}
+  const btn=document.getElementById('save-btn');btn.disabled=true;btn.textContent='saving...';
+  const tags=document.getElementById('f-tags').value?document.getElementById('f-tags').value.split(',').map(t=>t.trim()).filter(Boolean):[];
+  try{
+    const[n]=await api('locations',{method:'POST',body:JSON.stringify({
+      name,address:document.getElementById('f-address').value||null,city:document.getElementById('f-city').value||null,state:document.getElementById('f-state').value||null,
+      lat:document.getElementById('f-lat').value?parseFloat(document.getElementById('f-lat').value):null,lng:document.getElementById('f-lng').value?parseFloat(document.getElementById('f-lng').value):null,
+      status:document.getElementById('f-status').value,tags,smugmug_gallery_url:document.getElementById('f-smugmug').value||null,cover_photo_url:document.getElementById('f-cover').value||null,notes:document.getElementById('f-notes').value||null,
     })});
-    closeModal('file-modal');
-    showToast('File added');
-    if (activeId===fileLocationId) renderFiles(allLocations.find(l=>l.id===activeId));
-  } catch(e) { showToast('Error adding file','error'); }
+    allLocations.unshift(n);document.getElementById('loc-count').textContent=`· ${allLocations.length} locations`;
+    renderList();closeModal('add-modal');selectLocation(n.id);toast(`${name} added`);
+    if(googleMap)refreshMapPins();smRefreshLocSelect();
+  }catch(e){toast('Error saving location','error')}
+  finally{btn.disabled=false;btn.textContent='save location'}
 }
 
-// ---- PERMITS ----
-let permitLocationId = null;
-function openPermitModal(locId) {
-  permitLocationId = locId;
-  ['fp-type','fp-body','fp-contact','fp-email','fp-doc','fp-notes','fp-deadline'].forEach(id => document.getElementById(id).value='');
-  document.getElementById('fp-status').value = 'needed';
-  document.getElementById('permit-modal').classList.add('open');
-}
-async function savePermit() {
-  const type = document.getElementById('fp-type').value.trim();
-  if (!type) { showToast('Permit type required','error'); return; }
-  try {
-    await api('permits', { method:'POST', body: JSON.stringify({
-      location_id: permitLocationId, permit_type: type,
-      status: document.getElementById('fp-status').value,
-      issuing_body: document.getElementById('fp-body').value||null,
-      contact_name: document.getElementById('fp-contact').value||null,
-      contact_email: document.getElementById('fp-email').value||null,
-      deadline: document.getElementById('fp-deadline').value||null,
-      doc_url: document.getElementById('fp-doc').value||null,
-      notes: document.getElementById('fp-notes').value||null,
-    })});
-    closeModal('permit-modal');
-    showToast('Permit added');
-    if (activeId===permitLocationId) renderPermits(allLocations.find(l=>l.id===activeId));
-  } catch(e) { showToast('Error adding permit','error'); }
+async function changeStatus(id,status){
+  try{
+    await api(`locations?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({status}),headers:{'Prefer':'return=minimal'}});
+    const l=allLocations.find(l=>l.id===id);if(l)l.status=status;
+    renderList();if(activeId===id)renderTab();if(googleMap)refreshMapPins();toast(`Status → ${status}`);
+  }catch(e){toast('Error updating status','error')}
 }
 
-// ---- KEYBOARD ----
-document.addEventListener('keydown', e => {
-  if (e.key==='Escape') document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));
-  if ((e.metaKey||e.ctrlKey)&&e.key==='k') { e.preventDefault(); document.getElementById('search-input').focus(); }
+async function deleteLocation(id){
+  if(!confirm('Delete this location? Cannot be undone.'))return;
+  try{
+    await api(`locations?id=eq.${id}`,{method:'DELETE',headers:{'Prefer':'return=minimal'}});
+    allLocations=allLocations.filter(l=>l.id!==id);activeId=null;renderList();
+    document.getElementById('content').innerHTML=`<div class="empty-state"><div class="big">◎</div><div>location deleted</div></div>`;
+    document.getElementById('main-title').innerHTML='Select a location';
+    if(googleMap)refreshMapPins();smRefreshLocSelect();toast('Location deleted');
+  }catch(e){toast('Error deleting','error')}
+}
+
+function editCoverPhoto(id){const url=prompt('Enter cover photo URL:');if(!url)return;changeField(id,{cover_photo_url:url})}
+async function changeField(id,fields){
+  try{await api(`locations?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(fields),headers:{'Prefer':'return=minimal'}});Object.assign(allLocations.find(l=>l.id===id),fields);renderTab();toast('Updated')}
+  catch(e){toast('Error updating','error')}
+}
+
+let fileLocId=null;
+function openFileModal(locId){fileLocId=locId;['ff-name','ff-url','ff-caption','ff-size'].forEach(id=>document.getElementById(id).value='');document.getElementById('file-modal').classList.add('open')}
+async function saveFile(){
+  const name=document.getElementById('ff-name').value.trim(),url=document.getElementById('ff-url').value.trim();
+  if(!name||!url){toast('Filename and URL required','error');return}
+  try{
+    await api('files',{method:'POST',body:JSON.stringify({location_id:fileLocId,filename:name,url,file_type:document.getElementById('ff-type').value,source:document.getElementById('ff-source').value,caption:document.getElementById('ff-caption').value||null,file_size:document.getElementById('ff-size').value||null})});
+    closeModal('file-modal');toast('File added');if(activeId===fileLocId)renderFiles(allLocations.find(l=>l.id===activeId));
+  }catch(e){toast('Error adding file','error')}
+}
+
+let permitLocId=null;
+function openPermitModal(locId){permitLocId=locId;['fp-type','fp-body','fp-contact','fp-email','fp-doc','fp-notes','fp-deadline'].forEach(id=>document.getElementById(id).value='');document.getElementById('fp-status').value='needed';document.getElementById('permit-modal').classList.add('open')}
+async function savePermit(){
+  const type=document.getElementById('fp-type').value.trim();if(!type){toast('Permit type required','error');return}
+  try{
+    await api('permits',{method:'POST',body:JSON.stringify({location_id:permitLocId,permit_type:type,status:document.getElementById('fp-status').value,issuing_body:document.getElementById('fp-body').value||null,contact_name:document.getElementById('fp-contact').value||null,contact_email:document.getElementById('fp-email').value||null,deadline:document.getElementById('fp-deadline').value||null,doc_url:document.getElementById('fp-doc').value||null,notes:document.getElementById('fp-notes').value||null})});
+    closeModal('permit-modal');toast('Permit added');if(activeId===permitLocId)renderPermits(allLocations.find(l=>l.id===activeId));
+  }catch(e){toast('Error adding permit','error')}
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape')document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));
+  if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();document.getElementById('search-input').focus()}
 });
-document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if(e.target===m) m.classList.remove('open'); }));
+document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open')}));
 
 loadLocations();
 </script>
