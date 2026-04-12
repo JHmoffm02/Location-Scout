@@ -418,9 +418,36 @@ async function startSync(){
     if(!cr.ok)throw new Error(await cr.text());
     const{library}=await cr.json();
     label.textContent=`found ${library.albums?.length||0} albums, ${library.images?.length||0} photos — syncing...`;fill.style.width='50%';
-    const sr=await fetch('https://location-scout-sand.vercel.app/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library})});
-    if(!sr.ok)throw new Error(await sr.text());
-    const{stats}=await sr.json();
+// Split images into chunks of 200 and sync separately
+const CHUNK = 200;
+const stats = { folders: 0, albums: 0, images: 0, locations: 0 };
+
+// Sync folders + albums first
+const sr1 = await fetch('https://location-scout-sand.vercel.app/api/sync', {
+  method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({ library: { folders: library.folders, albums: library.albums, images: [] } })
+});
+if(!sr1.ok) throw new Error(await sr1.text());
+const r1 = await sr1.json();
+stats.folders = r1.stats.folders;
+stats.albums = r1.stats.albums;
+
+// Sync images in chunks
+const totalChunks = Math.ceil(library.images.length / CHUNK);
+for (let i = 0; i < library.images.length; i += CHUNK) {
+  const chunk = library.images.slice(i, i + CHUNK);
+  const chunkNum = Math.floor(i/CHUNK) + 1;
+  label.textContent = `syncing photos... ${chunkNum}/${totalChunks}`;
+  fill.style.width = (50 + (chunkNum/totalChunks)*45) + '%';
+  const sr = await fetch('https://location-scout-sand.vercel.app/api/sync', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ library: { folders: [], albums: [], images: chunk } })
+  });
+  if(!sr.ok) throw new Error(await sr.text());
+  const r = await sr.json();
+  stats.images += r.stats.images;
+  stats.locations += r.stats.locations;
+}
     fill.style.width='100%';label.textContent=`synced ${stats.images} photos across ${stats.albums} albums`;
     await loadLocations();refreshPins();checkSyncStatus();
     toast(`Library synced — ${stats.images} photos, ${stats.locations} new locations`);
