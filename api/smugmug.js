@@ -199,7 +199,7 @@ module.exports = async function handler(req, res) {
     if (action === 'auth') {
       const host = req.headers.host || '';
       const proto = host.includes('localhost') ? 'http' : 'https';
-      const callbackUrl = `${proto}://${host}/api/smugmug?action=callback`;
+      const callbackUrl = `${proto}://${host}/api/smugmug?action=callback&v=2`;
       const { requestToken, requestTokenSecret } = await getRequestToken(callbackUrl);
       res.setHeader('Set-Cookie', `sm_rts=${requestTokenSecret}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`);
       const authUrl = `https://api.smugmug.com/services/oauth/1.0a/authorize?oauth_token=${requestToken}&Access=Full&Permissions=Read`;
