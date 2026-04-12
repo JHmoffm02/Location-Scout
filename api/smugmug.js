@@ -1,66 +1,60 @@
 // api/smugmug.js
 const crypto = require('crypto');
-
 const SM_API = 'https://api.smugmug.com/api/v2';
 
-function oauthSign(method, baseUrl, oauthParams, queryParams, consumerSecret, tokenSecret = '') {
-  // Merge only oauth params and query params for signature — keep them separate from URL
-  const allParams = { ...queryParams, ...oauthParams };
-
-  const sortedParams = Object.keys(allParams)
-    .sort()
-    .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(allParams[k])}`)
-    .join('&');
-
-  const baseString = [
-    method.toUpperCase(),
-    encodeURIComponent(baseUrl),
-    encodeURIComponent(sortedParams)
-  ].join('&');
-
-  const signingKey = `${encodeURIComponent(consumerSecret)}&${encodeURIComponent(tokenSecret)}`;
-  const signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64');
-
-  const headerParams = { ...oauthParams, oauth_signature: signature };
-  return 'OAuth ' + Object.keys(headerParams)
-    .map(k => `${encodeURIComponent(k)}="${encodeURIComponent(headerParams[k])}"`)
-    .join(', ');
+function buildAuthHeader(method, baseUrl, oauthParams, signatureParams, consumerSecret, tokenSecret) {
+  // signatureParams: only params that go INTO the signature (no _accept, no _expand in some cases)
+  const allForSig = { ...signatureParams, ...oauthParams };
+  const sortedStr = Object.keys(allForSig).sort()
+    .map(k => `${pct(k)}=${pct(allForSig[k])}`).join('&');
+  const baseString = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(sortedStr)}`;
+  const sigKey = `${pct(consumerSecret)}&${pct(tokenSecret || '')}`;
+  const sig = crypto.createHmac('sha1', sigKey).update(baseString).digest('base64');
+  const headerParts = { ...oauthParams, oauth_signature: sig };
+  return 'OAuth ' + Object.keys(headerParts)
+    .map(k => `${pct(k)}="${pct(headerParts[k])}"`).join(', ');
 }
 
-async function smRequest(path, accessToken, accessTokenSecret, queryParams = {}) {
-  const consumerKey = process.env.SMUGMUG_KEY;
-  const consumerSecret = process.env.SMUGMUG_SECRET;
+function pct(s) { return encodeURIComponent(s); }
 
-  // Build clean base URL (no query string)
-  const baseUrl = path.startsWith('http') ? path.split('?')[0] : `${SM_API}${path.split('?')[0]}`;
-
-  // Merge any existing query params from path with passed queryParams
-  const allQueryParams = { ...queryParams };
-
-  const oauthParams = {
+function makeOauthParams(consumerKey, accessToken) {
+  const p = {
     oauth_consumer_key: consumerKey,
     oauth_nonce: crypto.randomBytes(16).toString('hex'),
     oauth_signature_method: 'HMAC-SHA1',
     oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
     oauth_version: '1.0',
   };
-  if (accessToken) oauthParams.oauth_token = accessToken;
+  if (accessToken) p.oauth_token = accessToken;
+  return p;
+}
 
-  const authHeader = oauthSign('GET', baseUrl, oauthParams, allQueryParams, consumerSecret, accessTokenSecret || '');
+async function smRequest(path, accessToken, accessTokenSecret, extraParams = {}) {
+  const consumerKey = process.env.SMUGMUG_KEY;
+  const consumerSecret = process.env.SMUGMUG_SECRET;
 
-  // Build final URL with query params
+  // Clean base URL — strip any query string
+  const baseUrl = (path.startsWith('http') ? path : `${SM_API}${path}`).split('?')[0];
+
+  const oauthParams = makeOauthParams(consumerKey, accessToken);
+
+  // extraParams go into signature AND onto the URL (but NOT _accept)
+  const authHeader = buildAuthHeader(
+    'GET', baseUrl, oauthParams,
+    extraParams, // only extraParams in signature, not _accept
+    consumerSecret, accessTokenSecret || ''
+  );
+
+  // Build final URL: base + extraParams + _accept (accept added AFTER signing)
   const finalUrl = new URL(baseUrl);
-  Object.entries(allQueryParams).forEach(([k, v]) => finalUrl.searchParams.set(k, v));
+  Object.entries(extraParams).forEach(([k, v]) => finalUrl.searchParams.set(k, v));
   finalUrl.searchParams.set('_accept', 'application/json');
 
   const res = await fetch(finalUrl.toString(), {
     headers: { Authorization: authHeader, Accept: 'application/json' }
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`SmugMug API ${res.status}: ${text}`);
-  }
+  if (!res.ok) throw new Error(`SmugMug API ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
@@ -69,33 +63,19 @@ async function getRequestToken(callbackUrl) {
   const consumerSecret = process.env.SMUGMUG_SECRET;
   const url = 'https://api.smugmug.com/services/oauth/1.0a/getRequestToken';
 
-  const oauthParams = {
-    oauth_consumer_key: consumerKey,
-    oauth_nonce: crypto.randomBytes(16).toString('hex'),
-    oauth_signature_method: 'HMAC-SHA1',
-    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
-    oauth_version: '1.0',
-    oauth_callback: callbackUrl,
-  };
+  const oauthParams = makeOauthParams(consumerKey, null);
+  oauthParams.oauth_callback = callbackUrl;
 
-  const sortedParams = Object.keys(oauthParams).sort()
-    .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(oauthParams[k])}`).join('&');
-  const baseString = ['POST', encodeURIComponent(url), encodeURIComponent(sortedParams)].join('&');
-  const signingKey = `${encodeURIComponent(consumerSecret)}&`;
-  const signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64');
-  oauthParams.oauth_signature = signature;
-
-  const authHeader = 'OAuth ' + Object.keys(oauthParams)
-    .map(k => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`)
-    .join(', ');
+  const authHeader = buildAuthHeader('POST', url, oauthParams, {}, consumerSecret, '');
 
   const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: authHeader, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `oauth_callback=${encodeURIComponent(callbackUrl)}`
+    body: `oauth_callback=${pct(callbackUrl)}`
   });
 
   const text = await res.text();
+  if (!res.ok) throw new Error(`Request token failed: ${text}`);
   const params = new URLSearchParams(text);
   return {
     requestToken: params.get('oauth_token'),
@@ -108,34 +88,19 @@ async function getAccessToken(requestToken, requestTokenSecret, verifier) {
   const consumerSecret = process.env.SMUGMUG_SECRET;
   const url = 'https://api.smugmug.com/services/oauth/1.0a/getAccessToken';
 
-  const oauthParams = {
-    oauth_consumer_key: consumerKey,
-    oauth_nonce: crypto.randomBytes(16).toString('hex'),
-    oauth_signature_method: 'HMAC-SHA1',
-    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
-    oauth_version: '1.0',
-    oauth_token: requestToken,
-    oauth_verifier: verifier,
-  };
+  const oauthParams = makeOauthParams(consumerKey, requestToken);
+  oauthParams.oauth_verifier = verifier;
 
-  const sortedParams = Object.keys(oauthParams).sort()
-    .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(oauthParams[k])}`).join('&');
-  const baseString = ['POST', encodeURIComponent(url), encodeURIComponent(sortedParams)].join('&');
-  const signingKey = `${encodeURIComponent(consumerSecret)}&${encodeURIComponent(requestTokenSecret)}`;
-  const signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64');
-  oauthParams.oauth_signature = signature;
-
-  const authHeader = 'OAuth ' + Object.keys(oauthParams)
-    .map(k => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`)
-    .join(', ');
+  const authHeader = buildAuthHeader('POST', url, oauthParams, {}, consumerSecret, requestTokenSecret);
 
   const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: authHeader, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `oauth_verifier=${encodeURIComponent(verifier)}`
+    body: `oauth_verifier=${pct(verifier)}`
   });
 
   const text = await res.text();
+  if (!res.ok) throw new Error(`Access token failed: ${text}`);
   const params = new URLSearchParams(text);
   return {
     accessToken: params.get('oauth_token'),
@@ -155,7 +120,6 @@ async function crawlLibrary(accessToken, accessTokenSecret) {
     try {
       nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret, { _expand: 'ChildNodes' });
     } catch(e) { console.error('crawlNode error:', e.message); return; }
-
     const node = nodeRes.Response?.Node;
     if (!node) return;
     const nodePath = path ? `${path}/${node.Name}` : node.Name;
@@ -174,7 +138,6 @@ async function crawlLibrary(accessToken, accessTokenSecret) {
       try { albumRes = await smRequest(albumUri, accessToken, accessTokenSecret); } catch(e) { return; }
       const album = albumRes.Response?.Album;
       if (!album) return;
-
       results.albums.push({
         id: album.AlbumKey, name: album.Name, path: nodePath,
         url: album.WebUri, uri: albumUri,
@@ -193,7 +156,10 @@ async function crawlLibrary(accessToken, accessTokenSecret) {
     while (true) {
       let imagesRes;
       try {
-        imagesRes = await smRequest(albumImagesUri, accessToken, accessTokenSecret, { count: String(perPage), start: String(start) });
+        imagesRes = await smRequest(
+          albumImagesUri, accessToken, accessTokenSecret,
+          { count: String(perPage), start: String(start) }
+        );
       } catch(e) { break; }
       const images = imagesRes.Response?.AlbumImage || [];
       const imageArr = Array.isArray(images) ? images : [images];
@@ -244,19 +210,19 @@ module.exports = async function handler(req, res) {
     if (action === 'callback') {
       const { oauth_token, oauth_verifier } = req.query;
       const cookieStr = req.headers.cookie || '';
-      const rts = cookieStr.split(';').find(c => c.trim().startsWith('sm_rts='));
-      const requestTokenSecret = rts ? rts.split('=')[1].trim() : '';
+      const rtsCookie = cookieStr.split(';').find(c => c.trim().startsWith('sm_rts='));
+      const requestTokenSecret = rtsCookie ? rtsCookie.split('=')[1].trim() : '';
       if (!oauth_token || !oauth_verifier) { res.status(400).json({ error: 'Missing OAuth params' }); return; }
       const { accessToken, accessTokenSecret } = await getAccessToken(oauth_token, requestTokenSecret, oauth_verifier);
       const host = req.headers.host || '';
       const proto = host.includes('localhost') ? 'http' : 'https';
-      const payload = encodeURIComponent(JSON.stringify({ accessToken, accessTokenSecret }));
+      const payload = pct(JSON.stringify({ accessToken, accessTokenSecret }));
       res.writeHead(302, { Location: `${proto}://${host}/#sm_auth=${payload}` });
       res.end();
       return;
     }
 
-    // Get tokens from Authorization header
+    // Parse tokens from Authorization header
     let accessToken = '', accessTokenSecret = '';
     const authHeader = req.headers.authorization || '';
     if (authHeader.startsWith('Bearer ')) {
