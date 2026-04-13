@@ -745,10 +745,6 @@ async function loadProjects() {
 let libCurrentPath = null;
 let libNavStack = [];
 
-function libSlugToName(slug) {
-  return (slug || '').replace(/-/g, ' ');
-}
-
 async function libBrowse(path, label) {
   libCurrentPath = path;
   const grid = document.getElementById('library-grid');
@@ -762,11 +758,11 @@ async function libBrowse(path, label) {
   } else {
     const existing = libNavStack.findIndex(n => n.path === path);
     if (existing >= 0) libNavStack = libNavStack.slice(0, existing + 1);
-    else libNavStack.push({ path, label: label || libSlugToName(path.split('/').pop()) });
+    else libNavStack.push({ path, label: label || path.split('/').pop().replace(/-/g,' ') });
     let html = '<span onclick="libBrowse(null)">Master Library</span>';
     libNavStack.forEach((n, i) => {
-      html += '<span class="sep"> / </span>';
       const np = n.path, nl = n.label;
+      html += '<span class="sep"> / </span>';
       if (i < libNavStack.length - 1) html += `<span onclick="libBrowse('${np}','${nl}')">${n.label}</span>`;
       else html += `<span class="cur">${n.label}</span>`;
     });
@@ -774,137 +770,65 @@ async function libBrowse(path, label) {
   }
 
   try {
-    if (!path) {
-      await libShowRoot(grid);
-    } else {
-      await libShowFolder(path, grid);
-    }
+    const targetPath = path || 'Master-Library';
+    const depth = targetPath.split('/').filter(Boolean).length;
+    // At root we show contents of Master-Library (depth 1 folders)
+
+    // Load all folders and albums
+    const allFolders = await db('smugmug_folders?select=name,path&order=path.asc');
+    const allAlbums = await db('smugmug_albums?select=sm_key,name,path,web_url,image_count&order=name.asc');
+
+    // Find direct subfolders (exactly one level deeper than targetPath)
+    const subFolders = allFolders.filter(f => {
+      if (!f.path) return false;
+      if (!f.path.startsWith(targetPath + '/')) return false;
+      const rest = f.path.slice(targetPath.length + 1);
+      return !rest.includes('/'); // direct child only
+    });
+
+    // Find direct albums (path matches exactly)
+    const directAlbums = allAlbums.filter(a => {
+      if (!a.path) return false;
+      return a.path === targetPath;
+    });
+
+    let cards = '';
+
+    // Folder cards
+    subFolders.forEach(f => {
+      // Count albums in this folder and subfolders
+      const count = allAlbums.filter(a => a.path && a.path.startsWith(f.path)).length;
+      const displayName = f.name || f.path.split('/').pop().replace(/-/g,' ');
+      cards += `<div class="gcard gcard-folder" onclick="libBrowse('${f.path}','${displayName}')">
+        <div class="gcard-tw" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--bg4)">
+          <div style="font-size:24px;opacity:.3;color:var(--text2)">▤</div>
+          <div style="font-size:11px;font-weight:500;color:var(--text2);text-align:center;padding:0 12px;line-height:1.4">${displayName}</div>
+          <div style="font-size:9px;color:var(--text3);font-family:'DM Mono',monospace">${count} location${count!==1?'s':''}</div>
+        </div>
+        <div class="gcard-meta">folder</div>
+      </div>`;
+    });
+
+    // Album cards
+    directAlbums.forEach(a => {
+      const loc = locations.find(l => l.smugmug_album_key === a.sm_key || l.smugmug_gallery_url === a.web_url);
+      const thumb = loc?.cover_photo_url || '';
+      const sl = loc ? SL[loc.status] || SL.identified : null;
+      cards += `<div class="gcard" onclick="${loc ? `openLibDetail('${loc.id}')` : `window.open('${a.web_url||'#'}','_blank')`}">
+        <div class="gcard-tw">
+          ${thumb ? `<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">` : ''}
+          <div class="gcard-ph">${thumb ? '' : 'no photo'}</div>
+          <div class="gcard-overlay">${a.name}</div>
+        </div>
+        <div class="gcard-meta">${sl ? `<span style="color:${sl.c}">${loc.status}</span> · ` : ''}${a.image_count||0} photos</div>
+      </div>`;
+    });
+
+    grid.innerHTML = cards || '<div class="empty">empty folder</div>';
+
   } catch(e) {
     grid.innerHTML = `<div class="empty">error: ${e.message}</div>`;
   }
-}
-
-async function libShowRoot(grid) {
-  // Get all unique top-level folder segments from smugmug_albums paths
-  const albums = await db('smugmug_albums?select=path,name,sm_key,web_url,image_count&order=path.asc');
-  const folders = await db('smugmug_folders?select=name,path&order=path.asc');
-
-  // Find top-level folders (first path segment)
-  const topMap = new Map();
-
-  // From folders table
-  folders.forEach(f => {
-    if (!f.path) return;
-    const parts = f.path.split('/').filter(Boolean);
-    if (parts.length === 1) {
-      const key = parts[0];
-      if (!topMap.has(key)) topMap.set(key, { name: f.name || libSlugToName(key), path: key, count: 0 });
-    }
-  });
-
-  // From album paths
-  albums.forEach(a => {
-    if (!a.path) return;
-    const parts = a.path.split('/').filter(Boolean);
-    if (parts.length >= 1) {
-      const key = parts[0];
-      if (!topMap.has(key)) topMap.set(key, { name: libSlugToName(key), path: key, count: 0 });
-      topMap.get(key).count++;
-    }
-  });
-
-  let cards = '';
-  topMap.forEach(f => {
-    cards += libFolderCard(f.name, f.path, f.count);
-  });
-
-  // Albums at root level
-  const rootAlbums = albums.filter(a => !a.path || !a.path.includes('/'));
-  rootAlbums.forEach(a => { cards += libAlbumCard(a); });
-
-  grid.innerHTML = cards || '<div class="empty">no content — run a sync first</div>';
-}
-
-async function libShowFolder(folderPath, grid) {
-  const allFolders = await db('smugmug_folders?select=name,path&order=path.asc');
-  const allAlbums = await db('smugmug_albums?select=sm_key,name,path,web_url,image_count&order=name.asc');
-
-  const depth = folderPath.split('/').filter(Boolean).length;
-
-  // Direct subfolders — one level deeper, path starts with folderPath
-  const subFolderMap = new Map();
-
-  // Check folders table first
-  allFolders.forEach(f => {
-    if (!f.path) return;
-    const parts = f.path.split('/').filter(Boolean);
-    const fDepth = parts.length;
-    // Check if this folder is a direct child
-    const pathParts = folderPath.split('/').filter(Boolean);
-    const matches = pathParts.every((p, i) => parts[i] === p);
-    if (matches && fDepth === depth + 1) {
-      const key = parts[fDepth - 1];
-      if (!subFolderMap.has(key)) subFolderMap.set(key, { name: f.name || libSlugToName(key), path: f.path, count: 0 });
-    }
-  });
-
-  // Also derive subfolders from album paths
-  allAlbums.forEach(a => {
-    if (!a.path) return;
-    const parts = a.path.split('/').filter(Boolean);
-    const pathParts = folderPath.split('/').filter(Boolean);
-    const matches = pathParts.every((p, i) => parts[i] && parts[i].toLowerCase() === p.toLowerCase());
-    if (!matches) return;
-    if (parts.length > depth + 1) {
-      // This album is deeper — the next segment is a subfolder
-      const key = parts[depth];
-      const subPath = parts.slice(0, depth + 1).join('/');
-      if (!subFolderMap.has(key)) subFolderMap.set(key, { name: libSlugToName(key), path: subPath, count: 0 });
-      subFolderMap.get(key).count++;
-    }
-  });
-
-  // Direct albums — exactly one level deeper than current path
-  const directAlbums = allAlbums.filter(a => {
-    if (!a.path) return false;
-    const parts = a.path.split('/').filter(Boolean);
-    const pathParts = folderPath.split('/').filter(Boolean);
-    if (parts.length !== depth + 1) return false;
-    return pathParts.every((p, i) => parts[i] && parts[i].toLowerCase() === p.toLowerCase());
-  });
-
-  let cards = '';
-  subFolderMap.forEach(f => {
-    cards += libFolderCard(f.name, f.path, f.count);
-  });
-  directAlbums.forEach(a => { cards += libAlbumCard(a); });
-
-  grid.innerHTML = cards || '<div class="empty">empty folder</div>';
-}
-
-function libFolderCard(name, path, count) {
-  return `<div class="gcard gcard-folder" onclick="libBrowse('${path}','${name}')">
-    <div class="gcard-tw" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--bg4)">
-      <div style="font-size:24px;opacity:.3;color:var(--text2)">▤</div>
-      <div style="font-size:11px;font-weight:500;color:var(--text2);text-align:center;padding:0 12px;line-height:1.4">${name}</div>
-      ${count ? `<div style="font-size:9px;color:var(--text3);font-family:'DM Mono',monospace">${count} items</div>` : ''}
-    </div>
-    <div class="gcard-meta">folder</div>
-  </div>`;
-}
-
-function libAlbumCard(a) {
-  const loc = locations.find(l => l.smugmug_album_key === a.sm_key || l.smugmug_gallery_url === a.web_url);
-  const thumb = loc?.cover_photo_url || '';
-  const sl = loc ? SL[loc.status] || SL.identified : null;
-  return `<div class="gcard" onclick="${loc ? `openLibDetail('${loc.id}')` : `window.open('${a.web_url||'#'}','_blank')`}">
-    <div class="gcard-tw">
-      ${thumb ? `<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">` : ''}
-      <div class="gcard-ph">${thumb ? '' : 'no photo'}</div>
-      <div class="gcard-overlay">${a.name}</div>
-    </div>
-    <div class="gcard-meta">${sl ? `<span style="color:${sl.c}">${loc.status}</span> · ` : ''}${a.image_count || 0} photos</div>
-  </div>`;
 }
 
 function openLibDetail(locId) {
@@ -917,29 +841,26 @@ function libSearch() {
   const status = document.getElementById('sf-status').value;
   const bc = document.getElementById('lib-bc');
   const grid = document.getElementById('library-grid');
-
   if (!q && !status) { libBrowse(libCurrentPath); return; }
-
   const f = locations.filter(l => {
     if (status && l.status !== status) return false;
     if (q) {
-      const h = [l.name, l.address, l.city, l.notes, ...(l.tags || [])].join(' ').toLowerCase();
+      const h = [l.name, l.address, l.city, l.notes, ...(l.tags||[])].join(' ').toLowerCase();
       if (!h.includes(q)) return false;
     }
     return true;
   });
-
   bc.innerHTML = `<span onclick="libBrowse(null)">Master Library</span><span class="sep"> / </span><span class="cur">search (${f.length})</span>`;
   if (!f.length) { grid.innerHTML = '<div class="empty">no results</div>'; return; }
   grid.innerHTML = f.map(l => {
-    const sl = SL[l.status] || SL.identified;
+    const sl = SL[l.status]||SL.identified;
     return `<div class="gcard" onclick="openLibDetail('${l.id}')">
       <div class="gcard-tw">
-        ${l.cover_photo_url ? `<img class="gcard-img" src="${l.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">` : ''}
-        <div class="gcard-ph">${l.cover_photo_url ? '' : 'no photo'}</div>
+        ${l.cover_photo_url?`<img class="gcard-img" src="${l.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`:``}
+        <div class="gcard-ph">${l.cover_photo_url?'':'no photo'}</div>
         <div class="gcard-overlay">${l.name}</div>
       </div>
-      <div class="gcard-meta" style="color:${sl.c}">${l.status} · ${[l.city, l.state_code].filter(Boolean).join(', ') || '—'}</div>
+      <div class="gcard-meta" style="color:${sl.c}">${l.status} · ${[l.city,l.state_code].filter(Boolean).join(', ')||'—'}</div>
     </div>`;
   }).join('');
 }
