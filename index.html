@@ -284,7 +284,7 @@ select.fi{cursor:pointer}
     <!-- PROJECTS -->
     <div class="page" id="projects-page">
       <div class="pg-header">
-        <div class="pg-bc" id="pg-bc"><span onclick="browseFolder(null)">Master Library</span></div>
+        <h2>Projects</h2>
         <button class="btn primary" onclick="openNewProject()">+ new project</button>
       </div>
       <div class="pg-scroll">
@@ -379,7 +379,7 @@ function showPage(page,btn){
   btn.classList.add('active');
   closeDetail();
   if(page==='home'){if(!mapReady)loadMapScript();else if(gmap)setTimeout(()=>google.maps.event.trigger(gmap,'resize'),50)}
-  if(page==='projects')browseFolder(null);
+  if(page==='projects')loadProjects();
   if(page==='library'){loadLocations().then(()=>libBrowse(null))}
 }
 function closeModal(id){document.getElementById(id).classList.remove('open')}
@@ -708,117 +708,45 @@ async function startSync(){
 }
 
 // ---- PROJECTS ----
-async function browseFolder(path){
-  const grid=document.getElementById('projects-grid');
-  const bc=document.getElementById('pg-bc');
-  grid.innerHTML='<div class="empty"><div class="spin"></div>&nbsp;loading...</div>';
-  if(!path){
-    bc.innerHTML=`<span onclick="browseFolder(null)">Master Library</span>`;
-  } else {
-    const parts=path.split('/');
-    let html=`<span onclick="browseFolder(null)">Master Library</span>`;
-    let cum='';
-    parts.forEach((p,i)=>{
-      cum+=(i>0?'/':'')+p;
-      const cp=cum;
-      html+=`<span class="sep"> / </span>`;
-      if(i<parts.length-1)html+=`<span onclick="browseFolder('${cp}')">${p}</span>`;
-      else html+=`<span style="color:var(--text2)">${p}</span>`;
-    });
-    bc.innerHTML=html;
+async function loadProjects() {
+  const grid = document.getElementById('projects-grid');
+  grid.innerHTML = '<div class="empty"><div class="spin"></div>&nbsp;loading...</div>';
+  try {
+    const projects = await db('projects?select=*&order=sort_order.asc,created_at.desc');
+    if (!projects.length) {
+      grid.innerHTML = '<div class="add-card" onclick="openNewProject()"><div style="font-size:24px;color:var(--text3);opacity:.3">+</div><span>create your first project</span></div>';
+      return;
+    }
+    grid.innerHTML = projects.map(p => `
+      <div class="gcard">
+        <div class="gcard-tw">
+          ${p.cover_url ? `<img class="gcard-img" src="${p.cover_url}" loading="lazy" onerror="this.style.display='none'">` : ''}
+          <div class="gcard-ph">${p.cover_url ? '' : 'no cover'}</div>
+          <div class="gcard-overlay">${p.name}</div>
+        </div>
+        <div class="gcard-meta" style="display:flex;justify-content:space-between;align-items:center">
+          <span class="s-${p.status === 'active' ? 'approved' : p.status === 'wrapped' ? 'scouted' : 'identified'}">${p.status}</span>
+          <span style="display:flex;gap:6px">
+            <span onclick="editProject('${p.id}')" style="cursor:pointer;color:var(--text3);font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px">edit</span>
+            <span onclick="deleteProject('${p.id}','${p.name.replace(/'/g,'\'')}')" style="cursor:pointer;color:var(--text3);font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px">delete</span>
+          </span>
+        </div>
+      </div>`).join('') +
+      `<div class="add-card" onclick="openNewProject()">
+        <div style="font-size:24px;color:var(--text3);opacity:.3">+</div>
+        <span>new project</span>
+      </div>`;
+  } catch(e) {
+    grid.innerHTML = `<div class="empty">error: ${e.message}</div>`;
   }
-  try{
-    let folders=[],albums=[];
-    if(!path){
-      folders=await db('smugmug_folders?select=*&order=name.asc');
-      // Root level — only show top-level folders (no slash in path or single segment)
-      folders=folders.filter(f=>f.path&&!f.path.includes('/'));
-    } else {
-      const depth=path.split('/').length;
-      const allFolders=await db(`smugmug_folders?select=*&order=name.asc`);
-      folders=allFolders.filter(f=>f.path&&f.path.startsWith(path+'/')&&f.path.split('/').length===depth+1);
-      const allAlbums=await db(`smugmug_albums?select=*&order=name.asc`);
-      albums=allAlbums.filter(a=>a.path&&a.path.startsWith(path+'/')&&a.path.split('/').length===depth+1);
-    }
-    let cards='';
-    // Folder cards
-    folders.forEach(f=>{
-      cards+=`<div class="gcard gcard-folder" onclick="browseFolder('${f.path}')">
-        <div class="gcard-tw">
-          <div class="folder-icon">▤</div>
-          <div class="folder-nm">${f.name}</div>
-        </div>
-        <div class="gcard-meta">folder</div>
-      </div>`;
-    });
-    // Album cards
-    for(const a of albums){
-      const loc=locations.find(l=>l.smugmug_album_key===a.sm_key);
-      const thumb=loc?.cover_photo_url||'';
-      const sl=loc?SL[loc.status]||SL.identified:null;
-      cards+=`<div class="gcard" onclick="window.open('${a.web_url||'#'}','_blank')">
-        <div class="gcard-tw">
-          ${thumb?`<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">`:``}
-          <div class="gcard-ph">${thumb?'':'no cover'}</div>
-          <div class="gcard-overlay">${a.name}</div>
-        </div>
-        <div class="gcard-meta">${sl?`<span style="color:${sl.c}">${loc.status}</span> · `:''}${a.image_count||0} photos</div>
-      </div>`;
-    }
-    if(!path){
-      // Also show custom projects at root
-      const projs=await db('projects?select=*&order=sort_order.asc,created_at.desc');
-      projs.forEach(p=>{
-        cards=`<div class="gcard" onclick="toast('Full project view — next session','inf')">
-          <div class="gcard-tw">
-            ${p.cover_url?`<img class="gcard-img" src="${p.cover_url}" loading="lazy">`:``}
-            <div class="gcard-ph">${p.cover_url?'':'no cover'}</div>
-            <div class="gcard-overlay">${p.name}</div>
-          </div>
-          <div class="gcard-meta">${p.status} project</div>
-        </div>`+cards;
-      });
-      cards+=`<div class="add-card" onclick="openNewProject()"><div style="font-size:20px;color:var(--text3);opacity:.35">+</div><span>new project</span></div>`;
-    }
-    grid.innerHTML=cards||'<div class="empty">empty folder</div>';
-  }catch(e){grid.innerHTML=`<div class="empty">error: ${e.message}</div>`}
 }
 
 // ---- LIBRARY ----
-// Your SmugMug category structure — add new categories here as you create them
-const SM_CATEGORIES = [
-  'Apartments',
-  'Restaurants',
-  'Deli-Cafes-Bodega',
-  'Bar',
-  'Large-Chain-Restaurant',
-  'Houses-Mansions',
-  'Offices',
-  'Empty-Office-Space',
-  'Hotel-Motel',
-  'Stores-Barber-Shop-Flower-Shop',
-  'Gym-Sports-Courts',
-  'Gym-Boxing-Gym',
-  'Parking-Garage-Lot',
-  'Gas-Station',
-  'Laundromat',
-  'Alley',
-  'Roads-Misc',
-  'Event-Spaces',
-  'Park-Country-Club',
-  'Spa-Bathhouse',
-  'Building-Rooftops',
-  'Arcade-Bowling-Alley',
-  'Doctors-Office-OBGYN-Dentist',
-  'Church',
-  'Misc',
-];
-
 let libCurrentPath = null;
-let libNavStack = []; // [{path, label}]
+let libNavStack = [];
 
-function slugToDisplay(slug) {
-  return slug.replace(/-/g, ' ').replace(/\//g, ' / ');
+function libSlugToName(slug) {
+  return (slug || '').replace(/-/g, ' ');
 }
 
 async function libBrowse(path, label) {
@@ -827,109 +755,161 @@ async function libBrowse(path, label) {
   const bc = document.getElementById('lib-bc');
   grid.innerHTML = '<div class="empty"><div class="spin"></div>&nbsp;loading...</div>';
 
-  // Build breadcrumb from stack
+  // Breadcrumb
   if (!path) {
     libNavStack = [];
     bc.innerHTML = '<span class="cur">Master Library</span>';
-    libShowCategories(grid);
-    return;
+  } else {
+    const existing = libNavStack.findIndex(n => n.path === path);
+    if (existing >= 0) libNavStack = libNavStack.slice(0, existing + 1);
+    else libNavStack.push({ path, label: label || libSlugToName(path.split('/').pop()) });
+    let html = '<span onclick="libBrowse(null)">Master Library</span>';
+    libNavStack.forEach((n, i) => {
+      html += '<span class="sep"> / </span>';
+      const np = n.path, nl = n.label;
+      if (i < libNavStack.length - 1) html += `<span onclick="libBrowse('${np}','${nl}')">${n.label}</span>`;
+      else html += `<span class="cur">${n.label}</span>`;
+    });
+    bc.innerHTML = html;
   }
 
-  // Update nav stack
-  const existing = libNavStack.findIndex(n => n.path === path);
-  if (existing >= 0) libNavStack = libNavStack.slice(0, existing + 1);
-  else libNavStack.push({ path, label: label || slugToDisplay(path.split('/').pop()) });
-
-  // Render breadcrumb
-  let html = '<span onclick="libBrowse(null)">Master Library</span>';
-  libNavStack.forEach((n, i) => {
-    html += '<span class="sep"> / </span>';
-    if (i < libNavStack.length - 1) {
-      const np = n.path;
-      const nl = n.label;
-      html += `<span onclick="libBrowse('${np}','${nl}')">${n.label}</span>`;
-    } else {
-      html += `<span class="cur">${n.label}</span>`;
-    }
-  });
-  bc.innerHTML = html;
-
-  // Fetch from SmugMug live
-  await libFetchAndRender(path, grid);
-}
-
-function libShowCategories(grid) {
-  const cards = SM_CATEGORIES.map(cat => {
-    const displayName = cat.replace(/-/g, ' / ').replace(/\//g, ' / ');
-    const urlPath = `/Master-Library/${cat}`;
-    return `<div class="gcard gcard-folder" onclick="libBrowse('${urlPath}','${displayName}')">
-      <div class="gcard-tw" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--bg4)">
-        <div style="font-size:22px;opacity:.35;color:var(--text2)">▤</div>
-        <div style="font-size:11px;font-weight:500;color:var(--text2);text-align:center;padding:0 10px;line-height:1.3">${displayName}</div>
-      </div>
-      <div class="gcard-meta">category</div>
-    </div>`;
-  }).join('');
-  grid.innerHTML = cards;
-}
-
-async function libFetchAndRender(urlPath, grid) {
-  const tokens = JSON.parse(localStorage.getItem('sm_tokens') || 'null');
-  if (!tokens) {
-    grid.innerHTML = '<div class="empty">connect smugmug to browse live library</div>';
-    return;
-  }
-  const tb = btoa(JSON.stringify(tokens));
   try {
-    const r = await fetch(`${SM_BASE}/api/smugmug?action=browse&path=${encodeURIComponent(urlPath)}`, {
-      headers: { Authorization: `Bearer ${tb}` }
-    });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error || 'Browse failed');
-
-    let cards = '';
-
-    // Subfolders first
-    (d.folders || []).forEach(f => {
-      const label = f.name || f.urlName;
-      cards += `<div class="gcard gcard-folder" onclick="libBrowse('${f.path || urlPath+'/'+f.urlName}','${label}')">
-        <div class="gcard-tw" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--bg4)">
-          <div style="font-size:22px;opacity:.35;color:var(--text2)">▤</div>
-          <div style="font-size:11px;font-weight:500;color:var(--text2);text-align:center;padding:0 10px;line-height:1.3">${label}</div>
-        </div>
-        <div class="gcard-meta">folder</div>
-      </div>`;
-    });
-
-    // Albums
-    (d.albums || []).forEach(a => {
-      const loc = locations.find(l => l.smugmug_album_key === a.id || l.smugmug_gallery_url === a.url);
-      const thumb = loc?.cover_photo_url || a.thumbUrl || '';
-      const sl = loc ? SL[loc.status] || SL.identified : null;
-      cards += `<div class="gcard" onclick="${loc ? `openLibDetail('${loc.id}')` : `window.open('${a.url}','_blank')`}">
-        <div class="gcard-tw">
-          ${thumb ? `<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">` : ''}
-          <div class="gcard-ph">${thumb ? '' : 'no photo'}</div>
-          <div class="gcard-overlay">${a.name}</div>
-        </div>
-        <div class="gcard-meta">${sl ? `<span style="color:${sl.c}">${loc.status}</span> · ` : ''}${a.imageCount || 0} photos</div>
-      </div>`;
-    });
-
-    if (!cards) {
-      grid.innerHTML = '<div class="empty">empty folder</div>';
+    if (!path) {
+      await libShowRoot(grid);
     } else {
-      grid.innerHTML = cards;
+      await libShowFolder(path, grid);
     }
   } catch(e) {
-    grid.innerHTML = `<div class="empty">error loading: ${e.message}</div>`;
+    grid.innerHTML = `<div class="empty">error: ${e.message}</div>`;
   }
+}
+
+async function libShowRoot(grid) {
+  // Get all unique top-level folder segments from smugmug_albums paths
+  const albums = await db('smugmug_albums?select=path,name,sm_key,web_url,image_count&order=path.asc');
+  const folders = await db('smugmug_folders?select=name,path&order=path.asc');
+
+  // Find top-level folders (first path segment)
+  const topMap = new Map();
+
+  // From folders table
+  folders.forEach(f => {
+    if (!f.path) return;
+    const parts = f.path.split('/').filter(Boolean);
+    if (parts.length === 1) {
+      const key = parts[0];
+      if (!topMap.has(key)) topMap.set(key, { name: f.name || libSlugToName(key), path: key, count: 0 });
+    }
+  });
+
+  // From album paths
+  albums.forEach(a => {
+    if (!a.path) return;
+    const parts = a.path.split('/').filter(Boolean);
+    if (parts.length >= 1) {
+      const key = parts[0];
+      if (!topMap.has(key)) topMap.set(key, { name: libSlugToName(key), path: key, count: 0 });
+      topMap.get(key).count++;
+    }
+  });
+
+  let cards = '';
+  topMap.forEach(f => {
+    cards += libFolderCard(f.name, f.path, f.count);
+  });
+
+  // Albums at root level
+  const rootAlbums = albums.filter(a => !a.path || !a.path.includes('/'));
+  rootAlbums.forEach(a => { cards += libAlbumCard(a); });
+
+  grid.innerHTML = cards || '<div class="empty">no content — run a sync first</div>';
+}
+
+async function libShowFolder(folderPath, grid) {
+  const allFolders = await db('smugmug_folders?select=name,path&order=path.asc');
+  const allAlbums = await db('smugmug_albums?select=sm_key,name,path,web_url,image_count&order=name.asc');
+
+  const depth = folderPath.split('/').filter(Boolean).length;
+
+  // Direct subfolders — one level deeper, path starts with folderPath
+  const subFolderMap = new Map();
+
+  // Check folders table first
+  allFolders.forEach(f => {
+    if (!f.path) return;
+    const parts = f.path.split('/').filter(Boolean);
+    const fDepth = parts.length;
+    // Check if this folder is a direct child
+    const pathParts = folderPath.split('/').filter(Boolean);
+    const matches = pathParts.every((p, i) => parts[i] === p);
+    if (matches && fDepth === depth + 1) {
+      const key = parts[fDepth - 1];
+      if (!subFolderMap.has(key)) subFolderMap.set(key, { name: f.name || libSlugToName(key), path: f.path, count: 0 });
+    }
+  });
+
+  // Also derive subfolders from album paths
+  allAlbums.forEach(a => {
+    if (!a.path) return;
+    const parts = a.path.split('/').filter(Boolean);
+    const pathParts = folderPath.split('/').filter(Boolean);
+    const matches = pathParts.every((p, i) => parts[i] && parts[i].toLowerCase() === p.toLowerCase());
+    if (!matches) return;
+    if (parts.length > depth + 1) {
+      // This album is deeper — the next segment is a subfolder
+      const key = parts[depth];
+      const subPath = parts.slice(0, depth + 1).join('/');
+      if (!subFolderMap.has(key)) subFolderMap.set(key, { name: libSlugToName(key), path: subPath, count: 0 });
+      subFolderMap.get(key).count++;
+    }
+  });
+
+  // Direct albums — exactly one level deeper than current path
+  const directAlbums = allAlbums.filter(a => {
+    if (!a.path) return false;
+    const parts = a.path.split('/').filter(Boolean);
+    const pathParts = folderPath.split('/').filter(Boolean);
+    if (parts.length !== depth + 1) return false;
+    return pathParts.every((p, i) => parts[i] && parts[i].toLowerCase() === p.toLowerCase());
+  });
+
+  let cards = '';
+  subFolderMap.forEach(f => {
+    cards += libFolderCard(f.name, f.path, f.count);
+  });
+  directAlbums.forEach(a => { cards += libAlbumCard(a); });
+
+  grid.innerHTML = cards || '<div class="empty">empty folder</div>';
+}
+
+function libFolderCard(name, path, count) {
+  return `<div class="gcard gcard-folder" onclick="libBrowse('${path}','${name}')">
+    <div class="gcard-tw" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--bg4)">
+      <div style="font-size:24px;opacity:.3;color:var(--text2)">▤</div>
+      <div style="font-size:11px;font-weight:500;color:var(--text2);text-align:center;padding:0 12px;line-height:1.4">${name}</div>
+      ${count ? `<div style="font-size:9px;color:var(--text3);font-family:'DM Mono',monospace">${count} items</div>` : ''}
+    </div>
+    <div class="gcard-meta">folder</div>
+  </div>`;
+}
+
+function libAlbumCard(a) {
+  const loc = locations.find(l => l.smugmug_album_key === a.sm_key || l.smugmug_gallery_url === a.web_url);
+  const thumb = loc?.cover_photo_url || '';
+  const sl = loc ? SL[loc.status] || SL.identified : null;
+  return `<div class="gcard" onclick="${loc ? `openLibDetail('${loc.id}')` : `window.open('${a.web_url||'#'}','_blank')`}">
+    <div class="gcard-tw">
+      ${thumb ? `<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">` : ''}
+      <div class="gcard-ph">${thumb ? '' : 'no photo'}</div>
+      <div class="gcard-overlay">${a.name}</div>
+    </div>
+    <div class="gcard-meta">${sl ? `<span style="color:${sl.c}">${loc.status}</span> · ` : ''}${a.image_count || 0} photos</div>
+  </div>`;
 }
 
 function openLibDetail(locId) {
   const loc = locations.find(l => l.id === locId);
-  if (!loc) return;
-  openDetail(loc);
+  if (loc) openDetail(loc);
 }
 
 function libSearch() {
@@ -938,10 +918,7 @@ function libSearch() {
   const bc = document.getElementById('lib-bc');
   const grid = document.getElementById('library-grid');
 
-  if (!q && !status) {
-    libBrowse(libCurrentPath);
-    return;
-  }
+  if (!q && !status) { libBrowse(libCurrentPath); return; }
 
   const f = locations.filter(l => {
     if (status && l.status !== status) return false;
@@ -953,7 +930,6 @@ function libSearch() {
   });
 
   bc.innerHTML = `<span onclick="libBrowse(null)">Master Library</span><span class="sep"> / </span><span class="cur">search (${f.length})</span>`;
-
   if (!f.length) { grid.innerHTML = '<div class="empty">no results</div>'; return; }
   grid.innerHTML = f.map(l => {
     const sl = SL[l.status] || SL.identified;
@@ -985,7 +961,7 @@ async function saveProject(){
     const payload={name,description:document.getElementById('p-desc').value||null,cover_url:document.getElementById('p-cover').value||null,status:document.getElementById('p-status').value,updated_at:new Date().toISOString()};
     if(editProjId)await db(`projects?id=eq.${editProjId}`,{method:'PATCH',body:JSON.stringify(payload),headers:{Prefer:'return=minimal'}});
     else await db('projects',{method:'POST',body:JSON.stringify(payload)});
-    closeModal('proj-modal');toast(editProjId?'Updated':'Created');browseFolder(null);
+    closeModal('proj-modal');toast(editProjId?'Updated':'Created');loadProjects();
   }catch(e){toast('Error saving','err')}
   finally{btn.disabled=false;btn.textContent='save'}
 }
