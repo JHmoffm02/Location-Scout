@@ -434,6 +434,19 @@ window.initMap=async function(){
   checkSyncStatus();
 };
 
+function formatNotes(raw){
+  if(!raw)return'';
+  const lines=raw.split('\n').map(l=>l.trim()).filter(Boolean);
+  // Skip first line if it's just the location name (same as title)
+  const start=lines[0]&&lines[0].length<60&&!lines[0].includes('Notes:')?1:0;
+  return lines.slice(start).map(l=>{
+    if(/^notes?\s*:/i.test(l))return`<br><strong style="color:var(--text2);font-size:10px;letter-spacing:.1em;font-family:'DM Mono',monospace">NOTES</strong>`;
+    if(/^C:\s*/i.test(l))return`<span style="color:var(--text3)">Contact: ${l.replace(/^C:\s*/i,'')}</span>`;
+    if(/^-\s*/.test(l))return`• ${l.replace(/^-\s*/,'')}`;
+    return l;
+  }).join('<br>');
+}
+  
 function getFiltered(){
   const zoneOnly=document.getElementById('f-zone').checked;
   const states=['ny','nj','ct','pa'].filter(s=>document.getElementById(`f-${s}`).checked).map(s=>s.toUpperCase());
