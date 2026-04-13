@@ -383,7 +383,7 @@ function showPage(page,btn){
   closeDetail();
   if(page==='home'){if(!mapReady)loadMapScript();else if(gmap)setTimeout(()=>google.maps.event.trigger(gmap,'resize'),50)}
   if(page==='projects')projBrowse(null);
-  if(page==='library'){loadLocations().then(()=>libBrowse(null))}
+  if(page==='library'){loadLocations().then(()=>libSearch())}
 }
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 
@@ -668,7 +668,7 @@ async function startSync(){
   const tb=btoa(JSON.stringify(smTokens));
   try{
     label.textContent='crawling smugmug library...';fill.style.width='10%';
-    const cr=await fetch(`${SM_BASE}/api/smugmug?action=crawl`,{headers:{Authorization:`Bearer ${tb}`}});
+    const cr=await fetch(`${SM_BASE}/api/smugmug?action=structure`,{headers:{Authorization:`Bearer ${tb}`}});
     if(!cr.ok)throw new Error(await cr.text());
     const{library}=await cr.json();
     label.textContent=`found ${library.albums?.length||0} albums, ${library.images?.length||0} photos`;
@@ -748,6 +748,7 @@ async function projBrowse(path, label) {
 
     // Direct albums — path equals targetPath exactly
     const directAlbums = allAlbums.filter(a => a.path === targetPath);
+    console.log('projBrowse targetPath:', targetPath, 'subFolders:', subFolders.length, 'directAlbums:', directAlbums.length);
 
     let cards = '';
 
@@ -818,6 +819,46 @@ async function projBrowse(path, label) {
 async function loadProjects() { projBrowse(null); }
 
 
+
+// ---- LIBRARY ----
+async function libBrowse(path, label) {
+  if (!locations.length) await loadLocations();
+  libSearch();
+}
+
+function openLibDetail(locId) {
+  const loc = locations.find(l => l.id === locId);
+  if (loc) openDetail(loc);
+}
+
+function libSearch() {
+  const q = (document.getElementById('lq')?.value || '').toLowerCase();
+  const status = document.getElementById('sf-status')?.value || '';
+  const bc = document.getElementById('lib-bc');
+  const grid = document.getElementById('library-grid');
+  if (!grid) return;
+  const f = locations.filter(l => {
+    if (status && l.status !== status) return false;
+    if (q) {
+      const h = [l.name, l.address, l.city, l.notes, ...(l.tags||[])].join(' ').toLowerCase();
+      if (!h.includes(q)) return false;
+    }
+    return true;
+  });
+  if (bc) bc.innerHTML = `<span class="cur">${f.length} locations${q?' · "'+q+'"':''}</span>`;
+  if (!f.length) { grid.innerHTML = '<div class="empty">no results</div>'; return; }
+  grid.innerHTML = f.map(l => {
+    const sl = SL[l.status]||SL.identified;
+    return `<div class="gcard" onclick="openLibDetail('${l.id}')">
+      <div class="gcard-tw">
+        ${l.cover_photo_url?`<img class="gcard-img" src="${l.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`:``}
+        <div class="gcard-ph">${l.cover_photo_url?'':'no photo'}</div>
+        <div class="gcard-overlay">${l.name}</div>
+      </div>
+      <div class="gcard-meta" style="color:${sl.c}">${l.status} · ${[l.city,l.state_code].filter(Boolean).join(', ')||'—'}</div>
+    </div>`;
+  }).join('');
+}
 
 // ---- PROJECTS CRUD ----
 function openNewProject(){
