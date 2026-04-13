@@ -2,8 +2,9 @@
 const crypto = require('crypto');
 const SM_API = 'https://api.smugmug.com/api/v2';
 
+function pct(s) { return encodeURIComponent(s).replace(/!/g, '%21'); }
+
 function buildAuthHeader(method, baseUrl, oauthParams, signatureParams, consumerSecret, tokenSecret) {
-  // signatureParams: only params that go INTO the signature (no _accept, no _expand in some cases)
   const allForSig = { ...signatureParams, ...oauthParams };
   const sortedStr = Object.keys(allForSig).sort()
     .map(k => `${pct(k)}=${pct(allForSig[k])}`).join('&');
@@ -14,8 +15,6 @@ function buildAuthHeader(method, baseUrl, oauthParams, signatureParams, consumer
   return 'OAuth ' + Object.keys(headerParts)
     .map(k => `${pct(k)}="${pct(headerParts[k])}"`).join(', ');
 }
-
-function pct(s) { return encodeURIComponent(s).replace(/!/g, '%21'); }
 
 function makeOauthParams(consumerKey, accessToken) {
   const p = {
@@ -32,27 +31,14 @@ function makeOauthParams(consumerKey, accessToken) {
 async function smRequest(path, accessToken, accessTokenSecret, extraParams = {}) {
   const consumerKey = process.env.SMUGMUG_KEY;
   const consumerSecret = process.env.SMUGMUG_SECRET;
-
-  // Clean base URL — strip any query string
   const baseUrl = (path.startsWith('http') ? path : `${SM_API}${path}`).split('?')[0];
-
   const oauthParams = makeOauthParams(consumerKey, accessToken);
-
-  // extraParams go into signature AND onto the URL (but NOT _accept)
-  const authHeader = buildAuthHeader(
-    'GET', baseUrl, oauthParams,
-    extraParams, // only extraParams in signature, not _accept
-    consumerSecret, accessTokenSecret || ''
-  );
-
-  // Build final URL: base + extraParams + _accept (accept added AFTER signing)
+  const authHeader = buildAuthHeader('GET', baseUrl, oauthParams, extraParams, consumerSecret, accessTokenSecret || '');
   const finalUrl = new URL(baseUrl);
   Object.entries(extraParams).forEach(([k, v]) => finalUrl.searchParams.set(k, v));
-
   const res = await fetch(finalUrl.toString(), {
     headers: { Authorization: authHeader, Accept: 'application/json' }
   });
-
   if (!res.ok) throw new Error(`SmugMug API ${res.status}: ${await res.text()}`);
   return res.json();
 }
@@ -61,104 +47,138 @@ async function getRequestToken(callbackUrl) {
   const consumerKey = process.env.SMUGMUG_KEY;
   const consumerSecret = process.env.SMUGMUG_SECRET;
   const url = 'https://api.smugmug.com/services/oauth/1.0a/getRequestToken';
-
   const oauthParams = makeOauthParams(consumerKey, null);
   oauthParams.oauth_callback = callbackUrl;
-
   const authHeader = buildAuthHeader('POST', url, oauthParams, {}, consumerSecret, '');
-
   const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: authHeader, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: `oauth_callback=${pct(callbackUrl)}`
   });
-
   const text = await res.text();
   if (!res.ok) throw new Error(`Request token failed: ${text}`);
   const params = new URLSearchParams(text);
-  return {
-    requestToken: params.get('oauth_token'),
-    requestTokenSecret: params.get('oauth_token_secret')
-  };
+  return { requestToken: params.get('oauth_token'), requestTokenSecret: params.get('oauth_token_secret') };
 }
 
 async function getAccessToken(requestToken, requestTokenSecret, verifier) {
   const consumerKey = process.env.SMUGMUG_KEY;
   const consumerSecret = process.env.SMUGMUG_SECRET;
   const url = 'https://api.smugmug.com/services/oauth/1.0a/getAccessToken';
-
   const oauthParams = makeOauthParams(consumerKey, requestToken);
   oauthParams.oauth_verifier = verifier;
-
   const authHeader = buildAuthHeader('POST', url, oauthParams, {}, consumerSecret, requestTokenSecret);
-
   const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: authHeader, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: `oauth_verifier=${pct(verifier)}`
   });
-
   const text = await res.text();
   if (!res.ok) throw new Error(`Access token failed: ${text}`);
   const params = new URLSearchParams(text);
-  return {
-    accessToken: params.get('oauth_token'),
-    accessTokenSecret: params.get('oauth_token_secret')
-  };
+  return { accessToken: params.get('oauth_token'), accessTokenSecret: params.get('oauth_token_secret') };
+}
+
+// Extract folder path from SmugMug URL
+// e.g. https://jordanhoffman.smugmug.com/Master-Library/Parking-Garage-Lot/Brooklyn/Park-Kwik
+// returns { folderPath: 'Master-Library/Parking-Garage-Lot/Brooklyn', albumSlug: 'Park-Kwik' }
+function extractPathFromUrl(webUrl) {
+  try {
+    const url = new URL(webUrl);
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (parts.length <= 1) return { folderPath: '', albumSlug: parts[0] || '' };
+    const albumSlug = parts[parts.length - 1];
+    const folderPath = parts.slice(0, -1).join('/');
+    return { folderPath, albumSlug };
+  } catch(e) {
+    return { folderPath: '', albumSlug: '' };
+  }
+}
+
+// Decode URL slug to readable name
+function slugToName(slug) {
+  return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 async function crawlLibrary(accessToken, accessTokenSecret) {
   const results = { folders: [], albums: [], images: [] };
+  const folderSet = new Set();
 
   const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
   const nodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
   if (!nodeUri) throw new Error('Could not get user node URI');
 
-async function crawlNode(nodeUri, path = '') {
+  async function crawlNode(nodeUri, depth = 0) {
+    if (depth > 8) return; // safety limit
     let nodeRes;
     try {
       nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret);
-    } catch(e) { console.error('crawlNode error:', e.message); return; }
+    } catch(e) { console.error('node error:', e.message); return; }
 
-    // Fetch children separately
-    const childrenUri = nodeRes.Response?.Node?.Uris?.ChildNodes?.Uri;
-    if (childrenUri) {
-      let childRes;
-      try { childRes = await smRequest(childrenUri, accessToken, accessTokenSecret); } catch(e) {}
-      if (childRes?.Response?.Node) {
-        const children = childRes.Response.Node;
-        const childArr = Array.isArray(children) ? children : [children];
-        for (const child of childArr) {
-          if (child && child.Uri) await crawlNode(child.Uri, path);
-        }
-        return;
-      }
-    }
     const node = nodeRes.Response?.Node;
     if (!node) return;
-    const nodePath = path ? `${path}/${node.Name}` : node.Name;
 
-    if (node.Type === 'Folder') {
-      results.folders.push({ id: node.NodeID, name: node.Name, path: nodePath, url: node.WebUri, uri: nodeUri });
-      const children = nodeRes.Response?.ChildNodes?.Node || [];
+    // Get children via ChildNodes URI
+    const childrenUri = node.Uris?.ChildNodes?.Uri;
+    if (childrenUri) {
+      let childRes;
+      try { childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' }); } catch(e) { return; }
+      const children = childRes.Response?.Node || [];
       const childArr = Array.isArray(children) ? children : [children];
+
       for (const child of childArr) {
-        if (child && child.Uri) await crawlNode(child.Uri, nodePath);
+        if (!child || !child.Uri) continue;
+
+        if (child.Type === 'Album') {
+          // Get album details
+          const albumUri = child.Uris?.Album?.Uri;
+          if (!albumUri) continue;
+          let albumRes;
+          try { albumRes = await smRequest(albumUri, accessToken, accessTokenSecret); } catch(e) { continue; }
+          const album = albumRes.Response?.Album;
+          if (!album) continue;
+
+          // Extract folder structure from the album's web URL
+          const { folderPath } = extractPathFromUrl(album.WebUri || '');
+
+          // Build folder hierarchy from path
+          if (folderPath) {
+            const parts = folderPath.split('/');
+            let cumPath = '';
+            parts.forEach((part, i) => {
+              cumPath = i === 0 ? part : `${cumPath}/${part}`;
+              if (!folderSet.has(cumPath)) {
+                folderSet.add(cumPath);
+                results.folders.push({
+                  id: cumPath.replace(/\//g, '-'),
+                  name: slugToName(part),
+                  path: cumPath,
+                  url: `https://jordanhoffman.smugmug.com/${cumPath}`,
+                  uri: cumPath
+                });
+              }
+            });
+          }
+
+          results.albums.push({
+            id: album.AlbumKey,
+            name: album.Name,
+            path: folderPath ? `${folderPath}/${album.UrlName || child.UrlName || album.AlbumKey}` : album.Name,
+            url: album.WebUri,
+            uri: albumUri,
+            imageCount: album.ImageCount || 0,
+            keywords: album.Keywords || '',
+            description: album.Description || '',
+            folderPath: folderPath || ''
+          });
+
+          // Get images
+          await crawlAlbumImages(album, folderPath);
+
+        } else if (child.Type === 'Folder' || child.Type === 'Page') {
+          await crawlNode(child.Uri, depth + 1);
+        }
       }
-    } else if (node.Type === 'Album') {
-      const albumUri = node.Uris?.Album?.Uri;
-      if (!albumUri) return;
-      let albumRes;
-      try { albumRes = await smRequest(albumUri, accessToken, accessTokenSecret); } catch(e) { return; }
-      const album = albumRes.Response?.Album;
-      if (!album) return;
-      results.albums.push({
-        id: album.AlbumKey, name: album.Name, path: nodePath,
-        url: album.WebUri, uri: albumUri,
-        imageCount: album.ImageCount || 0,
-        keywords: album.Keywords || '', description: album.Description || ''
-      });
-      await crawlAlbumImages(album, nodePath);
     }
   }
 
@@ -170,10 +190,8 @@ async function crawlNode(nodeUri, path = '') {
     while (true) {
       let imagesRes;
       try {
-        imagesRes = await smRequest(
-          albumImagesUri, accessToken, accessTokenSecret,
-          { count: String(perPage), start: String(start) }
-        );
+        imagesRes = await smRequest(albumImagesUri, accessToken, accessTokenSecret,
+          { count: String(perPage), start: String(start) });
       } catch(e) { break; }
       const images = imagesRes.Response?.AlbumImage || [];
       const imageArr = Array.isArray(images) ? images : [images];
@@ -213,7 +231,7 @@ module.exports = async function handler(req, res) {
     if (action === 'auth') {
       const host = req.headers.host || '';
       const proto = host.includes('localhost') ? 'http' : 'https';
-      const callbackUrl = `${proto}://${host}/api/smugmug?action=callback&v=2`;
+      const callbackUrl = `${proto}://${host}/api/smugmug?action=callback`;
       const { requestToken, requestTokenSecret } = await getRequestToken(callbackUrl);
       res.setHeader('Set-Cookie', `sm_rts=${requestTokenSecret}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`);
       const authUrl = `https://api.smugmug.com/services/oauth/1.0a/authorize?oauth_token=${requestToken}&Access=Full&Permissions=Read`;
@@ -236,7 +254,6 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // Parse tokens from Authorization header
     let accessToken = '', accessTokenSecret = '';
     const authHeader = req.headers.authorization || '';
     if (authHeader.startsWith('Bearer ')) {
