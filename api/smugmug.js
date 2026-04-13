@@ -80,19 +80,47 @@ async function getAccessToken(requestToken, requestTokenSecret, verifier) {
   return { accessToken: params.get('oauth_token'), accessTokenSecret: params.get('oauth_token_secret') };
 }
 
-// Fetch children of a SmugMug URL path using weburiLookup then ChildNodes
+// Fetch children of a SmugMug folder by URL path
+// Uses the user node tree — walk path segments to find the right node
 async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
-  // Step 1: resolve the URL path to a node using weburiLookup
-  const webUri = `https://${SM_USER}.smugmug.com${urlPath}`;
-  const lookupData = await smRequest('/!weburilookup', accessToken, accessTokenSecret, {
-    WebUri: webUri
-  });
+  // Get user node first
+  const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
+  const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
+  if (!rootNodeUri) throw new Error('Could not get root node');
 
-  const node = lookupData.Response?.Node;
-  if (!node) throw new Error(`Folder not found: ${urlPath}`);
+  // Split path into segments e.g. ['Master-Library', 'Apartments']
+  const segments = urlPath.split('/').filter(Boolean);
 
-  // Step 2: get children of this node
-  const childrenUri = node.Uris?.ChildNodes?.Uri;
+  // Walk the node tree segment by segment
+  let currentNodeUri = rootNodeUri;
+  for (const segment of segments) {
+    const nodeRes = await smRequest(currentNodeUri, accessToken, accessTokenSecret);
+    const node = nodeRes.Response?.Node;
+    if (!node) throw new Error(`Node not found at segment: ${segment}`);
+
+    const childrenUri = node.Uris?.ChildNodes?.Uri;
+    if (!childrenUri) throw new Error(`No children at: ${segment}`);
+
+    // Fetch children and find matching segment
+    const childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
+    const children = childRes.Response?.Node || [];
+    const childArr = Array.isArray(children) ? children : [children];
+
+    const match = childArr.find(c =>
+      c && (
+        (c.UrlName || '').toLowerCase() === segment.toLowerCase() ||
+        (c.Name || '').toLowerCase() === segment.toLowerCase().replace(/-/g, ' ')
+      )
+    );
+
+    if (!match) throw new Error(`Folder not found: ${segment} (checked ${childArr.length} children)`);
+    currentNodeUri = match.Uri;
+  }
+
+  // Now get children of the target node
+  const targetRes = await smRequest(currentNodeUri, accessToken, accessTokenSecret);
+  const targetNode = targetRes.Response?.Node;
+  const childrenUri = targetNode?.Uris?.ChildNodes?.Uri;
   if (!childrenUri) return { folders: [], albums: [] };
 
   const childData = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
@@ -105,9 +133,8 @@ async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
   for (const item of arr) {
     if (!item) continue;
     if (item.Type === 'Album') {
-      // Get album key from the Album URI
       const albumUri = item.Uris?.Album?.Uri;
-      let albumKey = item.NodeID;
+      let albumKey = null;
       let imageCount = 0;
       let description = '';
       let keywords = '';
@@ -122,7 +149,6 @@ async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
             imageCount = album.ImageCount || 0;
             description = album.Description || '';
             keywords = album.Keywords || '';
-            // Get highlight image for thumbnail
             const hlUri = album.Uris?.HighlightImage?.Uri;
             if (hlUri) {
               try {
@@ -131,14 +157,14 @@ async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
               } catch(e) {}
             }
           }
-        } catch(e) { console.error('album lookup error:', e.message); }
+        } catch(e) { console.error('album error:', e.message); }
       }
 
       albums.push({
-        id: albumKey,
+        id: albumKey || item.NodeID,
         name: item.Name,
         urlName: item.UrlName,
-        url: item.WebUri || `https://${SM_USER}.smugmug.com${urlPath}/${item.UrlName}`,
+        url: item.WebUri,
         imageCount,
         description,
         keywords,
@@ -149,7 +175,7 @@ async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
         name: item.Name,
         urlName: item.UrlName,
         path: `${urlPath}/${item.UrlName}`,
-        url: item.WebUri || `https://${SM_USER}.smugmug.com${urlPath}/${item.UrlName}`,
+        url: item.WebUri,
       });
     }
   }
@@ -290,11 +316,12 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // Legacy crawl — now just browses root
+    // Crawl/structure — returns minimal response, sync is now db-driven
     if (action === 'crawl' || action === 'structure') {
       if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      const { folders, albums, images } = await syncAlbumsFromPath('/Master-Library', accessToken, accessTokenSecret);
-      res.json({ ok: true, library: { folders, albums, images } });
+      // Just verify auth works and return empty — full sync handled per-category
+      const userData = await smRequest('/!authuser', accessToken, accessTokenSecret);
+      res.json({ ok: true, library: { folders: [], albums: [], images: [] }, user: userData.Response?.User?.Name });
       return;
     }
 
