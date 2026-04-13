@@ -531,7 +531,7 @@ function openDetail(loc){
         ${miles(loc.lat,loc.lng)<=30?'<span style="color:var(--green);margin-left:8px">in zone</span>':'<span style="color:var(--text3);margin-left:8px">out of zone</span>'}
       </div>
     </div>`:''}
-    ${loc.notes?`
+${loc.notes?`
     <div class="dp-section">
       <div class="dp-label">Scout notes</div>
       <div class="dp-notes">${formatNotes(loc.notes)}</div>
