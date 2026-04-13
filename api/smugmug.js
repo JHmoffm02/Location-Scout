@@ -80,12 +80,23 @@ async function getAccessToken(requestToken, requestTokenSecret, verifier) {
   return { accessToken: params.get('oauth_token'), accessTokenSecret: params.get('oauth_token_secret') };
 }
 
-// Fetch children of a SmugMug URL path — e.g. /Master-Library/Restaurants
+// Fetch children of a SmugMug URL path using weburiLookup then ChildNodes
 async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
-  // Use SmugMug's folder API by URL path
-  const apiPath = `/folder/user/${SM_USER}${urlPath}!children`;
-  const data = await smRequest(apiPath, accessToken, accessTokenSecret, { count: '200' });
-  const children = data.Response?.FolderOrAlbum || data.Response?.Node || [];
+  // Step 1: resolve the URL path to a node using weburiLookup
+  const webUri = `https://${SM_USER}.smugmug.com${urlPath}`;
+  const lookupData = await smRequest('/!weburilookup', accessToken, accessTokenSecret, {
+    WebUri: webUri
+  });
+
+  const node = lookupData.Response?.Node;
+  if (!node) throw new Error(`Folder not found: ${urlPath}`);
+
+  // Step 2: get children of this node
+  const childrenUri = node.Uris?.ChildNodes?.Uri;
+  if (!childrenUri) return { folders: [], albums: [] };
+
+  const childData = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
+  const children = childData.Response?.Node || [];
   const arr = Array.isArray(children) ? children : [children];
 
   const folders = [];
@@ -93,23 +104,51 @@ async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
 
   for (const item of arr) {
     if (!item) continue;
-    const type = item.Type || (item.AlbumKey ? 'Album' : 'Folder');
-    if (type === 'Album' || item.AlbumKey) {
+    if (item.Type === 'Album') {
+      // Get album key from the Album URI
+      const albumUri = item.Uris?.Album?.Uri;
+      let albumKey = item.NodeID;
+      let imageCount = 0;
+      let description = '';
+      let keywords = '';
+      let thumbUrl = null;
+
+      if (albumUri) {
+        try {
+          const albumData = await smRequest(albumUri, accessToken, accessTokenSecret);
+          const album = albumData.Response?.Album;
+          if (album) {
+            albumKey = album.AlbumKey;
+            imageCount = album.ImageCount || 0;
+            description = album.Description || '';
+            keywords = album.Keywords || '';
+            // Get highlight image for thumbnail
+            const hlUri = album.Uris?.HighlightImage?.Uri;
+            if (hlUri) {
+              try {
+                const hlData = await smRequest(hlUri, accessToken, accessTokenSecret);
+                thumbUrl = hlData.Response?.Image?.ThumbnailUrl || null;
+              } catch(e) {}
+            }
+          }
+        } catch(e) { console.error('album lookup error:', e.message); }
+      }
+
       albums.push({
-        id: item.AlbumKey || item.NodeID,
-        name: item.Name || item.UrlName,
+        id: albumKey,
+        name: item.Name,
         urlName: item.UrlName,
         url: item.WebUri || `https://${SM_USER}.smugmug.com${urlPath}/${item.UrlName}`,
-        imageCount: item.ImageCount || 0,
-        description: item.Description || '',
-        keywords: item.Keywords || '',
-        thumbUrl: item.Uris?.HighlightImage?.Uri || null,
+        imageCount,
+        description,
+        keywords,
+        thumbUrl,
       });
-    } else {
+    } else if (item.Type === 'Folder' || item.Type === 'Page') {
       folders.push({
-        name: item.Name || item.UrlName,
-        urlName: item.UrlName || item.Name,
-        path: `${urlPath}/${item.UrlName || item.Name}`,
+        name: item.Name,
+        urlName: item.UrlName,
+        path: `${urlPath}/${item.UrlName}`,
         url: item.WebUri || `https://${SM_USER}.smugmug.com${urlPath}/${item.UrlName}`,
       });
     }
