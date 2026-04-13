@@ -534,7 +534,7 @@ function openDetail(loc){
     ${loc.notes?`
     <div class="dp-section">
       <div class="dp-label">Scout notes</div>
-      <div class="dp-notes">${loc.notes}</div>
+      <div class="dp-notes">${formatNotes(loc.notes)}</div>
     </div>`:''}
     ${tags?`
     <div class="dp-section">
