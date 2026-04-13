@@ -79,144 +79,178 @@ async function getAccessToken(requestToken, requestTokenSecret, verifier) {
   return { accessToken: params.get('oauth_token'), accessTokenSecret: params.get('oauth_token_secret') };
 }
 
-// Extract folder path from SmugMug URL
-// e.g. https://jordanhoffman.smugmug.com/Master-Library/Parking-Garage-Lot/Brooklyn/Park-Kwik
-// returns { folderPath: 'Master-Library/Parking-Garage-Lot/Brooklyn', albumSlug: 'Park-Kwik' }
-function extractPathFromUrl(webUrl) {
+function extractFolderPath(webUrl) {
   try {
     const url = new URL(webUrl);
     const parts = url.pathname.split('/').filter(Boolean);
     if (parts.length <= 1) return { folderPath: '', albumSlug: parts[0] || '' };
-    const albumSlug = parts[parts.length - 1];
-    const folderPath = parts.slice(0, -1).join('/');
-    return { folderPath, albumSlug };
-  } catch(e) {
-    return { folderPath: '', albumSlug: '' };
-  }
+    return {
+      folderPath: parts.slice(0, -1).join('/'),
+      albumSlug: parts[parts.length - 1]
+    };
+  } catch(e) { return { folderPath: '', albumSlug: '' }; }
 }
 
-// Decode URL slug to readable name
 function slugToName(slug) {
-  return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return decodeURIComponent(slug).replace(/-/g, ' ');
 }
 
-async function crawlLibrary(accessToken, accessTokenSecret) {
-  const results = { folders: [], albums: [], images: [] };
+// Get just the root node's immediate children — fast, no deep crawl
+async function getNodeChildren(nodeUri, accessToken, accessTokenSecret) {
+  const nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret);
+  const node = nodeRes.Response?.Node;
+  if (!node) return [];
+  const childrenUri = node.Uris?.ChildNodes?.Uri;
+  if (!childrenUri) return [];
+  const childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
+  const children = childRes.Response?.Node || [];
+  return Array.isArray(children) ? children : [children];
+}
+
+// Get albums from a single node (one folder) — stays well under timeout
+async function getAlbumsFromNode(nodeUri, accessToken, accessTokenSecret, folderPath) {
+  const children = await getNodeChildren(nodeUri, accessToken, accessTokenSecret);
+  const albums = [];
+  const subfolders = [];
+
+  for (const child of children) {
+    if (!child || !child.Uri) continue;
+    if (child.Type === 'Album') {
+      const albumUri = child.Uris?.Album?.Uri;
+      if (!albumUri) continue;
+      try {
+        const albumRes = await smRequest(albumUri, accessToken, accessTokenSecret);
+        const album = albumRes.Response?.Album;
+        if (!album) continue;
+        const { folderPath: urlFolder } = extractFolderPath(album.WebUri || '');
+        albums.push({
+          id: album.AlbumKey,
+          name: album.Name,
+          path: urlFolder || folderPath,
+          url: album.WebUri,
+          uri: albumUri,
+          imageCount: album.ImageCount || 0,
+          keywords: album.Keywords || '',
+          description: album.Description || '',
+          nodeUri: child.Uri
+        });
+      } catch(e) { console.error('album error:', e.message); }
+    } else if (child.Type === 'Folder') {
+      const childPath = folderPath ? `${folderPath}/${child.UrlName || child.Name}` : (child.UrlName || child.Name);
+      subfolders.push({
+        id: child.NodeID || childPath,
+        name: child.Name,
+        path: childPath,
+        uri: child.Uri
+      });
+    }
+  }
+  return { albums, subfolders };
+}
+
+// Crawl only albums (no images) — just folder/album structure
+async function crawlStructure(accessToken, accessTokenSecret) {
+  const results = { folders: [], albums: [] };
   const folderSet = new Set();
 
   const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
   const nodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
   if (!nodeUri) throw new Error('Could not get user node URI');
 
-  async function crawlNode(nodeUri, depth = 0) {
-    if (depth > 8) return; // safety limit
-    let nodeRes;
+  // BFS queue — process level by level
+  const queue = [{ uri: nodeUri, path: '' }];
+  let processed = 0;
+  const maxNodes = 50; // Safety limit per request
+
+  while (queue.length > 0 && processed < maxNodes) {
+    const { uri, path } = queue.shift();
+    processed++;
+
     try {
-      nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret);
-    } catch(e) { console.error('node error:', e.message); return; }
+      const { albums, subfolders } = await getAlbumsFromNode(uri, accessToken, accessTokenSecret, path);
 
-    const node = nodeRes.Response?.Node;
-    if (!node) return;
-
-    // Get children via ChildNodes URI
-    const childrenUri = node.Uris?.ChildNodes?.Uri;
-    if (childrenUri) {
-      let childRes;
-      try { childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' }); } catch(e) { return; }
-      const children = childRes.Response?.Node || [];
-      const childArr = Array.isArray(children) ? children : [children];
-
-      for (const child of childArr) {
-        if (!child || !child.Uri) continue;
-
-        if (child.Type === 'Album') {
-          // Get album details
-          const albumUri = child.Uris?.Album?.Uri;
-          if (!albumUri) continue;
-          let albumRes;
-          try { albumRes = await smRequest(albumUri, accessToken, accessTokenSecret); } catch(e) { continue; }
-          const album = albumRes.Response?.Album;
-          if (!album) continue;
-
-          // Extract folder structure from the album's web URL
-          const { folderPath } = extractPathFromUrl(album.WebUri || '');
-
-          // Build folder hierarchy from path
-          if (folderPath) {
-            const parts = folderPath.split('/');
-            let cumPath = '';
-            parts.forEach((part, i) => {
-              cumPath = i === 0 ? part : `${cumPath}/${part}`;
-              if (!folderSet.has(cumPath)) {
-                folderSet.add(cumPath);
-                results.folders.push({
-                  id: cumPath.replace(/\//g, '-'),
-                  name: slugToName(part),
-                  path: cumPath,
-                  url: `https://jordanhoffman.smugmug.com/${cumPath}`,
-                  uri: cumPath
-                });
-              }
-            });
-          }
-
-          results.albums.push({
-            id: album.AlbumKey,
-            name: album.Name,
-            path: folderPath ? `${folderPath}/${album.UrlName || child.UrlName || album.AlbumKey}` : album.Name,
-            url: album.WebUri,
-            uri: albumUri,
-            imageCount: album.ImageCount || 0,
-            keywords: album.Keywords || '',
-            description: album.Description || '',
-            folderPath: folderPath || ''
-          });
-
-          // Get images
-          await crawlAlbumImages(album, folderPath);
-
-        } else if (child.Type === 'Folder' || child.Type === 'Page') {
-          await crawlNode(child.Uri, depth + 1);
+      // Add folders
+      subfolders.forEach(sf => {
+        if (!folderSet.has(sf.path)) {
+          folderSet.add(sf.path);
+          results.folders.push(sf);
+          queue.push({ uri: sf.uri, path: sf.path });
         }
-      }
+      });
+
+      // Add albums — also derive folder structure from URL
+      albums.forEach(a => {
+        results.albums.push(a);
+        // Also add any intermediate folders from the URL path
+        if (a.path) {
+          const parts = a.path.split('/');
+          let cum = '';
+          parts.forEach((part, i) => {
+            cum = i === 0 ? part : `${cum}/${part}`;
+            if (!folderSet.has(cum)) {
+              folderSet.add(cum);
+              results.folders.push({
+                id: cum.replace(/\//g, '-'),
+                name: slugToName(part),
+                path: cum,
+                uri: ''
+              });
+            }
+          });
+        }
+      });
+    } catch(e) {
+      console.error('crawl node error:', e.message);
     }
   }
 
-  async function crawlAlbumImages(album, albumPath) {
-    const albumImagesUri = album.Uris?.AlbumImages?.Uri;
-    if (!albumImagesUri) return;
-    let start = 1;
-    const perPage = 100;
-    while (true) {
-      let imagesRes;
+  return { ...results, hasMore: queue.length > 0 };
+}
+
+// Crawl images for a specific album only
+async function crawlAlbumImages(albumUri, albumKey, albumName, albumPath, albumUrl, accessToken, accessTokenSecret) {
+  const images = [];
+  let start = 1;
+  const perPage = 100;
+  while (true) {
+    let imagesRes;
+    try {
+      imagesRes = await smRequest(albumUri + '/images', accessToken, accessTokenSecret,
+        { count: String(perPage), start: String(start) });
+    } catch(e) {
+      // Try alternate images URI format
       try {
-        imagesRes = await smRequest(albumImagesUri, accessToken, accessTokenSecret,
+        imagesRes = await smRequest(`/album/${albumKey}!images`, accessToken, accessTokenSecret,
           { count: String(perPage), start: String(start) });
-      } catch(e) { break; }
-      const images = imagesRes.Response?.AlbumImage || [];
-      const imageArr = Array.isArray(images) ? images : [images];
-      for (const img of imageArr) {
-        if (!img || !img.ImageKey) continue;
-        results.images.push({
-          id: img.ImageKey, albumKey: album.AlbumKey, albumName: album.Name,
-          albumPath, albumUrl: album.WebUri,
-          filename: img.FileName || '', title: img.Title || img.FileName || '',
-          caption: img.Caption || '', keywords: img.Keywords || '',
-          date: img.DateTimeOriginal || img.DateTimeUploaded || null,
-          width: img.OriginalWidth || null, height: img.OriginalHeight || null,
-          thumbUrl: img.ThumbnailUrl || null, webUri: img.WebUri || null,
-          lat: img.Latitude || null, lng: img.Longitude || null,
-          format: img.Format || null, size: img.ArchivedSize || null,
-          isVideo: img.IsVideo || false,
-        });
-      }
-      if (imageArr.length < perPage) break;
-      start += perPage;
+      } catch(e2) { break; }
     }
+    const imgs = imagesRes.Response?.AlbumImage || [];
+    const imgArr = Array.isArray(imgs) ? imgs : [imgs];
+    for (const img of imgArr) {
+      if (!img || !img.ImageKey) continue;
+      images.push({
+        id: img.ImageKey, albumKey, albumName,
+        albumPath, albumUrl,
+        filename: img.FileName || '',
+        title: img.Title || img.FileName || '',
+        caption: img.Caption || '',
+        keywords: img.Keywords || '',
+        date: img.DateTimeOriginal || img.DateTimeUploaded || null,
+        width: img.OriginalWidth || null,
+        height: img.OriginalHeight || null,
+        thumbUrl: img.ThumbnailUrl || null,
+        webUri: img.WebUri || null,
+        lat: img.Latitude || null,
+        lng: img.Longitude || null,
+        format: img.Format || null,
+        size: img.ArchivedSize || null,
+        isVideo: img.IsVideo || false,
+      });
+    }
+    if (imgArr.length < perPage) break;
+    start += perPage;
   }
-
-  await crawlNode(nodeUri);
-  return results;
+  return images;
 }
 
 module.exports = async function handler(req, res) {
@@ -271,10 +305,30 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    // Structure crawl — just folders and album metadata, no images
+    if (action === 'structure') {
+      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
+      const result = await crawlStructure(accessToken, accessTokenSecret);
+      res.json({ ok: true, library: { ...result, images: [] } });
+      return;
+    }
+
+    // Full crawl — kept for compatibility but now just does structure
     if (action === 'crawl') {
       if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      const library = await crawlLibrary(accessToken, accessTokenSecret);
-      res.json({ ok: true, library });
+      const result = await crawlStructure(accessToken, accessTokenSecret);
+      res.json({ ok: true, library: { ...result, images: [] } });
+      return;
+    }
+
+    // Images crawl for a single album
+    if (action === 'album-images') {
+      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
+      const { albumUri, albumKey, albumName, albumPath, albumUrl } = req.query;
+      if (!albumUri && !albumKey) { res.status(400).json({ error: 'albumUri or albumKey required' }); return; }
+      const uri = albumUri || `/album/${albumKey}`;
+      const images = await crawlAlbumImages(uri, albumKey, albumName, albumPath, albumUrl, accessToken, accessTokenSecret);
+      res.json({ ok: true, images });
       return;
     }
 
