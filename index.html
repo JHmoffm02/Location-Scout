@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -203,7 +204,7 @@ select.fi{cursor:pointer}
   <div id="nav">
     <button class="nav-btn active" onclick="showPage('home',this)">Home</button>
     <button class="nav-btn" onclick="showPage('projects',this)">Projects</button>
-    <button class="nav-btn" onclick="showPage('library',this)">Search</button>
+    <button class="nav-btn" onclick="showPage('library',this)">Library</button>
   </div>
   <div id="pages">
 
@@ -665,7 +666,7 @@ async function startSync(){
   const tb=btoa(JSON.stringify(smTokens));
   try{
     label.textContent='crawling smugmug library...';fill.style.width='10%';
-    const cr=await fetch(`${SM_BASE}/api/smugmug?action=crawl`,{headers:{Authorization:`Bearer ${tb}`}});
+    const cr=await fetch(`${SM_BASE}/api/smugmug?action=structure`,{headers:{Authorization:`Bearer ${tb}`}});
     if(!cr.ok)throw new Error(await cr.text());
     const{library}=await cr.json();
     label.textContent=`found ${library.albums?.length||0} albums, ${library.images?.length||0} photos`;
