@@ -582,30 +582,34 @@ function drawZone(){
 // ---- GEOCODE ----
 async function geocodeAll(){
   const btn=document.getElementById('geocode-btn');
-  const toGeo=locations.filter(l=>!hasCoords(l));
+  const toGeo=locations.filter(l=>!l.lat||l.lat===0||(!l.lat&&!l.lng));
   if(!toGeo.length){toast('All locations have coordinates','inf');return}
-  if(!confirm(`Geocode ${toGeo.length} locations without coordinates?\nUses the parsed address from SmugMug descriptions where available.`))return;
-  btn.disabled=true;btn.textContent=`geocoding 0/${toGeo.length}...`;
+  if(!confirm(`Geocode ${toGeo.length} locations without coordinates?`))return;
+  btn.disabled=true;
   let done=0,failed=0;
   for(let i=0;i<toGeo.length;i++){
     const loc=toGeo[i];
     btn.textContent=`geocoding ${i+1}/${toGeo.length}...`;
     try{
-      // Use geocode_query (parsed address) if available, else name
       const q=encodeURIComponent((loc.geocode_query||loc.name)+' NY');
       const r=await fetch(`${SM_BASE}/api/geocode?address=${q}`);
-const d=await r.json();
-if(d.ok&&d.lat){
-  const{lat,lng}=d;
-        await db(`locations?id=eq.${loc.id}`,{
-          method:'PATCH',body:JSON.stringify({lat,lng}),
-          headers:{Prefer:'return=minimal'}
+      const d=await r.json();
+      if(d.ok&&d.lat){
+        await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`,{
+          method:'PATCH',
+          headers:{
+            'apikey':SB_KEY,
+            'Authorization':`Bearer ${SB_KEY}`,
+            'Content-Type':'application/json',
+            'Prefer':'return=minimal'
+          },
+          body:JSON.stringify({lat:d.lat,lng:d.lng})
         });
         const l=locations.find(x=>x.id===loc.id);
-        if(l){l.lat=lat;l.lng=lng;}
+        if(l){l.lat=d.lat;l.lng=d.lng;}
         done++;
       } else failed++;
-    }catch(e){failed++;}
+    }catch(e){failed++;console.error(loc.name,e.message);}
     await new Promise(r=>setTimeout(r,120));
   }
   btn.disabled=false;btn.textContent='geocode addresses';
