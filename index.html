@@ -137,15 +137,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .add-card span{font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em}
 
 /* ===== SEARCH ===== */
-#search-page{background:var(--bg2)}
+#library-page{background:var(--bg2)}
 .sh-bar{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0}
 .sh-input{flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:8px 14px;font-size:13px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none}
 .sh-input:focus{border-color:var(--accent2)}
 .sh-input::placeholder{color:var(--text3)}
 .sh-sel{padding:8px 11px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none}
-#search-grid{flex:1;overflow-y:auto;padding:16px 24px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-content:start}
-#search-grid::-webkit-scrollbar{width:3px}
-#search-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+#library-grid{flex:1;overflow-y:auto;padding:16px 24px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-content:start}
+#library-grid::-webkit-scrollbar{width:3px}
+#library-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
 /* Shared */
 .btn{padding:7px 16px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.06em;border-radius:var(--radius);cursor:pointer;transition:all .15s;border:1px solid var(--border2);background:transparent;color:var(--text2)}
@@ -186,9 +186,15 @@ select.fi{cursor:pointer}
 
 @media(max-width:700px){
   .grid-3{grid-template-columns:1fr 1fr}
-  #search-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  #library-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
   #detail-panel{width:100%}
 }
+
+.lib-bc{display:flex;align-items:center;gap:5px;font-size:11px;font-family:'DM Mono',monospace;flex:1;flex-wrap:wrap;min-width:0}
+.lib-bc span{color:var(--accent);cursor:pointer;white-space:nowrap}
+.lib-bc span:hover{text-decoration:underline}
+.lib-bc span.cur{color:var(--text2);cursor:default}
+.lib-bc .sep{color:var(--border2)}
 </style>
 </head>
 <body>
@@ -197,7 +203,7 @@ select.fi{cursor:pointer}
   <div id="nav">
     <button class="nav-btn active" onclick="showPage('home',this)">Home</button>
     <button class="nav-btn" onclick="showPage('projects',this)">Projects</button>
-    <button class="nav-btn" onclick="showPage('search',this)">Search</button>
+    <button class="nav-btn" onclick="showPage('library',this)">Search</button>
   </div>
   <div id="pages">
 
@@ -286,24 +292,22 @@ select.fi{cursor:pointer}
       </div>
     </div>
 
-    <!-- SEARCH -->
-    <div class="page" id="search-page">
+    <!-- LIBRARY -->
+    <div class="page" id="library-page">
       <div class="sh-bar">
-        <input class="sh-input" id="sq" placeholder="search by name, keyword, address..." oninput="doSearch()">
-        <select class="sh-sel" id="sf-status" onchange="doSearch()">
+        <div class="lib-bc" id="lib-bc">
+          <span onclick="libBrowse(null)">Master Library</span>
+        </div>
+        <input class="sh-input" id="lq" placeholder="search all locations..." oninput="libSearch()" style="max-width:220px">
+        <select class="sh-sel" id="sf-status" onchange="libSearch()">
           <option value="">all status</option>
           <option value="approved">approved</option>
           <option value="scouted">scouted</option>
           <option value="pending">pending</option>
           <option value="identified">identified</option>
         </select>
-        <select class="sh-sel" id="sf-state" onchange="doSearch()">
-          <option value="">all states</option>
-          <option value="NY">NY</option><option value="NJ">NJ</option>
-          <option value="CT">CT</option><option value="PA">PA</option>
-        </select>
       </div>
-      <div id="search-grid"><div class="empty"><div class="spin"></div>&nbsp;loading...</div></div>
+      <div id="library-grid"><div class="empty"><div class="spin"></div>&nbsp;loading...</div></div>
     </div>
   </div>
 </div>
@@ -354,7 +358,6 @@ select.fi{cursor:pointer}
 <script>
 const SB_URL='https://bdnezxdfhapaxhoedtrp.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkbmV6eGRmaGFwYXhob2VkdHJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5OTgwMTAsImV4cCI6MjA5MTU3NDAxMH0.tdyh77PJ4xSOnb4GeLQRHcDWd0l2KRMpgl7Awj7NiB0';
-const GEO_KEY='your-new-unrestricted-key-here';
 const GM_KEY='AIzaSyBORHlI6GqQNtL2Ev8RlapOFKrjFgkzJfA';
 const SM_BASE='https://location-scout-sand.vercel.app';
 const COLUMBUS={lat:40.7681,lng:-73.9819};
@@ -372,12 +375,12 @@ function toast(m,t='ok'){const el=document.getElementById('toast');el.textConten
 function showPage(page,btn){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById(`${page}-page`).classList.add('active');
+  document.getElementById(`${page}-page`.replace('search','library')).classList.add('active');
   btn.classList.add('active');
   closeDetail();
   if(page==='home'){if(!mapReady)loadMapScript();else if(gmap)setTimeout(()=>google.maps.event.trigger(gmap,'resize'),50)}
   if(page==='projects')browseFolder(null);
-  if(page==='search'){loadLocations().then(doSearch)}
+  if(page==='library'){loadLocations().then(()=>libBrowse(null))}
 }
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 
@@ -434,19 +437,6 @@ window.initMap=async function(){
   checkSyncStatus();
 };
 
-function formatNotes(raw){
-  if(!raw)return'';
-  const lines=raw.split('\n').map(l=>l.trim()).filter(Boolean);
-  // Skip first line if it's just the location name (same as title)
-  const start=lines[0]&&lines[0].length<60&&!lines[0].includes('Notes:')?1:0;
-  return lines.slice(start).map(l=>{
-    if(/^notes?\s*:/i.test(l))return`<br><strong style="color:var(--text2);font-size:10px;letter-spacing:.1em;font-family:'DM Mono',monospace">NOTES</strong>`;
-    if(/^C:\s*/i.test(l))return`<span style="color:var(--text3)">Contact: ${l.replace(/^C:\s*/i,'')}</span>`;
-    if(/^-\s*/.test(l))return`• ${l.replace(/^-\s*/,'')}`;
-    return l;
-  }).join('<br>');
-}
-  
 function getFiltered(){
   const zoneOnly=document.getElementById('f-zone').checked;
   const states=['ny','nj','ct','pa'].filter(s=>document.getElementById(`f-${s}`).checked).map(s=>s.toUpperCase());
@@ -544,10 +534,10 @@ function openDetail(loc){
         ${miles(loc.lat,loc.lng)<=30?'<span style="color:var(--green);margin-left:8px">in zone</span>':'<span style="color:var(--text3);margin-left:8px">out of zone</span>'}
       </div>
     </div>`:''}
-${loc.notes?`
+    ${loc.notes?`
     <div class="dp-section">
       <div class="dp-label">Scout notes</div>
-      <div class="dp-notes">${formatNotes(loc.notes)}</div>
+      <div class="dp-notes">${loc.notes}</div>
     </div>`:''}
     ${tags?`
     <div class="dp-section">
@@ -595,34 +585,30 @@ function drawZone(){
 // ---- GEOCODE ----
 async function geocodeAll(){
   const btn=document.getElementById('geocode-btn');
-  const toGeo=locations.filter(l=>!l.lat||l.lat===0||(!l.lat&&!l.lng));
+  const toGeo=locations.filter(l=>!hasCoords(l));
   if(!toGeo.length){toast('All locations have coordinates','inf');return}
-  if(!confirm(`Geocode ${toGeo.length} locations without coordinates?`))return;
-  btn.disabled=true;
+  if(!confirm(`Geocode ${toGeo.length} locations without coordinates?\nUses the parsed address from SmugMug descriptions where available.`))return;
+  btn.disabled=true;btn.textContent=`geocoding 0/${toGeo.length}...`;
   let done=0,failed=0;
   for(let i=0;i<toGeo.length;i++){
     const loc=toGeo[i];
     btn.textContent=`geocoding ${i+1}/${toGeo.length}...`;
     try{
+      // Use geocode_query (parsed address) if available, else name
       const q=encodeURIComponent((loc.geocode_query||loc.name)+' NY');
-      const r=await fetch(`${SM_BASE}/api/geocode?address=${q}`);
+      const r=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${q}&key=${GM_KEY}`);
       const d=await r.json();
-      if(d.ok&&d.lat){
-        await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`,{
-          method:'PATCH',
-          headers:{
-            'apikey':SB_KEY,
-            'Authorization':`Bearer ${SB_KEY}`,
-            'Content-Type':'application/json',
-            'Prefer':'return=minimal'
-          },
-          body:JSON.stringify({lat:d.lat,lng:d.lng})
+      if(d.results&&d.results[0]){
+        const{lat,lng}=d.results[0].geometry.location;
+        await db(`locations?id=eq.${loc.id}`,{
+          method:'PATCH',body:JSON.stringify({lat,lng}),
+          headers:{Prefer:'return=minimal'}
         });
         const l=locations.find(x=>x.id===loc.id);
-        if(l){l.lat=d.lat;l.lng=d.lng;}
+        if(l){l.lat=lat;l.lng=lng;}
         done++;
       } else failed++;
-    }catch(e){failed++;console.error(loc.name,e.message);}
+    }catch(e){failed++;}
     await new Promise(r=>setTimeout(r,120));
   }
   btn.disabled=false;btn.textContent='geocode addresses';
@@ -798,29 +784,179 @@ async function browseFolder(path){
   }catch(e){grid.innerHTML=`<div class="empty">error: ${e.message}</div>`}
 }
 
-// ---- SEARCH ----
-async function doSearch(){
-  if(!locations.length)await loadLocations();
-  const q=document.getElementById('sq').value.toLowerCase();
-  const status=document.getElementById('sf-status').value;
-  const state=document.getElementById('sf-state').value;
-  const f=locations.filter(l=>{
-    if(status&&l.status!==status)return false;
-    if(state&&(l.state_code||'').toUpperCase()!==state)return false;
-    if(q){const h=[l.name,l.address,l.city,l.notes,...(l.tags||[])].join(' ').toLowerCase();if(!h.includes(q))return false}
+// ---- LIBRARY ----
+let libCurrentPath = null;
+
+async function libBrowse(path) {
+  libCurrentPath = path;
+  const grid = document.getElementById('library-grid');
+  const bc = document.getElementById('lib-bc');
+  grid.innerHTML = '<div class="empty"><div class="spin"></div>&nbsp;loading...</div>';
+
+  // Build breadcrumb
+  if (!path) {
+    bc.innerHTML = '<span class="cur">Master Library</span>';
+  } else {
+    const parts = path.split('/');
+    let html = '<span onclick="libBrowse(null)">Master Library</span>';
+    let cum = '';
+    parts.forEach((p, i) => {
+      cum = i === 0 ? p : `${cum}/${p}`;
+      const cp = cum;
+      html += '<span class="sep"> / </span>';
+      if (i < parts.length - 1) {
+        html += `<span onclick="libBrowse('${cp}')">${slugToName(p)}</span>`;
+      } else {
+        html += `<span class="cur">${slugToName(p)}</span>`;
+      }
+    });
+    bc.innerHTML = html;
+  }
+
+  try {
+    if (!path) {
+      // Root — show top level folders from smugmug_albums paths
+      await libShowRoot(grid);
+    } else {
+      await libShowFolder(path, grid);
+    }
+  } catch(e) {
+    grid.innerHTML = `<div class="empty">error: ${e.message}</div>`;
+  }
+}
+
+function slugToName(slug) {
+  return slug.replace(/-/g, ' ').replace(/\w/g, c => c.toUpperCase());
+}
+
+async function libShowRoot(grid) {
+  // Get all albums and derive top-level folder names from their paths
+  const albums = await db('smugmug_albums?select=sm_key,name,path,web_url,image_count&order=name.asc');
+  const topFolders = new Map();
+  albums.forEach(a => {
+    if (!a.path) return;
+    const parts = a.path.split('/');
+    if (parts.length > 1) {
+      const top = parts[0];
+      if (!topFolders.has(top)) topFolders.set(top, { name: slugToName(top), path: top, count: 0 });
+      topFolders.get(top).count++;
+    }
+  });
+
+  let cards = '';
+  // Show folders first
+  topFolders.forEach(f => {
+    cards += `<div class="gcard gcard-folder" onclick="libBrowse('${f.path}')">
+      <div class="gcard-tw gcard-folder">
+        <div class="folder-icon">▤</div>
+        <div class="folder-nm">${f.name}</div>
+        <div class="folder-ct">${f.count} galleries</div>
+      </div>
+      <div class="gcard-meta">folder</div>
+    </div>`;
+  });
+
+  // Also show any albums at root level (no path separator)
+  const rootAlbums = albums.filter(a => !a.path || !a.path.includes('/'));
+  rootAlbums.forEach(a => { cards += libAlbumCard(a); });
+
+  grid.innerHTML = cards || '<div class="empty">no content found — run a sync first</div>';
+}
+
+async function libShowFolder(folderPath, grid) {
+  const albums = await db('smugmug_albums?select=sm_key,name,path,web_url,image_count&order=name.asc');
+  const depth = folderPath.split('/').length;
+
+  // Find direct subfolders
+  const subFolders = new Map();
+  albums.forEach(a => {
+    if (!a.path || !a.path.startsWith(folderPath + '/')) return;
+    const rest = a.path.slice(folderPath.length + 1);
+    const parts = rest.split('/');
+    if (parts.length > 1) {
+      // Has more depth — this is a subfolder
+      const sub = folderPath + '/' + parts[0];
+      if (!subFolders.has(sub)) subFolders.set(sub, { name: slugToName(parts[0]), path: sub, count: 0 });
+      subFolders.get(sub).count++;
+    }
+  });
+
+  // Find direct albums at this level
+  const directAlbums = albums.filter(a => {
+    if (!a.path) return false;
+    // Album is direct child if path starts with folderPath/ and has no more /
+    const rest = a.path.slice(folderPath.length + 1);
+    return a.path.startsWith(folderPath + '/') && !rest.includes('/');
+  });
+
+  let cards = '';
+  subFolders.forEach(f => {
+    cards += `<div class="gcard gcard-folder" onclick="libBrowse('${f.path}')">
+      <div class="gcard-tw gcard-folder">
+        <div class="folder-icon">▤</div>
+        <div class="folder-nm">${f.name}</div>
+        <div class="folder-ct">${f.count} galleries</div>
+      </div>
+      <div class="gcard-meta">folder</div>
+    </div>`;
+  });
+
+  directAlbums.forEach(a => { cards += libAlbumCard(a); });
+
+  grid.innerHTML = cards || '<div class="empty">empty folder</div>';
+}
+
+function libAlbumCard(a) {
+  const loc = locations.find(l => l.smugmug_album_key === a.sm_key);
+  const thumb = loc?.cover_photo_url || '';
+  const sl = loc ? SL[loc.status] || SL.identified : null;
+  return `<div class="gcard" onclick="${loc ? `openLibDetail('${loc.id}')` : `window.open('${a.web_url||'#'}','_blank')`}">
+    <div class="gcard-tw">
+      ${thumb ? `<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">` : ''}
+      <div class="gcard-ph">${thumb ? '' : 'no photo'}</div>
+      <div class="gcard-overlay">${a.name}</div>
+    </div>
+    <div class="gcard-meta">${sl ? `<span style="color:${sl.c}">${loc.status}</span> · ` : ''}${a.image_count || 0} photos</div>
+  </div>`;
+}
+
+function openLibDetail(locId) {
+  const loc = locations.find(l => l.id === locId);
+  if (!loc) return;
+  openDetail(loc);
+  // Switch to home page to show on map
+  // But keep user on library — just open slide panel
+  document.getElementById('detail-panel').classList.add('open');
+}
+
+function libSearch() {
+  const q = document.getElementById('lq').value.toLowerCase();
+  const status = document.getElementById('sf-status').value;
+  if (!q && !status) { libBrowse(libCurrentPath); return; }
+
+  const f = locations.filter(l => {
+    if (status && l.status !== status) return false;
+    if (q) {
+      const h = [l.name, l.address, l.city, l.notes, ...(l.tags || [])].join(' ').toLowerCase();
+      if (!h.includes(q)) return false;
+    }
     return true;
   });
-  const grid=document.getElementById('search-grid');
-  if(!f.length){grid.innerHTML='<div class="empty">no results</div>';return}
-  grid.innerHTML=f.map(l=>{
-    const sl=SL[l.status]||SL.identified;
-    return`<div class="gcard" onclick="showPage('home',document.querySelector('.nav-btn'));openDetail(locations.find(x=>x.id==='${l.id}'))">
+
+  const grid = document.getElementById('library-grid');
+  const bc = document.getElementById('lib-bc');
+  bc.innerHTML = `<span onclick="libBrowse(null)">Master Library</span><span class="sep"> / </span><span class="cur">search results (${f.length})</span>`;
+
+  if (!f.length) { grid.innerHTML = '<div class="empty">no results</div>'; return; }
+  grid.innerHTML = f.map(l => {
+    const sl = SL[l.status] || SL.identified;
+    return `<div class="gcard" onclick="openLibDetail('${l.id}')">
       <div class="gcard-tw">
-        ${l.cover_photo_url?`<img class="gcard-img" src="${l.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`:``}
-        <div class="gcard-ph">${l.cover_photo_url?'':'no photo'}</div>
+        ${l.cover_photo_url ? `<img class="gcard-img" src="${l.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">` : ''}
+        <div class="gcard-ph">${l.cover_photo_url ? '' : 'no photo'}</div>
         <div class="gcard-overlay">${l.name}</div>
       </div>
-      <div class="gcard-meta" style="color:${sl.c}">${l.status} · ${[l.city,l.state_code].filter(Boolean).join(', ')||'—'}</div>
+      <div class="gcard-meta" style="color:${sl.c}">${l.status} · ${[l.city, l.state_code].filter(Boolean).join(', ') || '—'}</div>
     </div>`;
   }).join('');
 }
