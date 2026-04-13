@@ -284,7 +284,9 @@ select.fi{cursor:pointer}
     <!-- PROJECTS -->
     <div class="page" id="projects-page">
       <div class="pg-header">
-        <h2>Projects</h2>
+        <div class="pg-bc" id="pg-bc">
+          <span onclick="projBrowse(null)">Master Library</span>
+        </div>
         <button class="btn primary" onclick="openNewProject()">+ new project</button>
       </div>
       <div class="pg-scroll">
@@ -379,7 +381,7 @@ function showPage(page,btn){
   btn.classList.add('active');
   closeDetail();
   if(page==='home'){if(!mapReady)loadMapScript();else if(gmap)setTimeout(()=>google.maps.event.trigger(gmap,'resize'),50)}
-  if(page==='projects')loadProjects();
+  if(page==='projects')projBrowse(null);
   if(page==='library'){loadLocations().then(()=>libBrowse(null))}
 }
 function closeModal(id){document.getElementById(id).classList.remove('open')}
@@ -708,98 +710,72 @@ async function startSync(){
 }
 
 // ---- PROJECTS ----
-async function loadProjects() {
+async function projBrowse(path, label) {
   const grid = document.getElementById('projects-grid');
+  const bc = document.getElementById('pg-bc');
   grid.innerHTML = '<div class="empty"><div class="spin"></div>&nbsp;loading...</div>';
-  try {
-    const projects = await db('projects?select=*&order=sort_order.asc,created_at.desc');
-    if (!projects.length) {
-      grid.innerHTML = '<div class="add-card" onclick="openNewProject()"><div style="font-size:24px;color:var(--text3);opacity:.3">+</div><span>create your first project</span></div>';
-      return;
-    }
-    grid.innerHTML = projects.map(p => `
-      <div class="gcard">
-        <div class="gcard-tw">
-          ${p.cover_url ? `<img class="gcard-img" src="${p.cover_url}" loading="lazy" onerror="this.style.display='none'">` : ''}
-          <div class="gcard-ph">${p.cover_url ? '' : 'no cover'}</div>
-          <div class="gcard-overlay">${p.name}</div>
-        </div>
-        <div class="gcard-meta" style="display:flex;justify-content:space-between;align-items:center">
-          <span class="s-${p.status === 'active' ? 'approved' : p.status === 'wrapped' ? 'scouted' : 'identified'}">${p.status}</span>
-          <span style="display:flex;gap:6px">
-            <span onclick="editProject('${p.id}')" style="cursor:pointer;color:var(--text3);font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px">edit</span>
-            <span onclick="deleteProject('${p.id}','${p.name.replace(/'/g,'\'')}')" style="cursor:pointer;color:var(--text3);font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px">delete</span>
-          </span>
-        </div>
-      </div>`).join('') +
-      `<div class="add-card" onclick="openNewProject()">
-        <div style="font-size:24px;color:var(--text3);opacity:.3">+</div>
-        <span>new project</span>
-      </div>`;
-  } catch(e) {
-    grid.innerHTML = `<div class="empty">error: ${e.message}</div>`;
-  }
-}
 
-// ---- LIBRARY ----
-let libCurrentPath = null;
-let libNavStack = [];
-
-async function libBrowse(path, label) {
-  libCurrentPath = path;
-  const grid = document.getElementById('library-grid');
-  const bc = document.getElementById('lib-bc');
-  grid.innerHTML = '<div class="empty"><div class="spin"></div>&nbsp;loading...</div>';
+  const targetPath = path || 'Master-Library';
 
   // Breadcrumb
   if (!path) {
-    libNavStack = [];
-    bc.innerHTML = '<span class="cur">Master Library</span>';
+    bc.innerHTML = '<span onclick="projBrowse(null)">Master Library</span>';
   } else {
-    const existing = libNavStack.findIndex(n => n.path === path);
-    if (existing >= 0) libNavStack = libNavStack.slice(0, existing + 1);
-    else libNavStack.push({ path, label: label || path.split('/').pop().replace(/-/g,' ') });
-    let html = '<span onclick="libBrowse(null)">Master Library</span>';
-    libNavStack.forEach((n, i) => {
-      const np = n.path, nl = n.label;
+    const parts = targetPath.split('/').filter(Boolean);
+    let html = '<span onclick="projBrowse(null)">Master Library</span>';
+    let cum = '';
+    parts.slice(1).forEach((p, i) => {
+      cum = parts.slice(0, i + 2).join('/');
+      const cp = cum, cl = p.replace(/-/g,' ');
       html += '<span class="sep"> / </span>';
-      if (i < libNavStack.length - 1) html += `<span onclick="libBrowse('${np}','${nl}')">${n.label}</span>`;
-      else html += `<span class="cur">${n.label}</span>`;
+      if (i < parts.length - 2) html += `<span onclick="projBrowse('${cp}','${cl}')">${cl}</span>`;
+      else html += `<span style="color:var(--text2)">${label || cl}</span>`;
     });
     bc.innerHTML = html;
   }
 
   try {
-    const targetPath = path || 'Master-Library';
-    const depth = targetPath.split('/').filter(Boolean).length;
-    // At root we show contents of Master-Library (depth 1 folders)
-
-    // Load all folders and albums
     const allFolders = await db('smugmug_folders?select=name,path&order=path.asc');
     const allAlbums = await db('smugmug_albums?select=sm_key,name,path,web_url,image_count&order=name.asc');
 
-    // Find direct subfolders (exactly one level deeper than targetPath)
+    // Direct subfolders — one level deeper than targetPath
     const subFolders = allFolders.filter(f => {
-      if (!f.path) return false;
-      if (!f.path.startsWith(targetPath + '/')) return false;
+      if (!f.path || !f.path.startsWith(targetPath + '/')) return false;
       const rest = f.path.slice(targetPath.length + 1);
-      return !rest.includes('/'); // direct child only
+      return !rest.includes('/');
     });
 
-    // Find direct albums (path matches exactly)
-    const directAlbums = allAlbums.filter(a => {
-      if (!a.path) return false;
-      return a.path === targetPath;
-    });
+    // Direct albums — path equals targetPath exactly
+    const directAlbums = allAlbums.filter(a => a.path === targetPath);
 
     let cards = '';
 
+    // Custom projects at root level
+    if (!path) {
+      const projects = await db('projects?select=*&order=sort_order.asc,created_at.desc');
+      projects.forEach(p => {
+        cards += `<div class="gcard">
+          <div class="gcard-tw">
+            ${p.cover_url ? `<img class="gcard-img" src="${p.cover_url}" loading="lazy" onerror="this.style.display='none'">` : ''}
+            <div class="gcard-ph">${p.cover_url ? '' : 'no cover'}</div>
+            <div class="gcard-overlay">${p.name}</div>
+          </div>
+          <div class="gcard-meta" style="display:flex;justify-content:space-between">
+            <span class="s-${p.status==='active'?'approved':p.status==='wrapped'?'scouted':'identified'}">${p.status}</span>
+            <span style="display:flex;gap:6px">
+              <span onclick="editProject('${p.id}')" style="cursor:pointer;color:var(--text3);font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px">edit</span>
+              <span onclick="deleteProject('${p.id}','${p.name.replace(/'/g,"\'")}' )" style="cursor:pointer;color:var(--text3);font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px">del</span>
+            </span>
+          </div>
+        </div>`;
+      });
+    }
+
     // Folder cards
     subFolders.forEach(f => {
-      // Count albums in this folder and subfolders
       const count = allAlbums.filter(a => a.path && a.path.startsWith(f.path)).length;
       const displayName = f.name || f.path.split('/').pop().replace(/-/g,' ');
-      cards += `<div class="gcard gcard-folder" onclick="libBrowse('${f.path}','${displayName}')">
+      cards += `<div class="gcard gcard-folder" onclick="projBrowse('${f.path}','${displayName}')">
         <div class="gcard-tw" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:var(--bg4)">
           <div style="font-size:24px;opacity:.3;color:var(--text2)">▤</div>
           <div style="font-size:11px;font-weight:500;color:var(--text2);text-align:center;padding:0 12px;line-height:1.4">${displayName}</div>
@@ -814,7 +790,7 @@ async function libBrowse(path, label) {
       const loc = locations.find(l => l.smugmug_album_key === a.sm_key || l.smugmug_gallery_url === a.web_url);
       const thumb = loc?.cover_photo_url || '';
       const sl = loc ? SL[loc.status] || SL.identified : null;
-      cards += `<div class="gcard" onclick="${loc ? `openLibDetail('${loc.id}')` : `window.open('${a.web_url||'#'}','_blank')`}">
+      cards += `<div class="gcard" onclick="${loc ? `openDetail(locations.find(l=>l.id==='${loc.id}'))` : `window.open('${a.web_url||'#'}','_blank')`}">
         <div class="gcard-tw">
           ${thumb ? `<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">` : ''}
           <div class="gcard-ph">${thumb ? '' : 'no photo'}</div>
@@ -824,6 +800,13 @@ async function libBrowse(path, label) {
       </div>`;
     });
 
+    if (!path) {
+      cards += `<div class="add-card" onclick="openNewProject()">
+        <div style="font-size:24px;color:var(--text3);opacity:.3">+</div>
+        <span>new project</span>
+      </div>`;
+    }
+
     grid.innerHTML = cards || '<div class="empty">empty folder</div>';
 
   } catch(e) {
@@ -831,39 +814,8 @@ async function libBrowse(path, label) {
   }
 }
 
-function openLibDetail(locId) {
-  const loc = locations.find(l => l.id === locId);
-  if (loc) openDetail(loc);
-}
+async function loadProjects() { projBrowse(null); }
 
-function libSearch() {
-  const q = document.getElementById('lq').value.toLowerCase();
-  const status = document.getElementById('sf-status').value;
-  const bc = document.getElementById('lib-bc');
-  const grid = document.getElementById('library-grid');
-  if (!q && !status) { libBrowse(libCurrentPath); return; }
-  const f = locations.filter(l => {
-    if (status && l.status !== status) return false;
-    if (q) {
-      const h = [l.name, l.address, l.city, l.notes, ...(l.tags||[])].join(' ').toLowerCase();
-      if (!h.includes(q)) return false;
-    }
-    return true;
-  });
-  bc.innerHTML = `<span onclick="libBrowse(null)">Master Library</span><span class="sep"> / </span><span class="cur">search (${f.length})</span>`;
-  if (!f.length) { grid.innerHTML = '<div class="empty">no results</div>'; return; }
-  grid.innerHTML = f.map(l => {
-    const sl = SL[l.status]||SL.identified;
-    return `<div class="gcard" onclick="openLibDetail('${l.id}')">
-      <div class="gcard-tw">
-        ${l.cover_photo_url?`<img class="gcard-img" src="${l.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`:``}
-        <div class="gcard-ph">${l.cover_photo_url?'':'no photo'}</div>
-        <div class="gcard-overlay">${l.name}</div>
-      </div>
-      <div class="gcard-meta" style="color:${sl.c}">${l.status} · ${[l.city,l.state_code].filter(Boolean).join(', ')||'—'}</div>
-    </div>`;
-  }).join('');
-}
 
 
 // ---- PROJECTS CRUD ----
@@ -882,7 +834,7 @@ async function saveProject(){
     const payload={name,description:document.getElementById('p-desc').value||null,cover_url:document.getElementById('p-cover').value||null,status:document.getElementById('p-status').value,updated_at:new Date().toISOString()};
     if(editProjId)await db(`projects?id=eq.${editProjId}`,{method:'PATCH',body:JSON.stringify(payload),headers:{Prefer:'return=minimal'}});
     else await db('projects',{method:'POST',body:JSON.stringify(payload)});
-    closeModal('proj-modal');toast(editProjId?'Updated':'Created');loadProjects();
+    closeModal('proj-modal');toast(editProjId?'Updated':'Created');projBrowse(null);
   }catch(e){toast('Error saving','err')}
   finally{btn.disabled=false;btn.textContent='save'}
 }
