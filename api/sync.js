@@ -157,6 +157,8 @@ module.exports = async function handler(req, res) {
             image_count: a.imageCount,
             keywords: a.keywords,
             description: a.description,
+            highlight_url: a.thumbUrl || null,
+            highlight_url: a.thumbUrl || null,
             synced_at: new Date().toISOString()
           })
         });
