@@ -71,7 +71,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .hcard-action.pri{color:var(--accent);border-color:var(--accent2)}
 
 /* Detail panel */
-#detail-panel{position:fixed;top:0;right:0;width:360px;height:100vh;height:100dvh;z-index:500;background:var(--bg2);border-left:1px solid var(--border2);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);overflow:hidden;box-shadow:-4px 0 24px rgba(0,0,0,.6)}
+#detail-panel{position:fixed;top:0;right:0;width:50vw;min-width:380px;max-width:800px;height:100vh;height:100dvh;z-index:500;background:var(--bg2);border-left:1px solid var(--border2);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);overflow:hidden;box-shadow:-8px 0 40px rgba(0,0,0,.8)}
 #detail-panel.open{transform:translateX(0)}
 .dp-header{padding:16px 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .dp-name{font-size:16px;font-weight:500;line-height:1.3;flex:1}
@@ -80,8 +80,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .dp-scroll{flex:1;overflow-y:auto;padding:16px 18px}
 .dp-scroll::-webkit-scrollbar{width:3px}
 .dp-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.dp-photo{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg4);display:block;margin-bottom:14px}
-.dp-photo-ph{width:100%;aspect-ratio:16/9;border-radius:6px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);margin-bottom:14px}
+.dp-photo{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:0;background:var(--bg4);display:block;margin-bottom:14px}
+.dp-photo-ph{width:100%;aspect-ratio:16/9;border-radius:0;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);margin-bottom:14px}
 .dp-label{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);text-transform:uppercase;margin-bottom:5px;margin-top:12px}
 .dp-val{font-size:12px;color:var(--text2);line-height:1.6}
 .dp-notes{font-size:12px;color:var(--text2);line-height:1.7;white-space:pre-wrap;word-break:break-word}
@@ -112,7 +112,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
 .lib-sel{padding:6px 10px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none}
-#lib-grid{flex:1;overflow-y:auto;padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-content:start}
+#lib-grid{flex:1;overflow-y:auto;padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-content:start}
 #lib-grid::-webkit-scrollbar{width:3px}
 #lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
@@ -165,13 +165,19 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .sm-num{width:20px;height:20px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;flex-shrink:0;margin-top:1px}
 
 @media(max-width:700px){
-  #lib-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+  #lib-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
   #detail-panel{width:100%}
 }
 
-.dp-gallery-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:4px}
-.dp-gallery-img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:4px;cursor:pointer;background:var(--bg4)}
+.dp-gallery-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}
+.dp-gallery-img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:4px;cursor:pointer;background:var(--bg4);transition:opacity .15s}
 .dp-gallery-img:hover{opacity:.8}
+
+#lightbox{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.95);align-items:center;justify-content:center;cursor:zoom-out}
+#lightbox.open{display:flex}
+#lightbox img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:4px}
+#lightbox-close{position:absolute;top:16px;right:20px;color:var(--text2);font-size:28px;cursor:pointer;background:none;border:none;line-height:1;z-index:1001}
+#lightbox-close:hover{color:var(--text)}
 </style>
 </head>
 <body>
@@ -457,7 +463,7 @@ function openDetail(loc){
   const tags=(loc.tags||[]).map(t=>`<span class="dp-tag">${t}</span>`).join('');
   const zoneStr=hasCoords(loc)?(miles(loc.lat,loc.lng)<=30?'<span style="color:var(--green)">in zone</span>':'<span style="color:var(--text3)">out of zone</span>'):'';
   document.getElementById('dp-content').innerHTML=`
-    ${loc.cover_photo_url?`<img class="dp-photo" src="${loc.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dp-photo-ph">no cover photo</div>`}
+    ${loc.cover_photo_url?`<img class="dp-photo" src="${loc.cover_photo_url}" loading="lazy" style="cursor:zoom-in" onclick="openLightbox('${loc.cover_photo_url}')" onerror="this.style.display='none'">`:`<div class="dp-photo-ph">no cover photo</div>`}
     <span class="dp-status" style="background:${sl.bg};color:${sl.c}">${loc.status}</span>
     ${hasCoords(loc)?`<span style="font-size:9px;font-family:'DM Mono',monospace;margin-left:8px;color:${miles(loc.lat,loc.lng)<=30?'var(--green)':'var(--text3)'}">${miles(loc.lat,loc.lng)<=30?'in zone':'out of zone'}</span>`:''}
     ${loc.address||loc.city?`<div class="dp-label">Address</div><div class="dp-val">${[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')}</div>`:''}
@@ -478,16 +484,24 @@ async function loadDetailGallery(loc){
   const el=document.getElementById('dp-gallery');
   if(!el||!loc.smugmug_album_key)return;
   try{
-    // Get preview images from smugmug_images table
     const imgs=await db(`smugmug_images?album_key=eq.${loc.smugmug_album_key}&select=thumb_url,web_url&limit=10`);
     if(!imgs||!imgs.length)return;
-    el.innerHTML=`<div class="dp-label">Gallery preview</div>
+    // Upgrade thumbnail URLs to medium/large quality
+    function hiRes(url){
+      if(!url)return'';
+      return url.replace(/-T\./g,'-L.').replace(/-Th\./g,'-L.').replace(/-S\./g,'-M.').replace(/-Ti\./g,'-M.');
+    }
+    el.innerHTML=`<div class="dp-label">Photos (${imgs.length})</div>
       <div class="dp-gallery-strip">
-        ${imgs.map(img=>`<img class="dp-gallery-img" src="${img.thumb_url||''}" loading="lazy"
-          onclick="window.open('${img.web_url||loc.smugmug_gallery_url||'#'}','_blank')"
-          onerror="this.style.display='none'">`).join('')}
+        ${imgs.map(img=>{
+          const src=hiRes(img.thumb_url||'');
+          const full=img.web_url||loc.smugmug_gallery_url||'#';
+          return `<img class="dp-gallery-img" src="${src}" loading="lazy"
+            onclick="openLightbox('${src}')"
+            onerror="this.style.display='none'">`;
+        }).join('')}
       </div>`;
-  }catch(e){}
+  }catch(e){console.error('gallery error:',e)}
 }
 
 
@@ -696,7 +710,7 @@ function libRender(){
   const currentPath=libStack.length>0?libStack[libStack.length-1].path:null;
   const targetPath=currentPath||'Master-Library';
 
-  // Build breadcrumb
+  // Build breadcrumb using data attributes to avoid quote issues
   let bcHtml=`<span class="lib-bc-seg${!currentPath?' cur':''}" onclick="libBrowse(null)">Master Library</span>`;
   libStack.forEach((s,i)=>{
     bcHtml+=`<span class="lib-bc-sep">/</span>`;
@@ -704,8 +718,7 @@ function libRender(){
     if(isCur){
       bcHtml+=`<span class="lib-bc-seg cur">${s.label}</span>`;
     } else {
-      const sp=s.path,sl=s.label;
-      bcHtml+=`<span class="lib-bc-seg" onclick="libBrowse('${sp}','${sl}')">${sl}</span>`;
+      bcHtml+=`<span class="lib-bc-seg" data-folderpath="${s.path}" data-folderlabel="${s.label}" onclick="libFolderClick(this)">${s.label}</span>`;
     }
   });
   bc.innerHTML=bcHtml;
@@ -788,11 +801,22 @@ function libCardClick(el){
 }
 
 function libFolderClick(el){
-  const path=el.dataset.folderpath;
-  const label=el.dataset.folderlabel;
+  const path=el.getAttribute('data-folderpath');
+  const label=el.getAttribute('data-folderlabel');
   if(path)libBrowse(path,label);
 }
 
+
+function openLightbox(url){
+  // Upgrade URL quality - replace SmugMug size suffix with XL
+  const hiRes = url.replace(/-T\./, '-L.').replace(/-Th\./, '-L.').replace(/-S\./, '-L.').replace(/-M\./, '-L.');
+  document.getElementById('lightbox-img').src = hiRes;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox(){
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightbox-img').src='';
+}
 
 function libSearch(){
   const q=document.getElementById('lib-q').value.toLowerCase();
@@ -845,5 +869,10 @@ document.querySelectorAll('.modal-ov').forEach(m=>m.addEventListener('click',e=>
   loadMapScript();
 })();
 </script>
+
+<div id="lightbox" onclick="closeLightbox()">
+  <button id="lightbox-close" onclick="closeLightbox()">×</button>
+  <img id="lightbox-img" src="" alt="">
+</div>
 </body>
 </html>
