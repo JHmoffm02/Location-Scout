@@ -780,18 +780,17 @@ function libRender(){
     });
     var count=children.length;
     var name=f.name||f.path.split('/').pop().replace(/-/g,' ');
-    var thumb=f.highlight_url||'';
-    if(!thumb){
-      for(var i=0;i<children.length;i++){
-        var ca=children[i];
-        var loc=locations.find(function(l){return l.smugmug_album_key===ca.sm_key||l.smugmug_gallery_url===ca.web_url});
-        if(loc&&loc.cover_photo_url){thumb=loc.cover_photo_url;break}
-        if(ca.highlight_url){thumb=ca.highlight_url;break}
-      }
+    // Always cascade from child location cover photos (guaranteed 16:9)
+    // Skip highlight_url which may be portrait format
+    var thumb='';
+    for(var i=0;i<children.length;i++){
+      var ca=children[i];
+      var loc=locations.find(function(l){return l.smugmug_album_key===ca.sm_key||l.smugmug_gallery_url===ca.web_url});
+      if(loc&&loc.cover_photo_url){thumb=loc.cover_photo_url;break}
     }
     cards+='<div class="gcard" data-p="'+f.path+'" data-l="'+name+'" onclick="libFolderClick(this)">';
     cards+='<div class="gcard-tw">';
-    if(thumb)cards+='<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="this.style.display='none'">';
+    if(thumb)cards+='<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="hideOnError(this)">';
     cards+='<div class="gcard-ph">&#9636;</div>';
     cards+='<div class="gcard-overlay">'+name+'</div>';
     cards+='</div>';
@@ -807,7 +806,7 @@ function libRender(){
     var smUrl=a.web_url||'#';
     cards+='<div class="gcard" data-locid="'+locId+'" data-smurl="'+smUrl+'" onclick="libCardClick(this)">';
     cards+='<div class="gcard-tw">';
-    if(thumb)cards+='<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="this.style.display='none'">';
+    if(thumb)cards+='<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="hideOnError(this)">';
     cards+='<div class="gcard-ph">&#9636;</div>';
     cards+='<div class="gcard-overlay">'+a.name+'</div>';
     cards+='</div>';
@@ -849,7 +848,7 @@ function libSearch(){
     var sl=SL[l.status]||SL.identified;
     var c='<div class="gcard" data-locid="'+l.id+'" onclick="libCardClick(this)">';
     c+='<div class="gcard-tw">';
-    if(l.cover_photo_url)c+='<img class="gcard-img" src="'+l.cover_photo_url+'" loading="lazy" onerror="this.style.display='none'">';
+    if(l.cover_photo_url)c+='<img class="gcard-img" src="'+l.cover_photo_url+'" loading="lazy" onerror="hideOnError(this)">';
     c+='<div class="gcard-ph">&#9636;</div>';
     c+='<div class="gcard-overlay">'+l.name+'</div>';
     c+='</div>';
@@ -875,6 +874,7 @@ document.addEventListener('keydown',function(e){
 });
 document.querySelectorAll('.modal-ov').forEach(function(m){m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('open')})});
 
+function hideOnError(el){el.style.display="none"}
 (async function(){
   checkAuth();
   await loadLocations();
