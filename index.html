@@ -444,9 +444,14 @@ function showHcard(loc,ev){
   document.getElementById('hcard-addr').textContent=[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')||'—';
   const sl=SL[loc.status]||SL.identified;
   document.getElementById('hcard-status').innerHTML='<span style="color:'+sl.c+'">'+loc.status+'</span>';
-  document.getElementById('hcard-media').innerHTML=loc.cover_photo_url
-    ?'<img class="hcard-img" src="'+loc.cover_photo_url+'" loading="lazy" onclick="openDetail(currentHoverLoc)" onerror="this.parentElement.innerHTML=\'<div class=hcard-ph>no photo</div>\'">'
-    :'<div class="hcard-ph">no photo</div>';
+  const hm=document.getElementById('hcard-media');
+  if(loc.cover_photo_url){
+    const hi=document.createElement('img');
+    hi.className='hcard-img';hi.src=loc.cover_photo_url;hi.loading='lazy';
+    hi.onclick=()=>openDetail(currentHoverLoc);
+    hi.onerror=()=>{hm.innerHTML='<div class="hcard-ph">no photo</div>';};
+    hm.innerHTML='';hm.appendChild(hi);
+  }else{hm.innerHTML='<div class="hcard-ph">no photo</div>';}
   document.getElementById('hcard').classList.add('show');
   posHcard(ev);
 }
@@ -527,7 +532,7 @@ function formatNotes(raw){
   const lines=raw.split('\n').map(l=>l.trim()).filter(Boolean);
   const start=lines[0]&&lines[0].length<60&&!lines[0].includes('Notes:')?1:0;
   return lines.slice(start).map(l=>{
-    if(/^notes?\s*:/i.test(l))return'<br><strong style="color:var(--text2);font-size:10px;letter-spacing:.1em;font-family:\'DM Mono\',monospace">NOTES</strong>';
+    if(/^notes?\s*:/i.test(l))return'<br><strong style="color:var(--text2);font-size:10px;letter-spacing:.1em;font-family:DM Mono,monospace">NOTES</strong>';
     if(/^C:\s*/i.test(l))return'<span style="color:var(--text3)">Contact: '+l.replace(/^C:\s*/i,'')+'</span>';
     if(/^-\s*/.test(l))return'• '+l.replace(/^-\s*/,'');
     return l;
@@ -761,7 +766,7 @@ function libRender(){
     }
     cards+='<div class="gcard" data-p="'+f.path+'" data-l="'+name+'" onclick="libFolderClick(this)">'+
       '<div class="gcard-tw">'+
-        (thumb?'<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="this.style.display=\'none\'">':'')+
+        (thumb?'<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="hideEl(this)">':'')+
         '<div class="gcard-ph">▤</div>'+
         '<div class="gcard-overlay">'+name+'</div>'+
       '</div>'+
@@ -776,7 +781,7 @@ function libRender(){
     const sl=loc?SL[loc.status]||SL.identified:null;
     cards+='<div class="gcard" data-locid="'+(loc?loc.id:'')+'" data-smurl="'+(a.web_url||'#')+'" onclick="libCardClick(this)">'+
       '<div class="gcard-tw">'+
-        (thumb?'<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="this.style.display=\'none\'">':'')+
+        (thumb?'<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="hideEl(this)">':'')+
         '<div class="gcard-ph">no photo</div>'+
         '<div class="gcard-overlay">'+a.name+'</div>'+
       '</div>'+
@@ -816,7 +821,7 @@ function libSearch(){
     const sl=SL[l.status]||SL.identified;
     return'<div class="gcard" data-locid="'+l.id+'" onclick="libCardClick(this)">'+
       '<div class="gcard-tw">'+
-        (l.cover_photo_url?'<img class="gcard-img" src="'+l.cover_photo_url+'" loading="lazy" onerror="this.style.display=\'none\'">':'')+
+        (l.cover_photo_url?'<img class="gcard-img" src="'+l.cover_photo_url+'" loading="lazy" onerror="hideEl(this)">':'')+
         '<div class="gcard-ph">no photo</div>'+
         '<div class="gcard-overlay">'+l.name+'</div>'+
       '</div>'+
@@ -825,6 +830,7 @@ function libSearch(){
   }).join('');
 }
 
+function hideEl(el){el.style.display='none'}
 // ── KEYBOARD ──
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
