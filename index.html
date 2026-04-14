@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -71,7 +70,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .hcard-action.pri{color:var(--accent);border-color:var(--accent2)}
 
 /* Detail panel */
-#detail-panel{position:absolute;top:0;right:0;bottom:0;z-index:30;width:360px;background:var(--bg2);border-left:1px solid var(--border2);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);overflow:hidden}
+#detail-panel{position:fixed;top:0;right:0;bottom:0;z-index:200;width:360px;background:var(--bg2);border-left:1px solid var(--border2);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);overflow:hidden}
 #detail-panel.open{transform:translateX(0)}
 .dp-header{padding:16px 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .dp-name{font-size:16px;font-weight:500;line-height:1.3;flex:1}
@@ -168,6 +167,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
   #lib-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
   #detail-panel{width:100%}
 }
+
+.dp-gallery-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:4px}
+.dp-gallery-img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:4px;cursor:pointer;background:var(--bg4)}
+.dp-gallery-img:hover{opacity:.8}
 </style>
 </head>
 <body>
@@ -202,12 +205,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
             </div>
           </div>
         </div>
-        <div id="detail-panel">
-          <div class="dp-header">
-            <div class="dp-name" id="dp-name"></div>
-            <button class="dp-close" onclick="closeDetail()">×</button>
-          </div>
-          <div class="dp-scroll"><div id="dp-content"></div></div>
         </div>
         <div id="map-controls">
           <div class="cg">
@@ -263,6 +260,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 
   </div>
 </div>
+
+<div id="detail-panel">
+          <div class="dp-header">
+            <div class="dp-name" id="dp-name"></div>
+            <button class="dp-close" onclick="closeDetail()">×</button>
+          </div>
+          <div class="dp-scroll"><div id="dp-content"></div></div>
 
 <!-- Sync Modal -->
 <div class="modal-ov" id="sync-modal">
@@ -450,22 +454,41 @@ function openDetail(loc){
   document.getElementById('dp-name').textContent=loc.name;
   const sl=SL[loc.status]||SL.identified;
   const tags=(loc.tags||[]).map(t=>`<span class="dp-tag">${t}</span>`).join('');
+  const zoneStr=hasCoords(loc)?(miles(loc.lat,loc.lng)<=30?'<span style="color:var(--green)">in zone</span>':'<span style="color:var(--text3)">out of zone</span>'):'';
   document.getElementById('dp-content').innerHTML=`
     ${loc.cover_photo_url?`<img class="dp-photo" src="${loc.cover_photo_url}" loading="lazy" onerror="this.style.display='none'">`:`<div class="dp-photo-ph">no cover photo</div>`}
     <span class="dp-status" style="background:${sl.bg};color:${sl.c}">${loc.status}</span>
+    ${hasCoords(loc)?`<span style="font-size:9px;font-family:'DM Mono',monospace;margin-left:8px;color:${miles(loc.lat,loc.lng)<=30?'var(--green)':'var(--text3)'}">${miles(loc.lat,loc.lng)<=30?'in zone':'out of zone'}</span>`:''}
     ${loc.address||loc.city?`<div class="dp-label">Address</div><div class="dp-val">${[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')}</div>`:''}
-    ${hasCoords(loc)?`<div class="dp-label">Coordinates</div><div class="dp-val" style="font-family:'DM Mono',monospace;font-size:11px">${Number(loc.lat).toFixed(5)}° N, ${Math.abs(Number(loc.lng)).toFixed(5)}° W <span style="color:${miles(loc.lat,loc.lng)<=30?'var(--green)':'var(--text3)'};margin-left:6px">${miles(loc.lat,loc.lng)<=30?'in zone':'out of zone'}</span></div>`:''}
     ${loc.notes?`<div class="dp-label">Scout notes</div><div class="dp-notes">${formatNotes(loc.notes)}</div>`:''}
     ${tags?`<div class="dp-label">Tags</div><div class="dp-tags">${tags}</div>`:''}
     ${loc.scout_name||loc.scout_date?`<div class="dp-label">Scouted by</div><div class="dp-val" style="font-family:'DM Mono',monospace;font-size:11px">${[loc.scout_name,loc.scout_date].filter(Boolean).join(' · ')}</div>`:''}
+    <div id="dp-gallery"></div>
     <div class="dp-actions">
       ${loc.smugmug_gallery_url?`<button class="dp-btn pri" onclick="window.open('${loc.smugmug_gallery_url}','_blank')">open gallery ↗</button>`:''}
       ${hasCoords(loc)?`<button class="dp-btn" onclick="window.open('https://www.google.com/maps?q=${loc.lat},${loc.lng}','_blank')">maps ↗</button>`:''}
-    </div>`;
-  document.getElementById('detail-panel').classList.add('open');
+    </div>`;  document.getElementById('detail-panel').classList.add('open');
   const dpScroll=document.getElementById('dp-scroll');if(dpScroll)dpScroll.scrollTop=0;
+  loadDetailGallery(loc);
 }
 function closeDetail(){document.getElementById('detail-panel').classList.remove('open')}
+
+async function loadDetailGallery(loc){
+  const el=document.getElementById('dp-gallery');
+  if(!el||!loc.smugmug_album_key)return;
+  try{
+    // Get preview images from smugmug_images table
+    const imgs=await db(`smugmug_images?album_key=eq.${loc.smugmug_album_key}&select=thumb_url,web_url&limit=10`);
+    if(!imgs||!imgs.length)return;
+    el.innerHTML=`<div class="dp-label">Gallery preview</div>
+      <div class="dp-gallery-strip">
+        ${imgs.map(img=>`<img class="dp-gallery-img" src="${img.thumb_url||''}" loading="lazy"
+          onclick="window.open('${img.web_url||loc.smugmug_gallery_url||'#'}','_blank')"
+          onerror="this.style.display='none'">`).join('')}
+      </div>`;
+  }catch(e){}
+}
+
 
 function formatNotes(raw){
   if(!raw)return'';
@@ -712,10 +735,13 @@ function libRender(){
     });
     const count=childAlbums.length;
     const displayName=f.name||f.path.split('/').pop().replace(/-/g,' ');
-    let thumb='';
-    for(const ca of childAlbums){
-      const loc=locations.find(l=>l.smugmug_album_key===ca.sm_key||l.smugmug_gallery_url===ca.web_url);
-      if(loc?.cover_photo_url){thumb=loc.cover_photo_url;break;}
+    let thumb=f.highlight_url||'';
+    if(!thumb){
+      for(const ca of childAlbums){
+        const loc=locations.find(l=>l.smugmug_album_key===ca.sm_key||l.smugmug_gallery_url===ca.web_url);
+        if(loc?.cover_photo_url){thumb=loc.cover_photo_url;break;}
+        if(ca.highlight_url){thumb=ca.highlight_url;break;}
+      }
     }
     cards+=`<div class="gcard" data-folderpath="${f.path}" data-folderlabel="${displayName}" onclick="libFolderClick(this)">
       <div class="gcard-tw">
@@ -733,7 +759,7 @@ function libRender(){
       l.smugmug_album_key===a.sm_key||
       l.smugmug_gallery_url===a.web_url
     );
-    const thumb=loc?.cover_photo_url||'';
+    const thumb=loc?.cover_photo_url||a.highlight_url||'';
     const sl=loc?SL[loc.status]||SL.identified:null;
     const locId=loc?loc.id:'';
     const smUrl=a.web_url||'#';
