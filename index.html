@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,8 +17,6 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;overflow:hidden}
-
-/* ── Shell ── */
 #shell{display:flex;flex-direction:column;height:100vh}
 #header{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0;z-index:10;position:relative}
 #header h1{font-family:'DM Mono',monospace;font-size:12px;font-weight:400;letter-spacing:.2em;color:var(--accent);text-transform:uppercase}
@@ -71,38 +68,40 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .hcard-action:hover{border-color:var(--accent2);color:var(--accent)}
 .hcard-action.pri{color:var(--accent);border-color:var(--accent2)}
 
-/* ── Detail panel (fixed, overlays everything) ── */
+/* ── Detail panel ── */
 #detail-panel{position:fixed;top:0;right:0;width:50vw;min-width:400px;max-width:860px;height:100vh;z-index:600;background:var(--bg2);border-left:1px solid var(--border2);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);box-shadow:-8px 0 40px rgba(0,0,0,.8)}
 #detail-panel.open{transform:translateX(0)}
 .dp-header{padding:14px 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .dp-name{font-size:16px;font-weight:500;line-height:1.3;flex:1}
 .dp-close{background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0}
 .dp-close:hover{color:var(--text)}
-.dp-scroll{flex:1;overflow-y:auto;padding:0}
+.dp-scroll{flex:1;overflow-y:auto}
 .dp-scroll::-webkit-scrollbar{width:3px}
 .dp-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.dp-photo{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;cursor:zoom-in;background:var(--bg4)}
-.dp-photo-ph{width:100%;aspect-ratio:16/9;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3)}
-.dp-body{padding:14px 18px}
-.dp-label{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);text-transform:uppercase;margin-bottom:4px;margin-top:12px}
+
+/* Image viewer */
+.dp-viewer{position:relative;background:var(--bg4);flex-shrink:0}
+.dp-viewer-img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;cursor:zoom-in}
+.dp-viewer-ph{width:100%;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:'DM Mono',monospace;color:var(--text3)}
+.dp-arrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:rgba(255,255,255,.85);font-size:26px;cursor:pointer;padding:14px 10px;line-height:1;transition:background .15s;z-index:5}
+.dp-arrow:hover{background:rgba(0,0,0,.85)}
+.dp-arrow.prev{left:0;border-radius:0 4px 4px 0}
+.dp-arrow.next{right:0;border-radius:4px 0 0 4px}
+.dp-arrow:disabled{opacity:.15;cursor:default}
+.dp-counter{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-size:9px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.5);background:rgba(0,0,0,.5);padding:2px 8px;border-radius:10px;pointer-events:none}
+
+/* Text body */
+.dp-body{padding:14px 18px 20px}
+.dp-label{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);text-transform:uppercase;margin-bottom:4px;margin-top:14px}
 .dp-val{font-size:12px;color:var(--text2);line-height:1.6}
 .dp-notes{font-size:12px;color:var(--text2);line-height:1.7;white-space:pre-wrap;word-break:break-word}
 .dp-status{display:inline-flex;padding:3px 10px;border-radius:4px;font-size:10px;font-family:'DM Mono',monospace;font-weight:500}
 .dp-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
 .dp-tag{font-size:10px;padding:3px 8px;border-radius:4px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace}
-.dp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
+.dp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
 .dp-btn{padding:7px 14px;font-size:10px;font-family:'DM Mono',monospace;border-radius:6px;cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .15s}
 .dp-btn:hover{border-color:var(--accent2);color:var(--accent)}
 .dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-.dp-viewer{position:relative;background:var(--bg4)}
-.dp-viewer-img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;cursor:zoom-in}
-.dp-viewer-ph{width:100%;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:'DM Mono',monospace;color:var(--text3)}
-.dp-arrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.6);border:none;color:rgba(255,255,255,.8);font-size:22px;cursor:pointer;padding:12px 10px;line-height:1;transition:all .15s;z-index:10}
-.dp-arrow:hover{background:rgba(0,0,0,.9);color:#fff}
-.dp-arrow.prev{left:0;border-radius:0 4px 4px 0}
-.dp-arrow.next{right:0;border-radius:4px 0 0 4px}
-.dp-arrow:disabled{opacity:.2;cursor:default}
-.dp-counter{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-size:9px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.5);background:rgba(0,0,0,.5);padding:2px 8px;border-radius:10px}
 
 /* ── Library ── */
 #library-page{background:var(--bg2)}
@@ -112,7 +111,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .lib-bc-seg:hover{background:var(--bg3)}
 .lib-bc-seg.cur{color:var(--text2);cursor:default}
 .lib-bc-seg.cur:hover{background:transparent}
-.lib-bc-sep{font-size:11px;color:var(--text3);flex-shrink:0}
+.lib-bc-sep{font-size:11px;color:var(--text3);flex-shrink:0;padding:0 2px}
 .lib-search{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:5px 10px;font-size:12px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;width:160px;flex-shrink:0}
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
@@ -122,11 +121,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 #lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
 /* ── Cards ── */
-.gcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s;flex-shrink:0}
+.gcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s}
 .gcard:hover{border-color:var(--border2)}
 .gcard-tw{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
 .gcard-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:1}
-.gcard-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:20px;font-family:'DM Mono',monospace;z-index:0}
+/* placeholder only shows when no image present — sits behind image */
+.gcard-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:22px;font-family:'DM Mono',monospace;z-index:0}
 .gcard-overlay{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:20px 10px 8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:2}
 .gcard-meta{padding:6px 10px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;border-top:1px solid var(--border)}
 
@@ -241,7 +241,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     </div>
 
     <!-- LIBRARY -->
-    <div class="page" id="library-page" onclick="handleLibClick(event)">
+    <div class="page" id="library-page">
       <div class="lib-header">
         <div class="lib-bc" id="lib-bc">
           <span class="lib-bc-seg cur">Master Library</span>
@@ -255,35 +255,33 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
           <option value="identified">identified</option>
         </select>
       </div>
-      <div id="lib-grid">
+      <div id="lib-grid" onclick="libGridClick(event)">
         <div class="empty"><div class="spin"></div>&nbsp;loading...</div>
       </div>
     </div>
 
-  </div><!-- /pages -->
-</div><!-- /shell -->
+  </div>
+</div>
 
-<!-- Detail panel — fixed overlay, outside shell -->
+<!-- Detail panel — fixed, outside shell -->
 <div id="detail-panel">
   <div class="dp-header">
     <div class="dp-name" id="dp-name"></div>
     <button class="dp-close" onclick="closeDetail()">×</button>
   </div>
   <div class="dp-scroll" id="dp-scroll">
-    <!-- Image viewer with arrows -->
     <div class="dp-viewer" id="dp-viewer">
       <div class="dp-viewer-ph" id="dp-viewer-ph">no photo</div>
-      <img id="dp-featured" class="dp-viewer-img" src="" style="display:none" onclick="openLightbox(this.src)" onerror="this.style.display='none'">
-      <button class="dp-arrow prev" id="dp-prev" onclick="dpNav(-1)">‹</button>
-      <button class="dp-arrow next" id="dp-next" onclick="dpNav(1)">›</button>
-      <div class="dp-counter" id="dp-counter"></div>
+      <img id="dp-viewer-img" class="dp-viewer-img" src="" style="display:none" onclick="openLightbox(this.src)">
+      <button class="dp-arrow prev" id="dp-prev" onclick="dpNav(-1)" style="display:none">&#8249;</button>
+      <button class="dp-arrow next" id="dp-next" onclick="dpNav(1)" style="display:none">&#8250;</button>
+      <div class="dp-counter" id="dp-counter" style="display:none"></div>
     </div>
-    <!-- Text content -->
-    <div id="dp-content" style="padding:14px 18px 20px"></div>
+    <div class="dp-body" id="dp-body"></div>
   </div>
 </div>
 
-<!-- Lightbox — fullscreen image viewer -->
+<!-- Lightbox -->
 <div id="lightbox" onclick="closeLightbox()">
   <button id="lightbox-close" onclick="closeLightbox()">×</button>
   <img id="lightbox-img" src="" alt="">
@@ -332,52 +330,59 @@ const SL={
 let locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false;
 let smTokens=null,currentHoverLoc=null;
 let libFolders=[],libAlbums=[],libLoaded=false,libStack=[];
+let dpImages=[],dpIndex=0;
 
-// ── DB ──
-const db=(p,o={})=>fetch(`${SB_URL}/rest/v1/${p}`,{
-  headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,'Content-Type':'application/json',
-    Prefer:o.prefer||'return=representation',...o.headers},...o
+const db=(p,o={})=>fetch(SB_URL+'/rest/v1/'+p,{
+  headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',
+    Prefer:o.prefer||'return=representation',...(o.headers||{})},...o
 }).then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)));
 
-function toast(m,t='ok'){
-  const el=document.getElementById('toast');
-  el.textContent=m;el.className=`toast ${t} show`;
-  setTimeout(()=>el.className='toast',3500);
+function toast(m,t){
+  t=t||'ok';
+  var el=document.getElementById('toast');
+  el.textContent=m;el.className='toast '+t+' show';
+  setTimeout(function(){el.className='toast'},3500);
 }
 
-// ── NAV ──
 function showPage(page,btn){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
+  document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.remove('active')});
   document.getElementById(page+'-page').classList.add('active');
   btn.classList.add('active');
   closeDetail();
-  if(page==='home'){if(!mapReady)loadMapScript();else if(gmap)setTimeout(()=>google.maps.event.trigger(gmap,'resize'),50)}
+  if(page==='home'){if(!mapReady)loadMapScript();else if(gmap)setTimeout(function(){google.maps.event.trigger(gmap,'resize')},50)}
   if(page==='library')libInit();
 }
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 
-// ── DATA ──
 async function loadLocations(){
   try{locations=await db('locations?select=*&order=name.asc');return locations}
   catch(e){toast('DB error','err');return[]}
 }
+
 function miles(lat,lng){
-  const R=3958.8,dLat=(lat-COLUMBUS.lat)*Math.PI/180,dLng=(lng-COLUMBUS.lng)*Math.PI/180;
-  const a=Math.sin(dLat/2)**2+Math.cos(COLUMBUS.lat*Math.PI/180)*Math.cos(lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  var R=3958.8,dLat=(lat-COLUMBUS.lat)*Math.PI/180,dLng=(lng-COLUMBUS.lng)*Math.PI/180;
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(COLUMBUS.lat*Math.PI/180)*Math.cos(lat*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 function hasCoords(l){return l.lat&&l.lng&&!(l.lat===0&&l.lng===0)}
-function smLarge(url){return url?url.replace('/Th/','/L/').replace('/Ti/','/L/').replace('/S/','/M/'):''}
-function smXL(url){return url?url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/XL/').replace('/M/','/XL/').replace('/L/','/XL/'):''}
 
-// ── MAP ──
+function smLarge(url){
+  if(!url)return '';
+  return url.replace('/Th/','/L/').replace('/Ti/','/L/').replace('/S/','/M/');
+}
+function smXL(url){
+  if(!url)return '';
+  return url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/XL/').replace('/M/','/XL/').replace('/L/','/XL/');
+}
+
 function loadMapScript(){
   if(document.getElementById('gms'))return;
-  const s=document.createElement('script');s.id='gms';s.async=true;
-  s.src=`https://maps.googleapis.com/maps/api/js?key=${GM_KEY}&callback=initMap&loading=async`;
+  var s=document.createElement('script');s.id='gms';s.async=true;
+  s.src='https://maps.googleapis.com/maps/api/js?key='+GM_KEY+'&callback=initMap&loading=async';
   document.head.appendChild(s);
 }
+
 window.initMap=async function(){
   mapReady=true;
   gmap=new google.maps.Map(document.getElementById('the-map'),{
@@ -395,10 +400,10 @@ window.initMap=async function(){
       {featureType:'poi',stylers:[{visibility:'off'}]},
       {featureType:'transit',stylers:[{visibility:'off'}]},
       {featureType:'administrative',elementType:'geometry',stylers:[{color:'#18181c'}]},
-      {featureType:'landscape',elementType:'geometry',stylers:[{color:'#0d0d10'}]},
+      {featureType:'landscape',elementType:'geometry',stylers:[{color:'#0d0d10'}]}
     ]
   });
-  gmap.addListener('click',()=>document.getElementById('hcard').classList.remove('show'));
+  gmap.addListener('click',function(){document.getElementById('hcard').classList.remove('show')});
   await loadLocations();
   refreshPins();
   checkAuth();
@@ -406,104 +411,129 @@ window.initMap=async function(){
 };
 
 function getFiltered(){
-  const zoneOnly=document.getElementById('f-zone').checked;
-  const states=['ny','nj','ct','pa'].filter(s=>document.getElementById('f-'+s).checked).map(s=>s.toUpperCase());
-  const statuses=['approved','scouted','pending','identified'].filter(s=>document.getElementById('f-'+s).checked);
-  return locations.filter(l=>{
+  var zoneOnly=document.getElementById('f-zone').checked;
+  var states=['ny','nj','ct','pa'].filter(function(s){return document.getElementById('f-'+s).checked}).map(function(s){return s.toUpperCase()});
+  var statuses=['approved','scouted','pending','identified'].filter(function(s){return document.getElementById('f-'+s).checked});
+  return locations.filter(function(l){
     if(!hasCoords(l))return false;
-    if(states.length&&l.state_code&&!states.includes((l.state_code||'').toUpperCase()))return false;
-    if(statuses.length&&!statuses.includes(l.status))return false;
+    if(states.length&&l.state_code&&states.indexOf((l.state_code||'').toUpperCase())<0)return false;
+    if(statuses.length&&statuses.indexOf(l.status)<0)return false;
     if(zoneOnly&&miles(l.lat,l.lng)>30)return false;
     return true;
   });
 }
 function applyFilters(){if(gmap)refreshPins()}
+
 function refreshPins(){
-  markers.forEach(m=>m.setMap(null));markers=[];
-  const filtered=getFiltered();
-  filtered.forEach(loc=>{
-    const m=new google.maps.Marker({
+  markers.forEach(function(m){m.setMap(null)});markers=[];
+  var filtered=getFiltered();
+  filtered.forEach(function(loc){
+    var m=new google.maps.Marker({
       position:{lat:Number(loc.lat),lng:Number(loc.lng)},map:gmap,title:loc.name,
       icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,fillColor:PIN[loc.status]||'#555',fillOpacity:.95,strokeColor:'#000',strokeWeight:1.5}
     });
-    m.addListener('mouseover',e=>{currentHoverLoc=loc;showHcard(loc,e.domEvent)});
-    m.addListener('mouseout',()=>setTimeout(()=>{const h=document.getElementById('hcard');if(!h.matches(':hover'))h.classList.remove('show')},200));
-    m.addListener('mousemove',e=>posHcard(e.domEvent));
-    m.addListener('click',()=>{currentHoverLoc=loc;openDetail(loc)});
+    m.addListener('mouseover',function(e){currentHoverLoc=loc;showHcard(loc,e.domEvent)});
+    m.addListener('mouseout',function(){setTimeout(function(){var h=document.getElementById('hcard');if(!h.matches(':hover'))h.classList.remove('show')},200)});
+    m.addListener('mousemove',function(e){posHcard(e.domEvent)});
+    m.addListener('click',function(){currentHoverLoc=loc;openDetail(loc)});
     markers.push(m);
   });
   if(filtered.length===1){gmap.setCenter({lat:Number(filtered[0].lat),lng:Number(filtered[0].lng)});gmap.setZoom(14)}
-  else if(filtered.length>1){const b=new google.maps.LatLngBounds();filtered.forEach(l=>b.extend({lat:Number(l.lat),lng:Number(l.lng)}));gmap.fitBounds(b,{padding:80})}
+  else if(filtered.length>1){var b=new google.maps.LatLngBounds();filtered.forEach(function(l){b.extend({lat:Number(l.lat),lng:Number(l.lng)})});gmap.fitBounds(b,{padding:80})}
   if(zoneOn)drawZone();
 }
 
-// ── HOVER CARD ──
 function showHcard(loc,ev){
   currentHoverLoc=loc;
   document.getElementById('hcard-name').textContent=loc.name;
   document.getElementById('hcard-addr').textContent=[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')||'—';
-  const sl=SL[loc.status]||SL.identified;
+  var sl=SL[loc.status]||SL.identified;
   document.getElementById('hcard-status').innerHTML='<span style="color:'+sl.c+'">'+loc.status+'</span>';
-  const hm=document.getElementById('hcard-media');
+  var hm=document.getElementById('hcard-media');
   if(loc.cover_photo_url){
-    const hi=document.createElement('img');
+    var hi=document.createElement('img');
     hi.className='hcard-img';hi.src=loc.cover_photo_url;hi.loading='lazy';
-    hi.onclick=()=>openDetail(currentHoverLoc);
-    hi.onerror=()=>{hm.innerHTML='<div class="hcard-ph">no photo</div>';};
+    hi.onclick=function(){openDetail(currentHoverLoc)};
+    hi.onerror=function(){hm.innerHTML='<div class="hcard-ph">no photo</div>'};
     hm.innerHTML='';hm.appendChild(hi);
-  }else{hm.innerHTML='<div class="hcard-ph">no photo</div>';}
+  }else{hm.innerHTML='<div class="hcard-ph">no photo</div>'}
   document.getElementById('hcard').classList.add('show');
   posHcard(ev);
 }
 function posHcard(ev){
-  const wrap=document.getElementById('map-wrap'),r=wrap.getBoundingClientRect(),h=document.getElementById('hcard');
-  let x=ev.clientX-r.left+18,y=ev.clientY-r.top-90;
+  var wrap=document.getElementById('map-wrap'),r=wrap.getBoundingClientRect(),h=document.getElementById('hcard');
+  var x=ev.clientX-r.left+18,y=ev.clientY-r.top-90;
   if(x+250>r.width)x=ev.clientX-r.left-260;
   if(y<0)y=8;if(y+280>r.height-120)y=r.height-380;
   h.style.left=x+'px';h.style.top=y+'px';
 }
-document.getElementById('hcard').addEventListener('mouseleave',()=>document.getElementById('hcard').classList.remove('show'));
+document.getElementById('hcard').addEventListener('mouseleave',function(){document.getElementById('hcard').classList.remove('show')});
 
 // ── DETAIL PANEL ──
-let dpImages=[], dpIndex=0;
-
 function openDetail(loc){
   if(!loc)return;
   document.getElementById('hcard').classList.remove('show');
   document.getElementById('dp-name').textContent=loc.name;
-  const sl=SL[loc.status]||SL.identified;
-  const tags=(loc.tags||[]).map(t=>'<span class="dp-tag">'+t+'</span>').join('');
-  const zone=hasCoords(loc)&&miles(loc.lat,loc.lng)<=30?'<span style="color:var(--green)"> · in zone</span>':'';
+  var sl=SL[loc.status]||SL.identified;
+  var tags=(loc.tags||[]).map(function(t){return'<span class="dp-tag">'+t+'</span>'}).join('');
+  var zone=hasCoords(loc)&&miles(loc.lat,loc.lng)<=30?' <span style="color:var(--green)">· in zone</span>':'';
+
+  // Set up image viewer
   dpImages=loc.cover_photo_url?[loc.cover_photo_url]:[];
   dpIndex=0;
   dpUpdateViewer();
-  document.getElementById('dp-content').innerHTML=
-    '<span class="dp-status" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span>'+zone+
-    (loc.address||loc.city?'<div class="dp-label">Address</div><div class="dp-val">'+(loc.address||'')+([loc.city,loc.state_code].filter(Boolean).length?' '+[loc.city,loc.state_code].filter(Boolean).join(', '):'')+'</div>':'')+
-    (loc.notes?'<div class="dp-label">Scout notes</div><div class="dp-notes">'+formatNotes(loc.notes)+'</div>':'')+
-    (tags?'<div class="dp-label">Tags</div><div class="dp-tags">'+tags+'</div>':'')+
-    (loc.scout_name||loc.scout_date?'<div class="dp-label">Scouted by</div><div class="dp-val" style="font-family:'DM Mono',monospace;font-size:11px">'+(loc.scout_name||'')+(loc.scout_date?' · '+loc.scout_date:'')+'</div>':'')+
-    '<div class="dp-actions">'+
-      (loc.smugmug_gallery_url?'<button class="dp-btn pri" onclick="window.open(''+loc.smugmug_gallery_url+'','_blank')">open gallery ↗</button>':'')+
-      (hasCoords(loc)?'<button class="dp-btn" onclick="window.open('https://www.google.com/maps?q='+loc.lat+','+loc.lng+'','_blank')">maps ↗</button>':'')+
-    '</div>';
+
+  // Build text body
+  var html='<span class="dp-status" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span>'+zone;
+  if(loc.address||loc.city){
+    html+='<div class="dp-label">Address</div>';
+    html+='<div class="dp-val">'+[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')+'</div>';
+  }
+  if(loc.notes){
+    html+='<div class="dp-label">Scout notes</div>';
+    html+='<div class="dp-notes">'+formatNotes(loc.notes)+'</div>';
+  }
+  if(tags){
+    html+='<div class="dp-label">Tags</div>';
+    html+='<div class="dp-tags">'+tags+'</div>';
+  }
+  if(loc.scout_name||loc.scout_date){
+    html+='<div class="dp-label">Scouted by</div>';
+    html+='<div class="dp-val" style="font-family:'DM Mono',monospace;font-size:11px">'+[loc.scout_name,loc.scout_date].filter(Boolean).join(' · ')+'</div>';
+  }
+  html+='<div class="dp-actions">';
+  if(loc.smugmug_gallery_url){
+    html+='<button class="dp-btn pri" onclick="window.open(this.dataset.url,'_blank')" data-url="'+loc.smugmug_gallery_url+'">open gallery ↗</button>';
+  }
+  if(hasCoords(loc)){
+    html+='<button class="dp-btn" onclick="window.open(this.dataset.url,'_blank')" data-url="https://www.google.com/maps?q='+loc.lat+','+loc.lng+'">maps ↗</button>';
+  }
+  html+='</div>';
+  document.getElementById('dp-body').innerHTML=html;
   document.getElementById('detail-panel').classList.add('open');
   document.getElementById('dp-scroll').scrollTop=0;
   loadDetailGallery(loc);
 }
 
 function dpUpdateViewer(){
-  const img=document.getElementById('dp-featured');
-  const ph=document.getElementById('dp-viewer-ph');
-  const prev=document.getElementById('dp-prev');
-  const next=document.getElementById('dp-next');
-  const counter=document.getElementById('dp-counter');
-  const noPhotos=!dpImages.length;
-  if(ph)ph.style.display=noPhotos?'flex':'none';
-  if(img){img.style.display=noPhotos?'none':'block';if(!noPhotos)img.src=smLarge(dpImages[dpIndex]);}
-  if(prev){prev.style.display=dpImages.length>1?'block':'none';prev.disabled=dpIndex===0;}
-  if(next){next.style.display=dpImages.length>1?'block':'none';next.disabled=dpIndex===dpImages.length-1;}
-  if(counter){counter.style.display=dpImages.length>1?'block':'none';counter.textContent=(dpIndex+1)+' / '+dpImages.length;}
+  var img=document.getElementById('dp-viewer-img');
+  var ph=document.getElementById('dp-viewer-ph');
+  var prev=document.getElementById('dp-prev');
+  var next=document.getElementById('dp-next');
+  var counter=document.getElementById('dp-counter');
+  var none=!dpImages.length;
+  ph.style.display=none?'flex':'none';
+  img.style.display=none?'none':'block';
+  if(!none)img.src=smLarge(dpImages[dpIndex]);
+  var multi=dpImages.length>1;
+  prev.style.display=multi?'block':'none';
+  next.style.display=multi?'block':'none';
+  counter.style.display=multi?'block':'none';
+  if(multi){
+    prev.disabled=dpIndex===0;
+    next.disabled=dpIndex===dpImages.length-1;
+    counter.textContent=(dpIndex+1)+' / '+dpImages.length;
+  }
 }
 
 function dpNav(dir){
@@ -516,30 +546,28 @@ function closeDetail(){document.getElementById('detail-panel').classList.remove(
 async function loadDetailGallery(loc){
   if(!loc.smugmug_album_key)return;
   try{
-    const imgs=await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url&limit=30');
+    var imgs=await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url&limit=30');
     if(!imgs||!imgs.length)return;
-    const thumbs=imgs.map(i=>i.thumb_url).filter(Boolean);
+    var thumbs=imgs.map(function(i){return i.thumb_url}).filter(Boolean);
     if(!thumbs.length)return;
-    dpImages=loc.cover_photo_url?[loc.cover_photo_url,...thumbs]:thumbs;
+    dpImages=loc.cover_photo_url?[loc.cover_photo_url].concat(thumbs):thumbs;
     dpIndex=0;
     dpUpdateViewer();
   }catch(e){console.error('gallery:',e)}
 }
 
-
 function formatNotes(raw){
   if(!raw)return'';
-  const lines=raw.split('\n').map(l=>l.trim()).filter(Boolean);
-  const start=lines[0]&&lines[0].length<60&&!lines[0].includes('Notes:')?1:0;
-  return lines.slice(start).map(l=>{
-    if(/^notes?\s*:/i.test(l))return'<br><strong style="color:var(--text2);font-size:10px;letter-spacing:.1em;font-family:DM Mono,monospace">NOTES</strong>';
+  var lines=raw.split('\n').map(function(l){return l.trim()}).filter(Boolean);
+  var start=lines[0]&&lines[0].length<60&&lines[0].indexOf('Notes:')<0?1:0;
+  return lines.slice(start).map(function(l){
+    if(/^notes?\s*:/i.test(l))return'<br><strong style="color:var(--text2);font-size:10px;font-family:monospace">NOTES</strong>';
     if(/^C:\s*/i.test(l))return'<span style="color:var(--text3)">Contact: '+l.replace(/^C:\s*/i,'')+'</span>';
-    if(/^-\s*/.test(l))return'• '+l.replace(/^-\s*/,'');
+    if(/^-\s/.test(l))return'&bull; '+l.replace(/^-\s/,'');
     return l;
   }).join('<br>');
 }
 
-// ── LIGHTBOX ──
 function openLightbox(url){
   document.getElementById('lightbox-img').src=smXL(url);
   document.getElementById('lightbox').classList.add('open');
@@ -549,11 +577,10 @@ function closeLightbox(){
   document.getElementById('lightbox-img').src='';
 }
 
-// ── ZONE ──
 function toggleZone(){
   zoneOn=!zoneOn;
   document.getElementById('zone-ring-btn').classList.toggle('on',zoneOn);
-  if(zoneOn)drawZone();else{if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null}}
+  if(zoneOn)drawZone();else if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null}
 }
 function drawZone(){
   if(!gmap)return;
@@ -561,71 +588,69 @@ function drawZone(){
   zoneCircle=new google.maps.Circle({map:gmap,center:COLUMBUS,radius:ZONE_M,strokeColor:'#c26060',strokeOpacity:.8,strokeWeight:1.5,fillColor:'#c26060',fillOpacity:.04,clickable:false});
 }
 
-// ── GEOCODE ──
 async function geocodeAll(){
-  const btn=document.getElementById('geocode-btn');
-  const toGeo=locations.filter(l=>!hasCoords(l));
+  var btn=document.getElementById('geocode-btn');
+  var toGeo=locations.filter(function(l){return!hasCoords(l)});
   if(!toGeo.length){toast('All locations have coordinates','inf');return}
   if(!confirm('Geocode '+toGeo.length+' locations without coordinates?'))return;
   btn.disabled=true;
-  let done=0,failed=0;
-  for(let i=0;i<toGeo.length;i++){
-    const loc=toGeo[i];btn.textContent='geocoding '+(i+1)+'/'+toGeo.length+'...';
+  var done=0,failed=0;
+  for(var i=0;i<toGeo.length;i++){
+    var loc=toGeo[i];btn.textContent='geocoding '+(i+1)+'/'+toGeo.length+'...';
     try{
-      const r=await fetch(SM_BASE+'/api/geocode?address='+encodeURIComponent((loc.geocode_query||loc.name)+' NY'));
-      const d=await r.json();
+      var r=await fetch(SM_BASE+'/api/geocode?address='+encodeURIComponent((loc.geocode_query||loc.name)+' NY'));
+      var d=await r.json();
       if(d.ok&&d.lat){
         await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{
           method:'PATCH',
           headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
           body:JSON.stringify({lat:d.lat,lng:d.lng})
         });
-        const l=locations.find(x=>x.id===loc.id);
-        if(l){l.lat=d.lat;l.lng=d.lng;}
+        var l=locations.find(function(x){return x.id===loc.id});
+        if(l){l.lat=d.lat;l.lng=d.lng}
         done++;
       }else failed++;
-    }catch(e){failed++;}
-    await new Promise(r=>setTimeout(r,120));
+    }catch(e){failed++}
+    await new Promise(function(res){setTimeout(res,120)});
   }
   btn.disabled=false;btn.textContent='geocode addresses';
   toast('Geocoded '+done+(failed?', '+failed+' failed':''),done>0?'ok':'err');
   if(done>0&&gmap)refreshPins();
 }
 
-// ── SMUGMUG AUTH ──
 function checkAuth(){
-  const hash=window.location.hash;
-  if(hash.includes('sm_auth=')){
+  var hash=window.location.hash;
+  if(hash.indexOf('sm_auth=')>=0){
     try{
       smTokens=JSON.parse(decodeURIComponent(hash.split('sm_auth=')[1]));
       localStorage.setItem('sm_tokens',JSON.stringify(smTokens));
       window.location.hash='';toast('SmugMug connected!');updateAuthUI(true);return;
     }catch(e){}
   }
-  const s=localStorage.getItem('sm_tokens');
+  var s=localStorage.getItem('sm_tokens');
   if(s)try{smTokens=JSON.parse(s);updateAuthUI(true)}catch(e){}
 }
 function updateAuthUI(ok){
-  const b=document.getElementById('sm-btn'),s=document.getElementById('sync-btn');
+  var b=document.getElementById('sm-btn'),s=document.getElementById('sync-btn');
   if(ok){b.textContent='smugmug ✓';b.classList.add('connected');s.style.display='block'}
   else{b.textContent='connect smugmug';b.classList.remove('connected');s.style.display='none'}
 }
 async function checkSyncStatus(){
   try{
-    const r=await db('sync_log?id=eq.1&select=*');
+    var r=await db('sync_log?id=eq.1&select=*');
     if(r&&r[0]&&r[0].last_sync){
-      const d=new Date(r[0].last_sync);
+      var d=new Date(r[0].last_sync);
       document.getElementById('sync-status-pill').textContent='synced '+d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' · '+(r[0].images_count||0)+' photos';
     }
   }catch(e){}
 }
 function openSyncModal(){document.getElementById('sync-modal').classList.add('open')}
 async function doAuth(){
-  const btn=document.getElementById('auth-btn');
+  var btn=document.getElementById('auth-btn');
   btn.disabled=true;btn.textContent='connecting...';
   try{
-    const r=await fetch(SM_BASE+'/api/smugmug?action=auth');
-    const d=await r.json();
+    var r=await fetch(SM_BASE+'/api/smugmug?action=auth');
+    var d=await r.json();
     if(d.authUrl)window.location.href=d.authUrl;
     else throw new Error('No auth URL');
   }catch(e){toast('Auth failed','err');btn.disabled=false;btn.textContent='authorize smugmug ↗'}
@@ -636,32 +661,31 @@ async function startSync(){
   document.getElementById('sync-prog').style.display='block';
   document.getElementById('sm-steps').style.display='none';
   document.getElementById('auth-btn').style.display='none';
-  const label=document.getElementById('prog-label'),fill=document.getElementById('prog-fill');
-  const tb=btoa(JSON.stringify(smTokens));
+  var label=document.getElementById('prog-label'),fill=document.getElementById('prog-fill');
+  var tb=btoa(JSON.stringify(smTokens));
   try{
     label.textContent='connecting...';fill.style.width='10%';
-    const cr=await fetch(SM_BASE+'/api/smugmug?action=crawl',{headers:{Authorization:'Bearer '+tb}});
+    var cr=await fetch(SM_BASE+'/api/smugmug?action=crawl',{headers:{Authorization:'Bearer '+tb}});
     if(!cr.ok)throw new Error(await cr.text());
-    const{library}=await cr.json();
-    label.textContent='found '+(library.albums?.length||0)+' albums — syncing...';fill.style.width='30%';
+    var cdata=await cr.json();
+    var library=cdata.library;
+    label.textContent='found '+(library.albums?library.albums.length:0)+' albums — syncing...';fill.style.width='30%';
     await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]}})});
     fill.style.width='50%';
-    const imgs=library.images||[];
-    let totalImgs=0;
-    const chunks=Math.ceil(imgs.length/200)||1;
-    for(let i=0;i<imgs.length;i+=200){
-      const chunk=imgs.slice(i,i+200);if(!chunk.length)break;
+    var imgs=library.images||[];
+    var chunks=Math.ceil(imgs.length/200)||1;
+    for(var i=0;i<imgs.length;i+=200){
+      var chunk=imgs.slice(i,i+200);if(!chunk.length)break;
       label.textContent='syncing photos... '+(Math.floor(i/200)+1)+'/'+chunks;
       fill.style.width=(50+(Math.floor(i/200)+1)/chunks*45)+'%';
-      const sr=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+      var sr=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({library:{folders:[],albums:[],images:chunk}})});
-      if(sr.ok){const r=await sr.json();totalImgs+=r.stats?.images||0;}
     }
     fill.style.width='100%';label.textContent='✓ sync complete';
     await loadLocations();if(gmap)refreshPins();checkSyncStatus();
     libLoaded=false;toast('Sync complete');
-    setTimeout(()=>{
+    setTimeout(function(){
       closeModal('sync-modal');
       document.getElementById('sync-prog').style.display='none';
       document.getElementById('sm-steps').style.display='flex';
@@ -690,23 +714,18 @@ async function libInit(){
   }
 }
 
-// Extract parent folder from web_url (ground truth)
 function albumParentPath(a){
   if(a.web_url){
-    const parts=a.web_url.replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
+    var parts=a.web_url.replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
     return parts.length>1?parts.slice(0,-1).join('/'):parts[0]||'';
   }
   return a.path||'';
 }
 
-function handleLibClick(e){
-  // Close detail panel if clicking on the library grid background (not a card)
-  if(e.target===document.getElementById('library-page')||
-     e.target===document.getElementById('lib-grid')){
-    closeDetail();
-  }
+function libGridClick(e){
+  // Close detail panel only if clicking empty grid area (not a card)
+  if(e.target===document.getElementById('lib-grid'))closeDetail();
 }
-
 
 function libBrowse(path,label){
   document.getElementById('lib-q').value='';
@@ -714,23 +733,23 @@ function libBrowse(path,label){
   if(path===null){
     libStack=[];
   }else{
-    const ex=libStack.findIndex(s=>s.path===path);
+    var ex=libStack.findIndex(function(s){return s.path===path});
     if(ex>=0)libStack=libStack.slice(0,ex+1);
-    else libStack.push({path,label:label||path.split('/').pop().replace(/-/g,' ')});
+    else libStack.push({path:path,label:label||path.split('/').pop().replace(/-/g,' ')});
   }
   libRender();
 }
 
 function libRender(){
-  const grid=document.getElementById('lib-grid');
-  const bc=document.getElementById('lib-bc');
-  const currentPath=libStack.length>0?libStack[libStack.length-1].path:null;
-  const targetPath=currentPath||'Master-Library';
+  var grid=document.getElementById('lib-grid');
+  var bc=document.getElementById('lib-bc');
+  var currentPath=libStack.length>0?libStack[libStack.length-1].path:null;
+  var targetPath=currentPath||'Master-Library';
 
   // Breadcrumb
-  let bcHtml='<span class="lib-bc-seg'+(currentPath?'':" cur")+'" onclick="libBrowse(null)">Master Library</span>';
-  libStack.forEach((s,i)=>{
-    const isCur=i===libStack.length-1;
+  var bcHtml='<span class="lib-bc-seg'+(currentPath?'':' cur')+'" onclick="libBrowse(null)">Master Library</span>';
+  libStack.forEach(function(s,i){
+    var isCur=i===libStack.length-1;
     bcHtml+='<span class="lib-bc-sep"> / </span>';
     if(isCur){
       bcHtml+='<span class="lib-bc-seg cur">'+s.label+'</span>';
@@ -740,115 +759,123 @@ function libRender(){
   });
   bc.innerHTML=bcHtml;
 
-  // Direct subfolders — exactly one level deeper
-  const subFolders=libFolders.filter(f=>{
-    if(!f.path||!f.path.startsWith(targetPath+'/'))return false;
-    return!f.path.slice(targetPath.length+1).includes('/');
+  // Subfolders — direct children only
+  var subFolders=libFolders.filter(function(f){
+    if(!f.path||f.path.indexOf(targetPath+'/')<0)return false;
+    var rest=f.path.slice(targetPath.length+1);
+    return rest.indexOf('/')<0;
   });
 
-  // Albums whose parent === targetPath
-  const directAlbums=libAlbums.filter(a=>albumParentPath(a)===targetPath);
+  // Albums whose parent path === targetPath
+  var directAlbums=libAlbums.filter(function(a){
+    return albumParentPath(a)===targetPath;
+  });
 
-  let cards='';
+  var cards='';
 
-  // Folder cards
-  subFolders.forEach(f=>{
-    const children=libAlbums.filter(a=>{const p=albumParentPath(a);return p===f.path||p.startsWith(f.path+'/');});
-    const count=children.length;
-    const name=f.name||f.path.split('/').pop().replace(/-/g,' ');
-    let thumb=f.highlight_url||'';
+  subFolders.forEach(function(f){
+    var children=libAlbums.filter(function(a){
+      var p=albumParentPath(a);
+      return p===f.path||p.indexOf(f.path+'/')===0;
+    });
+    var count=children.length;
+    var name=f.name||f.path.split('/').pop().replace(/-/g,' ');
+    var thumb=f.highlight_url||'';
     if(!thumb){
-      for(const ca of children){
-        const loc=locations.find(l=>l.smugmug_album_key===ca.sm_key||l.smugmug_gallery_url===ca.web_url);
-        if(loc?.cover_photo_url){thumb=loc.cover_photo_url;break;}
-        if(ca.highlight_url){thumb=ca.highlight_url;break;}
+      for(var i=0;i<children.length;i++){
+        var ca=children[i];
+        var loc=locations.find(function(l){return l.smugmug_album_key===ca.sm_key||l.smugmug_gallery_url===ca.web_url});
+        if(loc&&loc.cover_photo_url){thumb=loc.cover_photo_url;break}
+        if(ca.highlight_url){thumb=ca.highlight_url;break}
       }
     }
-    cards+='<div class="gcard" data-p="'+f.path+'" data-l="'+name+'" onclick="libFolderClick(this)">'+
-      '<div class="gcard-tw">'+
-        (thumb?'<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="hideEl(this)">':'')+
-        '<div class="gcard-ph">▤</div>'+
-        '<div class="gcard-overlay">'+name+'</div>'+
-      '</div>'+
-      '<div class="gcard-meta">'+count+' location'+(count!==1?'s':'')+'</div>'+
-    '</div>';
+    cards+='<div class="gcard" data-p="'+f.path+'" data-l="'+name+'" onclick="libFolderClick(this)">';
+    cards+='<div class="gcard-tw">';
+    if(thumb)cards+='<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="this.style.display='none'">';
+    cards+='<div class="gcard-ph">&#9636;</div>';
+    cards+='<div class="gcard-overlay">'+name+'</div>';
+    cards+='</div>';
+    cards+='<div class="gcard-meta">'+count+' location'+(count!==1?'s':'')+'</div>';
+    cards+='</div>';
   });
 
-  // Album cards
-  directAlbums.forEach(a=>{
-    const loc=locations.find(l=>l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url);
-    const thumb=loc?.cover_photo_url||a.highlight_url||'';
-    const sl=loc?SL[loc.status]||SL.identified:null;
-    cards+='<div class="gcard" data-locid="'+(loc?loc.id:'')+'" data-smurl="'+(a.web_url||'#')+'" onclick="libCardClick(this)">'+
-      '<div class="gcard-tw">'+
-        (thumb?'<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="hideEl(this)">':'')+
-        '<div class="gcard-ph">no photo</div>'+
-        '<div class="gcard-overlay">'+a.name+'</div>'+
-      '</div>'+
-      '<div class="gcard-meta">'+(sl?'<span style="color:'+sl.c+'">'+loc.status+'</span> · ':'')+(a.image_count||0)+' photos</div>'+
-    '</div>';
+  directAlbums.forEach(function(a){
+    var loc=locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url});
+    var thumb=(loc&&loc.cover_photo_url)||a.highlight_url||'';
+    var sl=loc?SL[loc.status]||SL.identified:null;
+    var locId=loc?loc.id:'';
+    var smUrl=a.web_url||'#';
+    cards+='<div class="gcard" data-locid="'+locId+'" data-smurl="'+smUrl+'" onclick="libCardClick(this)">';
+    cards+='<div class="gcard-tw">';
+    if(thumb)cards+='<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="this.style.display='none'">';
+    cards+='<div class="gcard-ph">&#9636;</div>';
+    cards+='<div class="gcard-overlay">'+a.name+'</div>';
+    cards+='</div>';
+    cards+='<div class="gcard-meta">';
+    if(sl)cards+='<span style="color:'+sl.c+'">'+loc.status+'</span> · ';
+    cards+=(a.image_count||0)+' photos';
+    cards+='</div></div>';
   });
 
   grid.innerHTML=cards||'<div class="empty">empty folder</div>';
 }
 
 function libCardClick(el){
-  const locId=el.dataset.locid;
-  if(locId){const loc=locations.find(l=>l.id===locId);if(loc){openDetail(loc);return;}}
-  const smUrl=el.dataset.smurl;
+  var locId=el.dataset.locid;
+  if(locId){var loc=locations.find(function(l){return l.id===locId});if(loc){openDetail(loc);return}}
+  var smUrl=el.dataset.smurl;
   if(smUrl&&smUrl!=='#')window.open(smUrl,'_blank');
 }
 function libFolderClick(el){
-  const p=el.getAttribute('data-p'),l=el.getAttribute('data-l');
+  var p=el.getAttribute('data-p'),l=el.getAttribute('data-l');
   if(p)libBrowse(p,l);
 }
 
 function libSearch(){
-  const q=document.getElementById('lib-q').value.toLowerCase();
-  const status=document.getElementById('lib-status').value;
+  var q=document.getElementById('lib-q').value.toLowerCase();
+  var status=document.getElementById('lib-status').value;
   if(!q&&!status){libRender();return}
-  const grid=document.getElementById('lib-grid'),bc=document.getElementById('lib-bc');
-  const f=locations.filter(l=>{
+  var grid=document.getElementById('lib-grid'),bc=document.getElementById('lib-bc');
+  var f=locations.filter(function(l){
     if(status&&l.status!==status)return false;
-    if(q){const h=[l.name,l.address,l.city,l.notes,...(l.tags||[])].join(' ').toLowerCase();if(!h.includes(q))return false;}
+    if(q){var h=[l.name,l.address,l.city,l.notes].concat(l.tags||[]).join(' ').toLowerCase();if(h.indexOf(q)<0)return false}
     return true;
   });
   bc.innerHTML='<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span>'+
     '<span class="lib-bc-sep"> / </span>'+
     '<span class="lib-bc-seg cur">search ('+f.length+')</span>';
   if(!f.length){grid.innerHTML='<div class="empty">no results</div>';return}
-  grid.innerHTML=f.map(l=>{
-    const sl=SL[l.status]||SL.identified;
-    return'<div class="gcard" data-locid="'+l.id+'" onclick="libCardClick(this)">'+
-      '<div class="gcard-tw">'+
-        (l.cover_photo_url?'<img class="gcard-img" src="'+l.cover_photo_url+'" loading="lazy" onerror="hideEl(this)">':'')+
-        '<div class="gcard-ph">no photo</div>'+
-        '<div class="gcard-overlay">'+l.name+'</div>'+
-      '</div>'+
-      '<div class="gcard-meta" style="color:'+sl.c+'">'+l.status+' · '+([l.city,l.state_code].filter(Boolean).join(', ')||'—')+'</div>'+
-    '</div>';
+  var cards=f.map(function(l){
+    var sl=SL[l.status]||SL.identified;
+    var c='<div class="gcard" data-locid="'+l.id+'" onclick="libCardClick(this)">';
+    c+='<div class="gcard-tw">';
+    if(l.cover_photo_url)c+='<img class="gcard-img" src="'+l.cover_photo_url+'" loading="lazy" onerror="this.style.display='none'">';
+    c+='<div class="gcard-ph">&#9636;</div>';
+    c+='<div class="gcard-overlay">'+l.name+'</div>';
+    c+='</div>';
+    c+='<div class="gcard-meta" style="color:'+sl.c+'">'+l.status+' · '+([l.city,l.state_code].filter(Boolean).join(', ')||'—')+'</div>';
+    c+='</div>';
+    return c;
   }).join('');
+  grid.innerHTML=cards;
 }
 
-function hideEl(el){el.style.display='none'}
-// ── KEYBOARD ──
-document.addEventListener('keydown',e=>{
+document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){
-    if(document.getElementById('lightbox').classList.contains('open')){closeLightbox();return;}
-    document.querySelectorAll('.modal-ov.open').forEach(m=>m.classList.remove('open'));
+    if(document.getElementById('lightbox').classList.contains('open')){closeLightbox();return}
+    document.querySelectorAll('.modal-ov.open').forEach(function(m){m.classList.remove('open')});
     closeDetail();
     document.getElementById('hcard').classList.remove('show');
     return;
   }
   if(document.getElementById('detail-panel').classList.contains('open')){
-    if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();dpNav(1);}
-    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();dpNav(-1);}
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();dpNav(1)}
+    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();dpNav(-1)}
   }
 });
-document.querySelectorAll('.modal-ov').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open')}));
+document.querySelectorAll('.modal-ov').forEach(function(m){m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('open')})});
 
-// ── INIT ──
-(async()=>{
+(async function(){
   checkAuth();
   await loadLocations();
   loadMapScript();
