@@ -94,10 +94,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .dp-btn{padding:7px 14px;font-size:10px;font-family:'DM Mono',monospace;border-radius:6px;cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .15s}
 .dp-btn:hover{border-color:var(--accent2);color:var(--accent)}
 .dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-.dp-gallery{margin-top:14px}
-.dp-gallery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:6px}
-.dp-gallery-img{width:100%;aspect-ratio:1;object-fit:cover;cursor:pointer;border-radius:3px;background:var(--bg4);transition:opacity .15s}
-.dp-gallery-img:hover{opacity:.75}
+.dp-viewer{position:relative;background:var(--bg4)}
+.dp-viewer-img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;cursor:zoom-in}
+.dp-viewer-ph{width:100%;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:'DM Mono',monospace;color:var(--text3)}
+.dp-arrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.6);border:none;color:rgba(255,255,255,.8);font-size:22px;cursor:pointer;padding:12px 10px;line-height:1;transition:all .15s;z-index:10}
+.dp-arrow:hover{background:rgba(0,0,0,.9);color:#fff}
+.dp-arrow.prev{left:0;border-radius:0 4px 4px 0}
+.dp-arrow.next{right:0;border-radius:4px 0 0 4px}
+.dp-arrow:disabled{opacity:.2;cursor:default}
+.dp-counter{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-size:9px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.5);background:rgba(0,0,0,.5);padding:2px 8px;border-radius:10px}
 
 /* ── Library ── */
 #library-page{background:var(--bg2)}
@@ -120,9 +125,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .gcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s;flex-shrink:0}
 .gcard:hover{border-color:var(--border2)}
 .gcard-tw{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
-.gcard-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
-.gcard-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:20px;font-family:'DM Mono',monospace}
-.gcard-overlay{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:20px 10px 8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gcard-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:1}
+.gcard-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:20px;font-family:'DM Mono',monospace;z-index:0}
+.gcard-overlay{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:20px 10px 8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:2}
 .gcard-meta{padding:6px 10px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;border-top:1px solid var(--border)}
 
 /* ── Shared ── */
@@ -236,7 +241,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     </div>
 
     <!-- LIBRARY -->
-    <div class="page" id="library-page">
+    <div class="page" id="library-page" onclick="handleLibClick(event)">
       <div class="lib-header">
         <div class="lib-bc" id="lib-bc">
           <span class="lib-bc-seg cur">Master Library</span>
@@ -265,7 +270,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     <button class="dp-close" onclick="closeDetail()">×</button>
   </div>
   <div class="dp-scroll" id="dp-scroll">
-    <div id="dp-content"></div>
+    <!-- Image viewer with arrows -->
+    <div class="dp-viewer" id="dp-viewer">
+      <div class="dp-viewer-ph" id="dp-viewer-ph">no photo</div>
+      <img id="dp-featured" class="dp-viewer-img" src="" style="display:none" onclick="openLightbox(this.src)" onerror="this.style.display='none'">
+      <button class="dp-arrow prev" id="dp-prev" onclick="dpNav(-1)">‹</button>
+      <button class="dp-arrow next" id="dp-next" onclick="dpNav(1)">›</button>
+      <div class="dp-counter" id="dp-counter"></div>
+    </div>
+    <!-- Text content -->
+    <div id="dp-content" style="padding:14px 18px 20px"></div>
   </div>
 </div>
 
@@ -446,59 +460,67 @@ function posHcard(ev){
 document.getElementById('hcard').addEventListener('mouseleave',()=>document.getElementById('hcard').classList.remove('show'));
 
 // ── DETAIL PANEL ──
+let dpImages=[], dpIndex=0;
+
 function openDetail(loc){
   if(!loc)return;
   document.getElementById('hcard').classList.remove('show');
   document.getElementById('dp-name').textContent=loc.name;
   const sl=SL[loc.status]||SL.identified;
   const tags=(loc.tags||[]).map(t=>'<span class="dp-tag">'+t+'</span>').join('');
-  const zone=hasCoords(loc)?(miles(loc.lat,loc.lng)<=30?'<span style="color:var(--green)">· in zone</span>':''):'';
+  const zone=hasCoords(loc)&&miles(loc.lat,loc.lng)<=30?'<span style="color:var(--green)"> · in zone</span>':'';
+  dpImages=loc.cover_photo_url?[loc.cover_photo_url]:[];
+  dpIndex=0;
+  dpUpdateViewer();
   document.getElementById('dp-content').innerHTML=
-    (loc.cover_photo_url
-      ?'<img id="dp-featured" class="dp-photo" src="'+loc.cover_photo_url+'" loading="lazy" onclick="openLightbox(this.src)" onerror="this.style.display=\'none\'">'
-      :'<div class="dp-photo-ph">no cover photo</div>')+
-    '<div class="dp-body">'+
-      '<span class="dp-status" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span> '+zone+
-      (loc.address||loc.city?'<div class="dp-label">Address</div><div class="dp-val">'+(loc.address?loc.address+', ':'')+[loc.city,loc.state_code].filter(Boolean).join(', ')+'</div>':'')+
-      (loc.notes?'<div class="dp-label">Scout notes</div><div class="dp-notes">'+formatNotes(loc.notes)+'</div>':'')+
-      (tags?'<div class="dp-label">Tags</div><div class="dp-tags">'+tags+'</div>':'')+
-      (loc.scout_name||loc.scout_date?'<div class="dp-label">Scouted by</div><div class="dp-val" style="font-family:\'DM Mono\',monospace;font-size:11px">'+(loc.scout_name||'')+(loc.scout_date?' · '+loc.scout_date:'')+'</div>':'')+
-      '<div id="dp-gallery"></div>'+
-      '<div class="dp-actions">'+
-        (loc.smugmug_gallery_url?'<button class="dp-btn pri" onclick="window.open(\''+loc.smugmug_gallery_url+'\',\'_blank\')">open gallery ↗</button>':'')+
-        (hasCoords(loc)?'<button class="dp-btn" onclick="window.open(\'https://www.google.com/maps?q='+loc.lat+','+loc.lng+'\',\'_blank\')">maps ↗</button>':'')+
-      '</div>'+
+    '<span class="dp-status" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span>'+zone+
+    (loc.address||loc.city?'<div class="dp-label">Address</div><div class="dp-val">'+(loc.address||'')+([loc.city,loc.state_code].filter(Boolean).length?' '+[loc.city,loc.state_code].filter(Boolean).join(', '):'')+'</div>':'')+
+    (loc.notes?'<div class="dp-label">Scout notes</div><div class="dp-notes">'+formatNotes(loc.notes)+'</div>':'')+
+    (tags?'<div class="dp-label">Tags</div><div class="dp-tags">'+tags+'</div>':'')+
+    (loc.scout_name||loc.scout_date?'<div class="dp-label">Scouted by</div><div class="dp-val" style="font-family:'DM Mono',monospace;font-size:11px">'+(loc.scout_name||'')+(loc.scout_date?' · '+loc.scout_date:'')+'</div>':'')+
+    '<div class="dp-actions">'+
+      (loc.smugmug_gallery_url?'<button class="dp-btn pri" onclick="window.open(''+loc.smugmug_gallery_url+'','_blank')">open gallery ↗</button>':'')+
+      (hasCoords(loc)?'<button class="dp-btn" onclick="window.open('https://www.google.com/maps?q='+loc.lat+','+loc.lng+'','_blank')">maps ↗</button>':'')+
     '</div>';
   document.getElementById('detail-panel').classList.add('open');
   document.getElementById('dp-scroll').scrollTop=0;
   loadDetailGallery(loc);
 }
+
+function dpUpdateViewer(){
+  const img=document.getElementById('dp-featured');
+  const ph=document.getElementById('dp-viewer-ph');
+  const prev=document.getElementById('dp-prev');
+  const next=document.getElementById('dp-next');
+  const counter=document.getElementById('dp-counter');
+  const noPhotos=!dpImages.length;
+  if(ph)ph.style.display=noPhotos?'flex':'none';
+  if(img){img.style.display=noPhotos?'none':'block';if(!noPhotos)img.src=smLarge(dpImages[dpIndex]);}
+  if(prev){prev.style.display=dpImages.length>1?'block':'none';prev.disabled=dpIndex===0;}
+  if(next){next.style.display=dpImages.length>1?'block':'none';next.disabled=dpIndex===dpImages.length-1;}
+  if(counter){counter.style.display=dpImages.length>1?'block':'none';counter.textContent=(dpIndex+1)+' / '+dpImages.length;}
+}
+
+function dpNav(dir){
+  dpIndex=Math.max(0,Math.min(dpImages.length-1,dpIndex+dir));
+  dpUpdateViewer();
+}
+
 function closeDetail(){document.getElementById('detail-panel').classList.remove('open')}
 
 async function loadDetailGallery(loc){
-  const el=document.getElementById('dp-gallery');
-  if(!el||!loc.smugmug_album_key)return;
+  if(!loc.smugmug_album_key)return;
   try{
-    const imgs=await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url,web_url&limit=10');
+    const imgs=await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url&limit=30');
     if(!imgs||!imgs.length)return;
-    const thumbs=imgs.map(i=>smLarge(i.thumb_url)).filter(Boolean);
+    const thumbs=imgs.map(i=>i.thumb_url).filter(Boolean);
     if(!thumbs.length)return;
-    // Update featured image with first gallery photo
-    const featured=document.getElementById('dp-featured');
-    if(featured&&thumbs[0])featured.src=thumbs[0];
-    el.innerHTML='<div class="dp-gallery" style="padding:0 18px 18px">'+
-      '<div class="dp-label">Photos ('+imgs.length+')</div>'+
-      '<div class="dp-gallery-grid">'+
-        thumbs.map(src=>'<img class="dp-gallery-img" src="'+src+'" loading="lazy" onclick="setFeatured(\''+src+'\')" onerror="this.style.display=\'none\'">').join('')+
-      '</div>'+
-    '</div>';
+    dpImages=loc.cover_photo_url?[loc.cover_photo_url,...thumbs]:thumbs;
+    dpIndex=0;
+    dpUpdateViewer();
   }catch(e){console.error('gallery:',e)}
 }
 
-function setFeatured(src){
-  const img=document.getElementById('dp-featured');
-  if(img){img.src=src;img.scrollIntoView({behavior:'smooth',block:'nearest'});}
-}
 
 function formatNotes(raw){
   if(!raw)return'';
@@ -672,6 +694,15 @@ function albumParentPath(a){
   return a.path||'';
 }
 
+function handleLibClick(e){
+  // Close detail panel if clicking on the library grid background (not a card)
+  if(e.target===document.getElementById('library-page')||
+     e.target===document.getElementById('lib-grid')){
+    closeDetail();
+  }
+}
+
+
 function libBrowse(path,label){
   document.getElementById('lib-q').value='';
   document.getElementById('lib-status').value='';
@@ -797,10 +828,15 @@ function libSearch(){
 // ── KEYBOARD ──
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
-    closeLightbox();
+    if(document.getElementById('lightbox').classList.contains('open')){closeLightbox();return;}
     document.querySelectorAll('.modal-ov.open').forEach(m=>m.classList.remove('open'));
     closeDetail();
     document.getElementById('hcard').classList.remove('show');
+    return;
+  }
+  if(document.getElementById('detail-panel').classList.contains('open')){
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();dpNav(1);}
+    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();dpNav(-1);}
   }
 });
 document.querySelectorAll('.modal-ov').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open')}));
