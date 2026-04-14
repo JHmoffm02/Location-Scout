@@ -104,7 +104,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 
 /* ── Library ── */
-#library-page{background:var(--bg2)}
+#library-page{background:var(--bg2);display:flex;flex-direction:column;overflow:hidden}
 .lib-header{height:50px;padding:0 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;overflow:hidden}
 .lib-bc{display:flex;align-items:center;gap:0;flex:1;min-width:0;overflow:hidden}
 .lib-bc-seg{font-size:11px;font-family:'DM Mono',monospace;color:var(--accent);cursor:pointer;padding:4px 6px;border-radius:4px;white-space:nowrap;transition:background .12s}
@@ -329,7 +329,7 @@ const SL={
 
 let locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false;
 let smTokens=null,currentHoverLoc=null;
-let libFolders=[],libAlbums=[],libLoaded=false,libStack=[];
+let libFolders=[],libAlbums=[],libLoaded=false,libStack=[],libRedoStack=[];
 let dpImages=[],dpIndex=0;
 
 const db=(p,o={})=>fetch(SB_URL+'/rest/v1/'+p,{
@@ -512,7 +512,6 @@ function openDetail(loc){
   document.getElementById('dp-body').innerHTML=html;
   document.getElementById('detail-panel').classList.add('open');
   document.getElementById('dp-scroll').scrollTop=0;
-  document.getElementById('detail-panel').focus();
   loadDetailGallery(loc);
 }
 
@@ -531,14 +530,15 @@ function dpUpdateViewer(){
   next.style.display=multi?'block':'none';
   counter.style.display=multi?'block':'none';
   if(multi){
-    prev.disabled=dpIndex===0;
-    next.disabled=dpIndex===dpImages.length-1;
+    prev.disabled=false;
+    next.disabled=false;
     counter.textContent=(dpIndex+1)+' / '+dpImages.length;
   }
 }
 
 function dpNav(dir){
-  dpIndex=Math.max(0,Math.min(dpImages.length-1,dpIndex+dir));
+  if(!dpImages.length)return;
+  dpIndex=(dpIndex+dir+dpImages.length)%dpImages.length;
   dpUpdateViewer();
 }
 
@@ -732,14 +732,21 @@ function libBrowse(path,label){
   document.getElementById('lib-q').value='';
   document.getElementById('lib-status').value='';
   if(path===null){
+    libRedoStack=libStack.slice().reverse();
     libStack=[];
   }else{
     var ex=libStack.findIndex(function(s){return s.path===path});
-    if(ex>=0)libStack=libStack.slice(0,ex+1);
-    else libStack.push({path:path,label:label||path.split('/').pop().replace(/-/g,' ')});
+    if(ex>=0){
+      libRedoStack=libStack.slice(ex+1).reverse();
+      libStack=libStack.slice(0,ex+1);
+    }else{
+      libRedoStack=[];
+      libStack.push({path:path,label:label||path.split('/').pop().replace(/-/g,' ')});
+    }
   }
   libRender();
 }
+
 
 function libRender(){
   var grid=document.getElementById('lib-grid');
@@ -861,16 +868,48 @@ function libSearch(){
 }
 
 document.addEventListener('keydown',function(e){
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA')return;
+
   if(e.key==='Escape'){
     if(document.getElementById('lightbox').classList.contains('open')){closeLightbox();return}
     document.querySelectorAll('.modal-ov.open').forEach(function(m){m.classList.remove('open')});
-    closeDetail();
+    if(document.getElementById('detail-panel').classList.contains('open')){closeDetail();return}
     document.getElementById('hcard').classList.remove('show');
     return;
   }
-  if(document.getElementById('detail-panel').classList.contains('open')){
-    if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();dpNav(1)}
-    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();dpNav(-1)}
+
+  var panelOpen=document.getElementById('detail-panel').classList.contains('open');
+
+  if(panelOpen){
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'){
+      e.preventDefault();
+      dpIndex=(dpIndex+1)%Math.max(dpImages.length,1);
+      dpUpdateViewer();
+    }
+    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){
+      e.preventDefault();
+      dpIndex=(dpIndex-1+Math.max(dpImages.length,1))%Math.max(dpImages.length,1);
+      dpUpdateViewer();
+    }
+    return;
+  }
+
+  var libActive=document.getElementById('library-page').classList.contains('active');
+  if(libActive){
+    if(e.key==='ArrowLeft'){
+      e.preventDefault();
+      if(libStack.length>0){
+        libRedoStack.push(libStack.pop());
+        libRender();
+      }
+    }
+    if(e.key==='ArrowRight'){
+      e.preventDefault();
+      if(libRedoStack.length>0){
+        libStack.push(libRedoStack.pop());
+        libRender();
+      }
+    }
   }
 });
 document.querySelectorAll('.modal-ov').forEach(function(m){m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('open')})});
