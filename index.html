@@ -499,7 +499,7 @@ function openDetail(loc){
   }
   if(loc.scout_name||loc.scout_date){
     html+='<div class="dp-label">Scouted by</div>';
-    html+='<div class="dp-val" style="font-family:'DM Mono',monospace;font-size:11px">'+[loc.scout_name,loc.scout_date].filter(Boolean).join(' · ')+'</div>';
+    html+='<div class="dp-val" style="font-size:11px">'+[loc.scout_name,loc.scout_date].filter(Boolean).join(' - ')+'</div>';
   }
   html+='<div class="dp-actions">';
   if(loc.smugmug_gallery_url){
