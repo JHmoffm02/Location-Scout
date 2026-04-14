@@ -462,7 +462,7 @@ function openDetail(loc){
       ${hasCoords(loc)?`<button class="dp-btn" onclick="window.open('https://www.google.com/maps?q=${loc.lat},${loc.lng}','_blank')">maps ↗</button>`:''}
     </div>`;
   document.getElementById('detail-panel').classList.add('open');
-  document.getElementById('dp-scroll').scrollTop=0;
+  const dpScroll=document.getElementById('dp-scroll');if(dpScroll)dpScroll.scrollTop=0;
 }
 function closeDetail(){document.getElementById('detail-panel').classList.remove('open')}
 
@@ -630,18 +630,16 @@ async function libInit(){
 }
 
 // Get the parent folder path of an album from its web_url
+// Always uses web_url as ground truth — strips last slug (the album's own slug)
 function albumParentPath(album){
-  // Use path field if it looks correct (not just a name)
-  if(album.path&&album.path.includes('/')){
-    return album.path;
-  }
-  // Fall back to extracting from web_url
   if(album.web_url){
     const url=album.web_url.replace('https://jordanhoffman.smugmug.com/','');
-    // Remove last segment (the album slug itself)
-    const parts=url.split('/');
+    const parts=url.split('/').filter(Boolean);
     if(parts.length>1)return parts.slice(0,-1).join('/');
-    return url;
+    return parts[0]||'';
+  }
+  if(album.path&&album.path.includes('/')){
+    return album.path;
   }
   return album.path||'';
 }
