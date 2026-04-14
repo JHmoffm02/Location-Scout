@@ -704,34 +704,40 @@ function libRender(){
 
   let cards='';
 
-  // Folder cards — show count of albums inside (at any depth)
+  // Folder cards — cover cascades from child locations
   subFolders.forEach(f=>{
-    const count=libAlbums.filter(a=>albumParentPath(a).startsWith(f.path)).length;
+    const childAlbums=libAlbums.filter(a=>{
+      const p=albumParentPath(a);
+      return p===f.path||p.startsWith(f.path+'/');
+    });
+    const count=childAlbums.length;
     const displayName=f.name||f.path.split('/').pop().replace(/-/g,' ');
-    cards+=`<div class="gcard gcard-folder" onclick="libBrowse('${f.path}','${displayName}')">
-      <div class="gcard-tw gcard-folder">
-        <div class="folder-icon">▤</div>
-        <div class="folder-nm">${displayName}</div>
-        <div class="folder-ct">${count} location${count!==1?'s':''}</div>
+    let thumb='';
+    for(const ca of childAlbums){
+      const loc=locations.find(l=>l.smugmug_album_key===ca.sm_key||l.smugmug_gallery_url===ca.web_url);
+      if(loc?.cover_photo_url){thumb=loc.cover_photo_url;break;}
+    }
+    cards+=`<div class="gcard" data-folderpath="${f.path}" data-folderlabel="${displayName}" onclick="libFolderClick(this)">
+      <div class="gcard-tw">
+        ${thumb?`<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">`:``}
+        <div class="gcard-ph">${thumb?'':'▤'}</div>
+        <div class="gcard-overlay">${displayName}</div>
       </div>
-      <div class="gcard-meta">folder</div>
+      <div class="gcard-meta">${count} location${count!==1?'s':''}</div>
     </div>`;
   });
 
   // Album/gallery cards
   directAlbums.forEach(a=>{
-    // Match to a location via album key or gallery URL
     const loc=locations.find(l=>
       l.smugmug_album_key===a.sm_key||
-      l.smugmug_gallery_url===a.web_url||
-      l.smugmug_gallery_url===a.web_url+'/'
+      l.smugmug_gallery_url===a.web_url
     );
     const thumb=loc?.cover_photo_url||'';
     const sl=loc?SL[loc.status]||SL.identified:null;
-    const onclick=loc
-      ?`openDetail(locations.find(l=>l.id==='${loc.id}'))`
-      :`window.open('${(a.web_url||'#').replace(/'/g,"\\'")}','_blank')`;
-    cards+=`<div class="gcard" onclick="${onclick}">
+    const locId=loc?loc.id:'';
+    const smUrl=a.web_url||'#';
+    cards+=`<div class="gcard" data-locid="${locId}" data-smurl="${smUrl}" onclick="libCardClick(this)">
       <div class="gcard-tw">
         ${thumb?`<img class="gcard-img" src="${thumb}" loading="lazy" onerror="this.style.display='none'">`:``}
         <div class="gcard-ph">${thumb?'':'no photo'}</div>
@@ -743,6 +749,23 @@ function libRender(){
 
   grid.innerHTML=cards||'<div class="empty">empty folder</div>';
 }
+
+function libCardClick(el){
+  const locId=el.dataset.locid;
+  const smUrl=el.dataset.smurl;
+  if(locId){
+    const loc=locations.find(l=>l.id===locId);
+    if(loc){openDetail(loc);return;}
+  }
+  if(smUrl&&smUrl!=='#')window.open(smUrl,'_blank');
+}
+
+function libFolderClick(el){
+  const path=el.dataset.folderpath;
+  const label=el.dataset.folderlabel;
+  if(path)libBrowse(path,label);
+}
+
 
 function libSearch(){
   const q=document.getElementById('lib-q').value.toLowerCase();
