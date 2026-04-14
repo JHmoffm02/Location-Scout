@@ -503,10 +503,10 @@ function openDetail(loc){
   }
   html+='<div class="dp-actions">';
   if(loc.smugmug_gallery_url){
-    html+='<button class="dp-btn pri" onclick="window.open(this.dataset.url,'_blank')" data-url="'+loc.smugmug_gallery_url+'">open gallery ↗</button>';
+    html+='<button class="dp-btn pri" data-url="'+loc.smugmug_gallery_url+'" onclick="window.open(this.dataset.url,this.dataset.t)" data-t="_blank">open gallery ↗</button>';
   }
   if(hasCoords(loc)){
-    html+='<button class="dp-btn" onclick="window.open(this.dataset.url,'_blank')" data-url="https://www.google.com/maps?q='+loc.lat+','+loc.lng+'">maps ↗</button>';
+    html+='<button class="dp-btn" data-url="https://www.google.com/maps?q='+loc.lat+','+loc.lng+'" onclick="window.open(this.dataset.url,this.dataset.t)" data-t="_blank">maps ↗</button>';
   }
   html+='</div>';
   document.getElementById('dp-body').innerHTML=html;
