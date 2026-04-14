@@ -116,12 +116,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
 .lib-sel{padding:5px 8px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
-#lib-grid{flex:1;overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;align-content:start}
+#lib-grid{flex:1;overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;align-content:start;min-height:0}
 #lib-grid::-webkit-scrollbar{width:3px}
 #lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
 /* ── Cards ── */
-.gcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s}
+.gcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s;min-width:0}
 .gcard:hover{border-color:var(--border2)}
 .gcard-tw{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
 .gcard-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:1}
@@ -264,7 +264,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 </div>
 
 <!-- Detail panel — fixed, outside shell -->
-<div id="detail-panel">
+<div id="detail-panel" tabindex="-1" style="outline:none">
   <div class="dp-header">
     <div class="dp-name" id="dp-name"></div>
     <button class="dp-close" onclick="closeDetail()">×</button>
@@ -369,7 +369,7 @@ function hasCoords(l){return l.lat&&l.lng&&!(l.lat===0&&l.lng===0)}
 
 function smLarge(url){
   if(!url)return '';
-  return url.replace('/Th/','/L/').replace('/Ti/','/L/').replace('/S/','/M/');
+  return url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/L/').replace('/M/','/L/');
 }
 function smXL(url){
   if(!url)return '';
@@ -403,7 +403,7 @@ window.initMap=async function(){
       {featureType:'landscape',elementType:'geometry',stylers:[{color:'#0d0d10'}]}
     ]
   });
-  gmap.addListener('click',function(){document.getElementById('hcard').classList.remove('show')});
+  gmap.addListener('click',function(){document.getElementById('hcard').classList.remove('show');closeDetail();});
   await loadLocations();
   refreshPins();
   checkAuth();
@@ -512,6 +512,7 @@ function openDetail(loc){
   document.getElementById('dp-body').innerHTML=html;
   document.getElementById('detail-panel').classList.add('open');
   document.getElementById('dp-scroll').scrollTop=0;
+  document.getElementById('detail-panel').focus();
   loadDetailGallery(loc);
 }
 
