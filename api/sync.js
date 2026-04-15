@@ -261,6 +261,40 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // Delete removed albums — anything in DB not in the synced set
+    if (albums.length > 0) {
+      try {
+        const syncedKeys = albums.map(a => a.id).filter(Boolean);
+        // Get all album keys currently in DB
+        const existing = await sb('smugmug_albums?select=sm_key');
+        const existingKeys = (existing || []).map(e => e.sm_key);
+        const toDelete = existingKeys.filter(k => !syncedKeys.includes(k));
+        for (const key of toDelete) {
+          // Remove from smugmug_albums
+          await sb('smugmug_albums?sm_key=eq.' + key, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+          // Remove linked location if it was auto-created (has no manual data)
+          await sb('locations?smugmug_album_key=eq.' + key + '&address=is.null&notes=is.null',
+            { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+          console.log('deleted removed album:', key);
+        }
+        stats.deleted = toDelete.length;
+      } catch(e) { console.error('deletion error:', e.message); }
+    }
+
+    // Delete removed folders
+    if (folders.length > 0) {
+      try {
+        const syncedPaths = folders.map(f => f.path).filter(Boolean);
+        const existingFolders = await sb('smugmug_folders?select=path');
+        const existingPaths = (existingFolders || []).map(f => f.path);
+        const foldersToDelete = existingPaths.filter(p => !syncedPaths.includes(p));
+        for (const path of foldersToDelete) {
+          await sb('smugmug_folders?path=eq.' + encodeURIComponent(path),
+            { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+        }
+      } catch(e) { console.error('folder deletion error:', e.message); }
+    }
+
     // Update sync log
     try {
       await sb('sync_log?on_conflict=id', {
