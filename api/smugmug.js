@@ -25,11 +25,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .nav-btn:hover{color:var(--text2)}
 .nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
 #pages{flex:1;overflow:hidden;position:relative}
-.page{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+.page{position:absolute;inset:0;display:none;flex-direction:column}
 .page.active{display:flex}
 
 /* ── Home / Map ── */
-#home-page{background:var(--bg)}
+#home-page{background:var(--bg);overflow:hidden}
 #map-wrap{flex:1;position:relative;overflow:hidden}
 #the-map{position:absolute;inset:0;width:100%;height:100%}
 #sync-bar{position:absolute;top:14px;right:14px;z-index:15;display:flex;align-items:center;gap:8px}
@@ -258,14 +258,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
       <div id="lib-grid" onclick="libGridClick(event)">
         <div class="empty"><div class="spin"></div>&nbsp;loading...</div>
       </div>
-    </div>
-
-    <!-- Library bottom bar -->
-    <div id="lib-bottom" style="display:none;position:absolute;bottom:0;left:0;right:0;height:48px;background:var(--bg2);border-top:1px solid var(--border);align-items:center;justify-content:flex-end;padding:0 16px;gap:12px;z-index:20">
+      <!-- Library bottom bar -->
+      <div id="lib-bottom" style="display:none;position:absolute;bottom:0;left:0;right:0;height:48px;background:var(--bg2);border-top:1px solid var(--border);align-items:center;justify-content:flex-end;padding:0 16px;gap:12px;z-index:20">
       <span id="lib-sync-status" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3)"></span>
       <button id="sync-square" onclick="startFullSync()" style="height:30px;padding:0 14px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;color:var(--accent);font-size:10px;font-family:'DM Mono',monospace;display:flex;align-items:center;gap:6px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)'">
         <span>⟳</span><span id="sync-label">sync</span>
       </button>
+      </div>
     </div>
 
   </div>
