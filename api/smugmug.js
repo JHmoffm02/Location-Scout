@@ -385,6 +385,46 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    // Fetch images for a single album by key
+    if (action === 'album-images') {
+      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
+      const { albumKey } = req.query;
+      if (!albumKey) { res.status(400).json({ error: 'albumKey required' }); return; }
+      const images = [];
+      try {
+        const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
+        const album = albumRes.Response?.Album;
+        if (!album) { res.json({ ok: true, images: [] }); return; }
+        const imagesUri = album.Uris?.AlbumImages?.Uri;
+        if (!imagesUri) { res.json({ ok: true, images: [] }); return; }
+        let start = 1;
+        while (true) {
+          const imgRes = await smRequest(imagesUri, accessToken, accessTokenSecret, { count: '100', start: String(start) });
+          const imgs = imgRes.Response?.AlbumImage || [];
+          const arr = Array.isArray(imgs) ? imgs : [imgs];
+          for (const img of arr) {
+            if (!img || !img.ImageKey) continue;
+            images.push({
+              id: img.ImageKey, albumKey, albumName: album.Name,
+              albumPath: '', albumUrl: album.WebUri || '',
+              filename: img.FileName || '', title: img.Title || img.FileName || '',
+              caption: img.Caption || '', keywords: img.Keywords || '',
+              date: img.DateTimeOriginal || null,
+              width: img.OriginalWidth || null, height: img.OriginalHeight || null,
+              thumbUrl: img.ThumbnailUrl || null, webUri: img.WebUri || null,
+              lat: img.Latitude || null, lng: img.Longitude || null,
+              format: img.Format || null, size: img.ArchivedSize || null,
+              isVideo: img.IsVideo || false
+            });
+          }
+          if (arr.length < 100) break;
+          start += 100;
+        }
+      } catch(e) { console.error('album-images error:', e.message); }
+      res.json({ ok: true, images });
+      return;
+    }
+
     res.status(400).json({ error: `Unknown action: ${action}` });
 
   } catch(e) {
