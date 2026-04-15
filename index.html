@@ -191,6 +191,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
           <span id="sync-status-pill">not synced</span>
           <button class="sync-pill" id="sm-btn" onclick="openSyncModal()">connect smugmug</button>
           <button class="sync-pill" id="sync-btn" onclick="startSync()" style="display:none">sync now</button>
+          <button class="sync-pill" id="img-sync-btn" onclick="startImageSync()" style="display:none">sync images</button>
         </div>
         <div class="hcard" id="hcard">
           <div id="hcard-media"></div>
@@ -686,8 +687,9 @@ function checkAuth(){
 }
 function updateAuthUI(ok){
   var b=document.getElementById('sm-btn'),s=document.getElementById('sync-btn');
-  if(ok){b.textContent='smugmug ✓';b.classList.add('connected');s.style.display='block'}
-  else{b.textContent='connect smugmug';b.classList.remove('connected');s.style.display='none'}
+  var imgBtn=document.getElementById('img-sync-btn');
+  if(ok){b.textContent='smugmug ✓';b.classList.add('connected');s.style.display='block';if(imgBtn)imgBtn.style.display='block'}
+  else{b.textContent='connect smugmug';b.classList.remove('connected');s.style.display='none';if(imgBtn)imgBtn.style.display='none'}
 }
 async function checkSyncStatus(){
   try{
@@ -925,6 +927,59 @@ function libSearch(){
     return c;
   }).join('');
   grid.innerHTML=cards;
+}
+
+async function startImageSync(){
+  var btn=document.getElementById('img-sync-btn');
+  if(!smTokens){toast('Connect SmugMug first','err');return}
+  // Get all albums that have no images synced
+  var allAlbums=await db('smugmug_albums?select=sm_key,name,sm_uri&order=name.asc');
+  var synced=await db('smugmug_images?select=album_key');
+  var syncedKeys=new Set(synced.map(function(i){return i.album_key}));
+  var missing=allAlbums.filter(function(a){return!syncedKeys.has(a.sm_key)});
+  if(!missing.length){toast('All albums have images','inf');return}
+  if(!confirm('Sync images for '+missing.length+' albums without photos? This may take several minutes.'))return;
+  btn.disabled=true;
+  var tb=btoa(JSON.stringify(smTokens));
+  var done=0,failed=0;
+  for(var i=0;i<missing.length;i++){
+    var album=missing[i];
+    btn.textContent='syncing images '+(i+1)+'/'+missing.length+'...';
+    try{
+      // Fetch images for this album via sync-path action
+      var r=await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+album.sm_key,{
+        headers:{Authorization:'Bearer '+tb}
+      });
+      if(!r.ok){failed++;continue}
+      var d=await r.json();
+      var imgs=d.images||[];
+      if(imgs.length){
+        // Sync images to DB
+        var sr=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({library:{folders:[],albums:[],images:imgs}})});
+        // Set cover photo on location
+        var firstThumb=imgs[0]&&imgs[0].thumbUrl;
+        if(firstThumb){
+          var loc=locations.find(function(l){return l.smugmug_album_key===album.sm_key});
+          if(loc&&!loc.cover_photo_url){
+            await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{
+              method:'PATCH',
+              headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+              body:JSON.stringify({cover_photo_url:firstThumb})
+            });
+            loc.cover_photo_url=firstThumb;
+          }
+        }
+        done++;
+      }
+    }catch(e){failed++;console.error('img sync error:',album.name,e.message)}
+    // Small delay to avoid hammering API
+    await new Promise(function(res){setTimeout(res,200)});
+  }
+  btn.disabled=false;btn.textContent='sync images';
+  toast('Synced images for '+done+' albums'+(failed?' ('+failed+' failed)':''),'ok');
+  libLoaded=false;
+  if(gmap)refreshPins();
 }
 
 document.addEventListener('keydown',function(e){
