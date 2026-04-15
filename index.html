@@ -116,7 +116,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
 .lib-sel{padding:5px 8px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
-#lib-grid{flex:1;overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;align-content:start;min-height:0}
+#lib-grid{flex:1;overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;align-content:start;min-height:0;height:0}
 #lib-grid::-webkit-scrollbar{width:3px}
 #lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
@@ -555,7 +555,10 @@ async function loadDetailGallery(loc){
     if(!imgs||!imgs.length)return;
     var thumbs=imgs.map(function(i){return i.thumb_url}).filter(Boolean);
     if(!thumbs.length)return;
-    dpImages=loc.cover_photo_url?[loc.cover_photo_url].concat(thumbs):thumbs;
+    // cover_photo_url already in dpImages[0] from openDetail, just append new thumbs
+    var existing=dpImages[0]||null;
+    dpImages=existing?[existing].concat(thumbs.filter(function(t){return t!==existing})):thumbs;
+    dpIndex=0;
     dpIndex=0;
     dpUpdateViewer();
   }catch(e){console.error('gallery:',e)}
@@ -894,6 +897,18 @@ document.addEventListener('keydown',function(e){
       e.preventDefault();
       dpIndex=(dpIndex-1+Math.max(dpImages.length,1))%Math.max(dpImages.length,1);
       dpUpdateViewer();
+    }
+    return;
+  }
+
+  // Spacebar toggles lightbox when panel open
+  if(e.key===' '&&document.getElementById('detail-panel').classList.contains('open')){
+    e.preventDefault();
+    if(document.getElementById('lightbox').classList.contains('open')){
+      closeLightbox();
+    }else{
+      var src=document.getElementById('dp-viewer-img').src;
+      if(src)openLightbox(src);
     }
     return;
   }
