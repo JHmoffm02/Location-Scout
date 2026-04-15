@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -734,11 +733,12 @@ async function startSync(){
     var cdata=await cr.json();
     var library=cdata.library;
     label.textContent='found '+(library.albums?library.albums.length:0)+' albums — syncing...';fill.style.width='30%';
+    var syncedKeys=(library.albums||[]).map(function(a){return a.id}).filter(Boolean);
     var syncResp=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:syncStart})});
+      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:syncStart,synced_keys:syncedKeys})});
     var syncData=syncResp.ok?await syncResp.json():{};
     if(syncData.stats&&syncData.stats.deleted>0){
-      label.textContent='removed '+syncData.stats.deleted+' deleted albums';
+      if(ns)ns.textContent='removed '+syncData.stats.deleted+' deleted albums';
     }
     fill.style.width='50%';
 
