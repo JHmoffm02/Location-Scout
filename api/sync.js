@@ -135,11 +135,11 @@ module.exports = async function handler(req, res) {
     // Upsert folders
     for (const f of folders) {
       try {
-        await sb('smugmug_folders?on_conflict=sm_id', {
+        await sb('smugmug_folders?on_conflict=path', {
           method: 'POST', prefer: 'resolution=merge-duplicates',
           body: JSON.stringify({
-            sm_id: f.id, name: f.name, path: f.path,
-            web_url: f.url, sm_uri: f.uri, synced_at: new Date().toISOString()
+            sm_id: f.id||f.path, name: f.name, path: f.path,
+            web_url: f.url||null, sm_uri: f.uri||null, synced_at: new Date().toISOString()
           })
         });
         stats.folders++;
