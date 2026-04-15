@@ -316,14 +316,73 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // Crawl/structure — returns minimal response, sync is now db-driven
-    if (action === 'crawl' || action === 'structure') {
+    if (// Crawl album+folder structure — no images, fast enough to avoid timeout
       if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      // Just verify auth works and return empty — full sync handled per-category
-      const userData = await smRequest('/!authuser', accessToken, accessTokenSecret);
-      res.json({ ok: true, library: { folders: [], albums: [], images: [] }, user: userData.Response?.User?.Name });
+
+      const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
+      const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
+      if (!rootNodeUri) throw new Error('Could not get root node');
+
+      const folders = [];
+      const albums = [];
+      const folderSet = new Set();
+
+      // Walk node tree collecting folders and albums (no image fetching)
+      async function walkNode(nodeUri, depth) {
+        if (depth > 6) return;
+        let nodeRes;
+        try { nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret); } catch(e) { return; }
+        const node = nodeRes.Response?.Node;
+        if (!node) return;
+        const childrenUri = node.Uris?.ChildNodes?.Uri;
+        if (!childrenUri) return;
+        let childRes;
+        try { childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' }); } catch(e) { return; }
+        const children = childRes.Response?.Node || [];
+        const arr = Array.isArray(children) ? children : [children];
+        for (const child of arr) {
+          if (!child || !child.Uri) continue;
+          if (child.Type === 'Album') {
+            const albumUri = child.Uris?.Album?.Uri;
+            if (!albumUri) continue;
+            try {
+              const albumRes = await smRequest(albumUri, accessToken, accessTokenSecret);
+              const album = albumRes.Response?.Album;
+              if (!album) continue;
+              const webUrl = album.WebUri || '';
+              // Extract folder path from URL
+              const urlParts = webUrl.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
+              const folderPath = urlParts.length > 1 ? urlParts.slice(0, -1).join('/') : '';
+              // Add intermediate folders
+              if (folderPath) {
+                const parts = folderPath.split('/');
+                let cum = '';
+                parts.forEach((p, i) => {
+                  cum = i === 0 ? p : cum + '/' + p;
+                  if (!folderSet.has(cum)) {
+                    folderSet.add(cum);
+                    folders.push({ id: cum, name: p.replace(/-/g, ' '), path: cum, url: 'https://jordanhoffman.smugmug.com/' + cum });
+                  }
+                });
+              }
+              albums.push({
+                id: album.AlbumKey, name: album.Name,
+                path: folderPath, url: webUrl,
+                imageCount: album.ImageCount || 0,
+                description: album.Description || '',
+                keywords: album.Keywords || ''
+              });
+            } catch(e) { continue; }
+          } else if (child.Type === 'Folder') {
+            await walkNode(child.Uri, depth + 1);
+          }
+        }
+      }
+
+      await walkNode(rootNodeUri, 0);
+      res.json({ ok: true, library: { folders, albums, images: [] } });
       return;
-    }
+    }    }
 
     res.status(400).json({ error: `Unknown action: ${action}` });
 
