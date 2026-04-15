@@ -104,7 +104,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 
 /* ── Library ── */
-#library-page{background:var(--bg2);display:flex;flex-direction:column;overflow:hidden}
+#library-page{background:var(--bg2)}
 .lib-header{height:50px;padding:0 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;overflow:hidden}
 .lib-bc{display:flex;align-items:center;gap:0;flex:1;min-width:0;overflow:hidden}
 .lib-bc-seg{font-size:11px;font-family:'DM Mono',monospace;color:var(--accent);cursor:pointer;padding:4px 6px;border-radius:4px;white-space:nowrap;transition:background .12s}
@@ -273,8 +273,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     <div class="dp-viewer" id="dp-viewer">
       <div class="dp-viewer-ph" id="dp-viewer-ph">no photo</div>
       <img id="dp-viewer-img" class="dp-viewer-img" src="" style="display:none" onclick="openLightbox(this.src)">
-      <button class="dp-arrow prev" id="dp-prev" onclick="dpNav(-1)" style="display:none">&#8249;</button>
-      <button class="dp-arrow next" id="dp-next" onclick="dpNav(1)" style="display:none">&#8250;</button>
+      <button class="dp-arrow prev" id="dp-prev" onclick="dpNav(-1);this.blur()" style="display:none">&#8249;</button>
+      <button class="dp-arrow next" id="dp-next" onclick="dpNav(1);this.blur()" style="display:none">&#8250;</button>
       <div class="dp-counter" id="dp-counter" style="display:none"></div>
     </div>
     <div class="dp-body" id="dp-body"></div>
@@ -367,6 +367,10 @@ function miles(lat,lng){
 }
 function hasCoords(l){return l.lat&&l.lng&&!(l.lat===0&&l.lng===0)}
 
+function smMedium(url){
+  if(!url)return '';
+  return url.replace('/Th/','/M/').replace('/Ti/','/M/').replace('/S/','/M/');
+}
 function smLarge(url){
   if(!url)return '';
   return url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/L/').replace('/M/','/L/');
@@ -798,7 +802,7 @@ function libRender(){
     }
     cards+='<div class="gcard" data-p="'+f.path+'" data-l="'+name+'" onclick="libFolderClick(this)">';
     cards+='<div class="gcard-tw">';
-    if(thumb)cards+='<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="hideOnError(this)">';
+    if(thumb)cards+='<img class="gcard-img" src="'+smMedium(thumb)+'" loading="lazy" onerror="hideOnError(this)">';
     cards+='<div class="gcard-ph">&#9636;</div>';
     cards+='<div class="gcard-overlay">'+name+'</div>';
     cards+='</div>';
@@ -814,7 +818,7 @@ function libRender(){
     var smUrl=a.web_url||'#';
     cards+='<div class="gcard" data-locid="'+locId+'" data-smurl="'+smUrl+'" onclick="libCardClick(this)">';
     cards+='<div class="gcard-tw">';
-    if(thumb)cards+='<img class="gcard-img" src="'+thumb+'" loading="lazy" onerror="hideOnError(this)">';
+    if(thumb)cards+='<img class="gcard-img" src="'+smMedium(thumb)+'" loading="lazy" onerror="hideOnError(this)">';
     cards+='<div class="gcard-ph">&#9636;</div>';
     cards+='<div class="gcard-overlay">'+a.name+'</div>';
     cards+='</div>';
@@ -856,7 +860,7 @@ function libSearch(){
     var sl=SL[l.status]||SL.identified;
     var c='<div class="gcard" data-locid="'+l.id+'" onclick="libCardClick(this)">';
     c+='<div class="gcard-tw">';
-    if(l.cover_photo_url)c+='<img class="gcard-img" src="'+l.cover_photo_url+'" loading="lazy" onerror="hideOnError(this)">';
+    if(l.cover_photo_url)c+='<img class="gcard-img" src="'+smMedium(l.cover_photo_url)+'" loading="lazy" onerror="hideOnError(this)">';
     c+='<div class="gcard-ph">&#9636;</div>';
     c+='<div class="gcard-overlay">'+l.name+'</div>';
     c+='</div>';
