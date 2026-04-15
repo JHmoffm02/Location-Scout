@@ -1,434 +1,1140 @@
-// api/smugmug.js
-const crypto = require('crypto');
-const SM_API = 'https://api.smugmug.com/api/v2';
-const SM_USER = 'jordanhoffman';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Jordan B. Hoffman — Locations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000;--bg2:#0e0f11;--bg3:#161719;--bg4:#1e2022;
+  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);
+  --text:#e8e6e0;--text2:#888680;--text3:#444241;
+  --accent:#c8a96e;--accent2:#8a6d3e;
+  --green:#4caf82;--blue:#5b9bd5;--amber:#d4943a;--red:#c26060;
+  --radius:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;overflow:hidden}
+#shell{display:flex;flex-direction:column;height:100vh}
+#header{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0;z-index:10;position:relative}
+#header h1{font-family:'DM Mono',monospace;font-size:12px;font-weight:400;letter-spacing:.2em;color:var(--accent);text-transform:uppercase}
+#nav{height:48px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;z-index:10;position:relative;padding-right:44px}
+.nav-btn{padding:0 32px;height:48px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.1em;color:var(--text3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;text-transform:uppercase}
+.nav-btn:hover{color:var(--text2)}
+.nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+#pages{flex:1;overflow:hidden;position:relative}
+.page{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+.page.active{display:flex}
 
-function pct(s) { return encodeURIComponent(s).replace(/!/g, '%21'); }
+/* ── Home / Map ── */
+#home-page{background:var(--bg)}
+#map-wrap{flex:1;position:relative;overflow:hidden}
+#the-map{position:absolute;inset:0;width:100%;height:100%}
+#sync-bar{position:absolute;top:14px;right:14px;z-index:15;display:flex;align-items:center;gap:8px}
+.sync-pill{padding:5px 12px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.06em;border:1px solid var(--border2);border-radius:20px;background:rgba(0,0,0,.7);color:var(--text2);cursor:pointer;transition:all .15s;white-space:nowrap}
+.sync-pill:hover{border-color:var(--accent);color:var(--accent)}
+.sync-pill.connected{border-color:var(--green);color:var(--green)}
+#sync-status-pill{padding:4px 10px;font-size:9px;font-family:'DM Mono',monospace;background:rgba(0,0,0,.7);color:var(--text3);border-radius:20px;border:1px solid var(--border)}
+#map-controls{position:absolute;bottom:0;left:0;right:0;z-index:15;background:linear-gradient(transparent,rgba(0,0,0,.92) 35%);padding:28px 24px 18px;display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+.cg{display:flex;flex-direction:column;gap:5px}
+.cl{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase}
+.cr{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.ci{display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
+.ci input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+.ci label{font-size:11px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer}
+.zone-btn{display:flex;align-items:center;gap:7px;padding:5px 12px;border:1px solid var(--border2);border-radius:20px;background:rgba(0,0,0,.5);cursor:pointer;transition:all .15s}
+.zone-btn:hover{border-color:var(--red)}
+.zone-btn.on{border-color:var(--red);background:rgba(194,96,96,.12)}
+.zone-btn label{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer}
+.zdot{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--red);flex-shrink:0}
+.zone-btn.on .zdot{background:var(--red)}
+#geocode-btn{padding:5px 13px;font-size:10px;font-family:'DM Mono',monospace;border:1px solid var(--amber);border-radius:20px;background:rgba(0,0,0,.5);color:var(--amber);cursor:pointer;margin-left:auto}
+#geocode-btn:disabled{opacity:.4;cursor:not-allowed}
 
-function buildAuthHeader(method, baseUrl, oauthParams, signatureParams, consumerSecret, tokenSecret) {
-  const allForSig = { ...signatureParams, ...oauthParams };
-  const sortedStr = Object.keys(allForSig).sort()
-    .map(k => `${pct(k)}=${pct(allForSig[k])}`).join('&');
-  const baseString = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(sortedStr)}`;
-  const sigKey = `${pct(consumerSecret)}&${pct(tokenSecret || '')}`;
-  const sig = crypto.createHmac('sha1', sigKey).update(baseString).digest('base64');
-  const headerParts = { ...oauthParams, oauth_signature: sig };
-  return 'OAuth ' + Object.keys(headerParts)
-    .map(k => `${pct(k)}="${pct(headerParts[k])}"`).join(', ');
+/* ── Hover card ── */
+.hcard{position:absolute;z-index:20;width:240px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;overflow:hidden;pointer-events:none;opacity:0;transform:translateY(4px);transition:opacity .12s,transform .12s;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+.hcard.show{opacity:1;transform:translateY(0);pointer-events:auto}
+.hcard-img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--bg4);display:block;cursor:pointer}
+.hcard-ph{width:100%;aspect-ratio:16/9;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3)}
+.hcard-body{padding:9px 11px}
+.hcard-name{font-size:12px;font-weight:500;margin-bottom:2px;cursor:pointer}
+.hcard-name:hover{color:var(--accent)}
+.hcard-addr{font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:4px}
+.hcard-row{display:flex;justify-content:space-between;align-items:center;margin-top:4px}
+.hcard-actions{display:flex;gap:5px}
+.hcard-action{font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);cursor:pointer;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:transparent;transition:all .12s}
+.hcard-action:hover{border-color:var(--accent2);color:var(--accent)}
+.hcard-action.pri{color:var(--accent);border-color:var(--accent2)}
+
+/* ── Detail panel ── */
+#detail-panel{position:fixed;top:0;right:0;width:50vw;min-width:400px;max-width:860px;height:100vh;z-index:600;background:var(--bg2);border-left:1px solid var(--border2);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);box-shadow:-8px 0 40px rgba(0,0,0,.8)}
+#detail-panel.open{transform:translateX(0)}
+.dp-header{padding:14px 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.dp-name{font-size:16px;font-weight:500;line-height:1.3;flex:1}
+.dp-close{background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0}
+.dp-close:hover{color:var(--text)}
+.dp-scroll{flex:1;overflow-y:auto}
+.dp-scroll::-webkit-scrollbar{width:3px}
+.dp-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* Image viewer */
+.dp-viewer{position:relative;background:var(--bg4);flex-shrink:0}
+.dp-viewer-img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;cursor:zoom-in}
+.dp-viewer-ph{width:100%;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:'DM Mono',monospace;color:var(--text3)}
+.dp-arrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:rgba(255,255,255,.85);font-size:26px;cursor:pointer;padding:14px 10px;line-height:1;transition:background .15s;z-index:5}
+.dp-arrow:hover{background:rgba(0,0,0,.85)}
+.dp-arrow.prev{left:0;border-radius:0 4px 4px 0}
+.dp-arrow.next{right:0;border-radius:4px 0 0 4px}
+.dp-arrow:disabled{opacity:.15;cursor:default}
+.dp-counter{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-size:9px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.5);background:rgba(0,0,0,.5);padding:2px 8px;border-radius:10px;pointer-events:none}
+
+/* Text body */
+.dp-body{padding:14px 18px 20px}
+.dp-label{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);text-transform:uppercase;margin-bottom:4px;margin-top:14px}
+.dp-val{font-size:12px;color:var(--text2);line-height:1.6}
+.dp-notes{font-size:12px;color:var(--text2);line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.dp-status{display:inline-flex;padding:3px 10px;border-radius:4px;font-size:10px;font-family:'DM Mono',monospace;font-weight:500}
+.dp-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.dp-tag{font-size:10px;padding:3px 8px;border-radius:4px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace}
+.dp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+.dp-btn{padding:7px 14px;font-size:10px;font-family:'DM Mono',monospace;border-radius:6px;cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .15s}
+.dp-btn:hover{border-color:var(--accent2);color:var(--accent)}
+.dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+
+/* ── Library ── */
+#library-page{background:var(--bg2);position:relative}
+.lib-header{height:50px;padding:0 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;overflow:hidden}
+.lib-bc{display:flex;align-items:center;gap:0;flex:1;min-width:0;overflow:hidden}
+.lib-bc-seg{font-size:11px;font-family:'DM Mono',monospace;color:var(--accent);cursor:pointer;padding:4px 6px;border-radius:4px;white-space:nowrap;transition:background .12s}
+.lib-bc-seg:hover{background:var(--bg3)}
+.lib-bc-seg.cur{color:var(--text2);cursor:default}
+.lib-bc-seg.cur:hover{background:transparent}
+.lib-bc-sep{font-size:11px;color:var(--text3);flex-shrink:0;padding:0 2px}
+.lib-search{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:5px 10px;font-size:12px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;width:160px;flex-shrink:0}
+.lib-search:focus{border-color:var(--accent2)}
+.lib-search::placeholder{color:var(--text3)}
+.lib-sel{padding:5px 8px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
+#lib-grid{position:absolute;top:50px;left:0;right:0;bottom:0;overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));grid-auto-rows:min-content;gap:16px;align-content:start}
+#lib-grid::-webkit-scrollbar{width:3px}
+#lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* ── Cards ── */
+.gcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s;min-width:0;align-self:start}
+.gcard:hover{border-color:var(--border2)}
+.gcard-tw{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
+.gcard-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:1}
+/* placeholder only shows when no image present — sits behind image */
+.gcard-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:22px;font-family:'DM Mono',monospace;z-index:0}
+.gcard-overlay{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:20px 10px 8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:2}
+.gcard-meta{padding:6px 10px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;border-top:1px solid var(--border)}
+
+/* ── Shared ── */
+.s-identified{color:#555350}.s-scouted{color:#5b9bd5}.s-pending{color:#d4943a}.s-approved{color:#4caf82}.s-rejected{color:#c26060}
+.modal-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:200;align-items:center;justify-content:center;padding:20px}
+.modal-ov.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:460px;max-height:88vh;overflow-y:auto}
+.mh{padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.mh h2{font-size:14px;font-weight:500}
+.mx{background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;padding:2px 6px;line-height:1}
+.mx:hover{color:var(--text)}
+.mb{padding:16px 20px;display:flex;flex-direction:column;gap:12px}
+.mf{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+.btn{padding:7px 16px;font-size:11px;font-family:'DM Mono',monospace;border-radius:var(--radius);cursor:pointer;transition:all .15s;border:1px solid var(--border2);background:transparent;color:var(--text2)}
+.btn:hover{border-color:var(--accent2);color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.btn.primary:hover{opacity:.85}
+.btn.primary:disabled{opacity:.4;cursor:not-allowed}
+.toast{position:fixed;bottom:18px;right:18px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:11px;font-family:'DM Mono',monospace;z-index:700;transform:translateY(60px);opacity:0;transition:all .25s;max-width:280px;pointer-events:none}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.ok{border-color:var(--green);color:var(--green)}
+.toast.err{border-color:var(--red);color:var(--red)}
+.toast.inf{border-color:var(--blue);color:var(--blue)}
+.spin{width:13px;height:13px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text3);font-family:'DM Mono',monospace;font-size:11px;grid-column:1/-1;min-height:120px}
+.prog-bar{height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;margin-top:8px}
+.prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
+.prog-label{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);margin-bottom:4px;min-height:16px}
+.sm-steps{display:flex;flex-direction:column;gap:10px}
+.sm-step{display:flex;gap:10px;align-items:flex-start;font-size:12px;color:var(--text2);line-height:1.5}
+.sm-num{width:20px;height:20px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;flex-shrink:0;margin-top:1px}
+
+/* ── Lightbox ── */
+#lightbox{display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.97);align-items:center;justify-content:center;cursor:zoom-out}
+#lightbox.open{display:flex}
+#lightbox img{width:100vw;height:100vh;object-fit:contain}
+#lightbox-close{position:absolute;top:16px;right:20px;color:rgba(255,255,255,.5);font-size:32px;cursor:pointer;background:none;border:none;line-height:1;z-index:901}
+#lightbox-close:hover{color:#fff}
+
+@media(max-width:700px){
+  #lib-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+  #detail-panel{width:100%;min-width:unset}
+}
+</style>
+</head>
+<body>
+<div id="shell">
+  <div id="header"><h1>Jordan B. Hoffman &nbsp;·&nbsp; Locations</h1></div>
+  <div id="nav">
+    <div id="nav-status" style="position:absolute;left:12px;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em"></div>
+    <button class="nav-btn active" onclick="showPage('home',this)">Home</button>
+    <button class="nav-btn" onclick="showPage('library',this)">Library</button>
+  </div>
+  <button id="sync-square" onclick="startFullSync()" title="Sync library" style="display:none;position:fixed;top:0;right:0;width:44px;height:92px;background:var(--bg2);border-left:1px solid var(--border);border-bottom:1px solid var(--border);border-top:none;border-right:none;cursor:pointer;z-index:5;color:var(--accent);font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.05em;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:background .15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
+    <span style="font-size:16px">⟳</span>
+    <span>sync</span>
+  </button>
+  <div id="pages">
+
+    <!-- HOME -->
+    <div class="page active" id="home-page">
+      <div id="map-wrap">
+        <div id="the-map"></div>
+        <div id="sync-bar" style="position:absolute;top:14px;right:58px;z-index:15;display:flex;align-items:center;gap:8px">
+          <button class="sync-pill" id="sm-btn" onclick="openSyncModal()">connect smugmug</button>
+        </div>
+        <div class="hcard" id="hcard">
+          <div id="hcard-media"></div>
+          <div class="hcard-body">
+            <div class="hcard-name" id="hcard-name" onclick="openDetail(currentHoverLoc)"></div>
+            <div class="hcard-addr" id="hcard-addr"></div>
+            <div class="hcard-row">
+              <div style="font-size:9px;font-family:'DM Mono',monospace" id="hcard-status"></div>
+              <div class="hcard-actions">
+                <button class="hcard-action pri" onclick="openDetail(currentHoverLoc)">detail</button>
+                <button class="hcard-action" onclick="if(currentHoverLoc)window.open(currentHoverLoc.smugmug_gallery_url||'https://jordanhoffman.smugmug.com','_blank')">gallery ↗</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="map-controls">
+          <div class="cg">
+            <div class="cl">State</div>
+            <div class="cr">
+              <div class="ci"><input type="checkbox" id="f-ny" checked onchange="applyFilters()"><label for="f-ny">NY</label></div>
+              <div class="ci"><input type="checkbox" id="f-nj" checked onchange="applyFilters()"><label for="f-nj">NJ</label></div>
+              <div class="ci"><input type="checkbox" id="f-ct" checked onchange="applyFilters()"><label for="f-ct">CT</label></div>
+              <div class="ci"><input type="checkbox" id="f-pa" checked onchange="applyFilters()"><label for="f-pa">PA</label></div>
+            </div>
+          </div>
+          <div class="cg">
+            <div class="cl">Zone</div>
+            <div class="cr">
+              <div class="ci"><input type="checkbox" id="f-zone" onchange="applyFilters()"><label for="f-zone">In-Zone Only</label></div>
+            </div>
+          </div>
+          <div class="cg">
+            <div class="cl">Status</div>
+            <div class="cr">
+              <div class="ci"><input type="checkbox" id="f-approved" checked onchange="applyFilters()"><label for="f-approved">Approved</label></div>
+              <div class="ci"><input type="checkbox" id="f-scouted" checked onchange="applyFilters()"><label for="f-scouted">Scouted</label></div>
+              <div class="ci"><input type="checkbox" id="f-pending" checked onchange="applyFilters()"><label for="f-pending">Pending</label></div>
+              <div class="ci"><input type="checkbox" id="f-identified" checked onchange="applyFilters()"><label for="f-identified">Identified</label></div>
+            </div>
+          </div>
+          <div class="zone-btn" id="zone-ring-btn" onclick="toggleZone()">
+            <div class="zdot"></div>
+            <label>30mi zone</label>
+          </div>
+          <button id="geocode-btn" onclick="geocodeAll()">geocode addresses</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIBRARY -->
+    <div class="page" id="library-page">
+      <div class="lib-header">
+        <div class="lib-bc" id="lib-bc">
+          <span class="lib-bc-seg cur">Master Library</span>
+        </div>
+        <input class="lib-search" id="lib-q" placeholder="search..." oninput="libSearch()">
+        <select class="lib-sel" id="lib-status" onchange="libSearch()">
+          <option value="">all status</option>
+          <option value="approved">approved</option>
+          <option value="scouted">scouted</option>
+          <option value="pending">pending</option>
+          <option value="identified">identified</option>
+        </select>
+      </div>
+      <div id="lib-grid" onclick="libGridClick(event)">
+        <div class="empty"><div class="spin"></div>&nbsp;loading...</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Detail panel — fixed, outside shell -->
+<div id="detail-panel" tabindex="-1" style="outline:none">
+  <div class="dp-header">
+    <div class="dp-name" id="dp-name"></div>
+    <button class="dp-close" onclick="closeDetail()">×</button>
+  </div>
+  <div class="dp-scroll" id="dp-scroll">
+    <div class="dp-viewer" id="dp-viewer">
+      <div class="dp-viewer-ph" id="dp-viewer-ph">no photo</div>
+      <img id="dp-viewer-img" class="dp-viewer-img" src="" style="display:none" onclick="openLightbox(this.src)">
+      <button class="dp-arrow prev" id="dp-prev" onclick="dpNav(-1);this.blur()" style="display:none">&#8249;</button>
+      <button class="dp-arrow next" id="dp-next" onclick="dpNav(1);this.blur()" style="display:none">&#8250;</button>
+      <div class="dp-counter" id="dp-counter" style="display:none"></div>
+    </div>
+    <div class="dp-body" id="dp-body"></div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox" onclick="closeLightbox()">
+  <button id="lightbox-close" onclick="closeLightbox()">×</button>
+  <img id="lightbox-img" src="" alt="">
+</div>
+
+<!-- Sync Modal -->
+<div class="modal-ov" id="sync-modal">
+  <div class="modal">
+    <div class="mh"><h2>SmugMug sync</h2><button class="mx" onclick="closeModal('sync-modal')">×</button></div>
+    <div class="mb">
+      <div class="sm-steps" id="sm-steps">
+        <div class="sm-step"><div class="sm-num">1</div><div>Click Authorize — SmugMug will ask you to grant access.</div></div>
+        <div class="sm-step"><div class="sm-num">2</div><div>Approve on SmugMug, you'll be redirected back automatically.</div></div>
+        <div class="sm-step"><div class="sm-num">3</div><div>Hit Sync Now to pull your full library including descriptions and metadata.</div></div>
+        <div class="sm-step"><div class="sm-num">4</div><div>If you deleted albums in SmugMug, hit <strong>Clean Removed</strong> to remove them from the database.</div></div>
+      </div>
+      <div id="sync-prog" style="display:none">
+        <div class="prog-label" id="prog-label"></div>
+        <div class="prog-bar"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn" onclick="closeModal('sync-modal')">cancel</button>
+      <button class="btn" id="clean-btn" onclick="cleanRemoved()">clean removed</button>
+      <button class="btn primary" id="auth-btn" onclick="doAuth()">authorize smugmug ↗</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SB_URL='https://bdnezxdfhapaxhoedtrp.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkbmV6eGRmaGFwYXhob2VkdHJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5OTgwMTAsImV4cCI6MjA5MTU3NDAxMH0.tdyh77PJ4xSOnb4GeLQRHcDWd0l2KRMpgl7Awj7NiB0';
+const GM_KEY='AIzaSyBORHlI6GqQNtL2Ev8RlapOFKrjFgkzJfA';
+const SM_BASE='https://location-scout-sand.vercel.app';
+const COLUMBUS={lat:40.7681,lng:-73.9819};
+const ZONE_M=30*1609.34;
+const PIN={identified:'#555350',scouted:'#5b9bd5',pending:'#d4943a',approved:'#4caf82',rejected:'#c26060'};
+const SL={
+  identified:{bg:'rgba(85,83,80,.2)',c:'#888680'},
+  scouted:{bg:'rgba(91,155,213,.2)',c:'#5b9bd5'},
+  pending:{bg:'rgba(212,148,58,.2)',c:'#d4943a'},
+  approved:{bg:'rgba(76,175,130,.2)',c:'#4caf82'},
+  rejected:{bg:'rgba(194,96,96,.2)',c:'#c26060'}
+};
+
+let locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false;
+let smTokens=null,currentHoverLoc=null;
+let libFolders=[],libAlbums=[],libLoaded=false,libStack=[],libRedoStack=[];
+let dpImages=[],dpIndex=0;
+
+const db=(p,o={})=>fetch(SB_URL+'/rest/v1/'+p,{
+  headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',
+    Prefer:o.prefer||'return=representation',...(o.headers||{})},...o
+}).then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)));
+
+function toast(m,t){
+  t=t||'ok';
+  var el=document.getElementById('toast');
+  el.textContent=m;el.className='toast '+t+' show';
+  setTimeout(function(){el.className='toast'},3500);
 }
 
-function makeOauthParams(consumerKey, accessToken) {
-  const p = {
-    oauth_consumer_key: consumerKey,
-    oauth_nonce: crypto.randomBytes(16).toString('hex'),
-    oauth_signature_method: 'HMAC-SHA1',
-    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
-    oauth_version: '1.0',
-  };
-  if (accessToken) p.oauth_token = accessToken;
-  return p;
+function showPage(page,btn){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active')});
+  document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.remove('active')});
+  document.getElementById(page+'-page').classList.add('active');
+  btn.classList.add('active');
+  closeDetail();
+  if(page==='home'){if(!mapReady)loadMapScript();else if(gmap)setTimeout(function(){google.maps.event.trigger(gmap,'resize')},50)}
+  if(page==='library')libInit();
+}
+function closeModal(id){document.getElementById(id).classList.remove('open')}
+
+async function loadLocations(){
+  try{locations=await db('locations?select=*&order=name.asc');return locations}
+  catch(e){toast('DB error','err');return[]}
 }
 
-async function smRequest(path, accessToken, accessTokenSecret, extraParams = {}) {
-  const consumerKey = process.env.SMUGMUG_KEY;
-  const consumerSecret = process.env.SMUGMUG_SECRET;
-  const baseUrl = (path.startsWith('http') ? path : `${SM_API}${path}`).split('?')[0];
-  const oauthParams = makeOauthParams(consumerKey, accessToken);
-  const authHeader = buildAuthHeader('GET', baseUrl, oauthParams, extraParams, consumerSecret, accessTokenSecret || '');
-  const finalUrl = new URL(baseUrl);
-  Object.entries(extraParams).forEach(([k, v]) => finalUrl.searchParams.set(k, v));
-  const res = await fetch(finalUrl.toString(), {
-    headers: { Authorization: authHeader, Accept: 'application/json' }
+function miles(lat,lng){
+  var R=3958.8,dLat=(lat-COLUMBUS.lat)*Math.PI/180,dLng=(lng-COLUMBUS.lng)*Math.PI/180;
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(COLUMBUS.lat*Math.PI/180)*Math.cos(lat*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function hasCoords(l){return l.lat&&l.lng&&!(l.lat===0&&l.lng===0)}
+
+function smMedium(url){
+  if(!url)return '';
+  return url.replace('/Th/','/M/').replace('/Ti/','/M/').replace('/S/','/M/');
+}
+function smLarge(url){
+  if(!url)return '';
+  return url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/L/').replace('/M/','/L/');
+}
+function smXL(url){
+  if(!url)return '';
+  return url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/XL/').replace('/M/','/XL/').replace('/L/','/XL/');
+}
+
+function loadMapScript(){
+  if(document.getElementById('gms'))return;
+  var s=document.createElement('script');s.id='gms';s.async=true;
+  s.src='https://maps.googleapis.com/maps/api/js?key='+GM_KEY+'&callback=initMap&loading=async';
+  document.head.appendChild(s);
+}
+
+window.initMap=async function(){
+  mapReady=true;
+  gmap=new google.maps.Map(document.getElementById('the-map'),{
+    zoom:11,center:{lat:40.73,lng:-73.97},backgroundColor:'#000',
+    disableDefaultUI:false,zoomControl:true,streetViewControl:false,mapTypeControl:false,fullscreenControl:false,
+    styles:[
+      {elementType:'geometry',stylers:[{color:'#0a0a0c'}]},
+      {elementType:'labels.text.stroke',stylers:[{color:'#0a0a0c'}]},
+      {elementType:'labels.text.fill',stylers:[{color:'#5a5856'}]},
+      {featureType:'road',elementType:'geometry',stylers:[{color:'#1a1a1e'}]},
+      {featureType:'road.arterial',elementType:'geometry',stylers:[{color:'#222228'}]},
+      {featureType:'road.highway',elementType:'geometry',stylers:[{color:'#2c2c34'}]},
+      {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#48484a'}]},
+      {featureType:'water',elementType:'geometry',stylers:[{color:'#06090f'}]},
+      {featureType:'poi',stylers:[{visibility:'off'}]},
+      {featureType:'transit',stylers:[{visibility:'off'}]},
+      {featureType:'administrative',elementType:'geometry',stylers:[{color:'#18181c'}]},
+      {featureType:'landscape',elementType:'geometry',stylers:[{color:'#0d0d10'}]}
+    ]
   });
-  if (!res.ok) throw new Error(`SmugMug API ${res.status}: ${await res.text()}`);
-  return res.json();
-}
+  gmap.addListener('click',function(){document.getElementById('hcard').classList.remove('show');closeDetail();});
+  await loadLocations();
+  refreshPins();
+  checkAuth();
+  checkSyncStatus();
+};
 
-async function getRequestToken(callbackUrl) {
-  const consumerKey = process.env.SMUGMUG_KEY;
-  const consumerSecret = process.env.SMUGMUG_SECRET;
-  const url = 'https://api.smugmug.com/services/oauth/1.0a/getRequestToken';
-  const oauthParams = makeOauthParams(consumerKey, null);
-  oauthParams.oauth_callback = callbackUrl;
-  const authHeader = buildAuthHeader('POST', url, oauthParams, {}, consumerSecret, '');
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: authHeader, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `oauth_callback=${pct(callbackUrl)}`
+function getFiltered(){
+  var zoneOnly=document.getElementById('f-zone').checked;
+  var states=['ny','nj','ct','pa'].filter(function(s){return document.getElementById('f-'+s).checked}).map(function(s){return s.toUpperCase()});
+  var statuses=['approved','scouted','pending','identified'].filter(function(s){return document.getElementById('f-'+s).checked});
+  return locations.filter(function(l){
+    if(!hasCoords(l))return false;
+    if(states.length&&l.state_code&&states.indexOf((l.state_code||'').toUpperCase())<0)return false;
+    if(statuses.length&&statuses.indexOf(l.status)<0)return false;
+    if(zoneOnly&&miles(l.lat,l.lng)>30)return false;
+    return true;
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Request token failed: ${text}`);
-  const params = new URLSearchParams(text);
-  return { requestToken: params.get('oauth_token'), requestTokenSecret: params.get('oauth_token_secret') };
 }
+function applyFilters(){if(gmap)refreshPins()}
 
-async function getAccessToken(requestToken, requestTokenSecret, verifier) {
-  const consumerKey = process.env.SMUGMUG_KEY;
-  const consumerSecret = process.env.SMUGMUG_SECRET;
-  const url = 'https://api.smugmug.com/services/oauth/1.0a/getAccessToken';
-  const oauthParams = makeOauthParams(consumerKey, requestToken);
-  oauthParams.oauth_verifier = verifier;
-  const authHeader = buildAuthHeader('POST', url, oauthParams, {}, consumerSecret, requestTokenSecret);
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: authHeader, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `oauth_verifier=${pct(verifier)}`
+function refreshPins(){
+  markers.forEach(function(m){m.setMap(null)});markers=[];
+  var filtered=getFiltered();
+  filtered.forEach(function(loc){
+    var m=new google.maps.Marker({
+      position:{lat:Number(loc.lat),lng:Number(loc.lng)},map:gmap,title:loc.name,
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,fillColor:PIN[loc.status]||'#555',fillOpacity:.95,strokeColor:'#000',strokeWeight:1.5}
+    });
+    m.addListener('mouseover',function(e){currentHoverLoc=loc;showHcard(loc,e.domEvent)});
+    m.addListener('mouseout',function(){setTimeout(function(){var h=document.getElementById('hcard');if(!h.matches(':hover'))h.classList.remove('show')},200)});
+    m.addListener('mousemove',function(e){posHcard(e.domEvent)});
+    m.addListener('click',function(){currentHoverLoc=loc;openDetail(loc)});
+    markers.push(m);
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Access token failed: ${text}`);
-  const params = new URLSearchParams(text);
-  return { accessToken: params.get('oauth_token'), accessTokenSecret: params.get('oauth_token_secret') };
+  if(filtered.length===1){gmap.setCenter({lat:Number(filtered[0].lat),lng:Number(filtered[0].lng)});gmap.setZoom(14)}
+  else if(filtered.length>1){var b=new google.maps.LatLngBounds();filtered.forEach(function(l){b.extend({lat:Number(l.lat),lng:Number(l.lng)})});gmap.fitBounds(b,{padding:80})}
+  if(zoneOn)drawZone();
 }
 
-// Fetch children of a SmugMug folder by URL path
-// Uses the user node tree — walk path segments to find the right node
-async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
-  // Get user node first
-  const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
-  const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
-  if (!rootNodeUri) throw new Error('Could not get root node');
+function showHcard(loc,ev){
+  currentHoverLoc=loc;
+  document.getElementById('hcard-name').textContent=loc.name;
+  document.getElementById('hcard-addr').textContent=[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')||'—';
+  var sl=SL[loc.status]||SL.identified;
+  document.getElementById('hcard-status').innerHTML='<span style="color:'+sl.c+'">'+loc.status+'</span>';
+  var hm=document.getElementById('hcard-media');
+  if(loc.cover_photo_url){
+    var hi=document.createElement('img');
+    hi.className='hcard-img';hi.src=loc.cover_photo_url;hi.loading='lazy';
+    hi.onclick=function(){openDetail(currentHoverLoc)};
+    hi.onerror=function(){hm.innerHTML='<div class="hcard-ph">no photo</div>'};
+    hm.innerHTML='';hm.appendChild(hi);
+  }else{hm.innerHTML='<div class="hcard-ph">no photo</div>'}
+  document.getElementById('hcard').classList.add('show');
+  posHcard(ev);
+}
+function posHcard(ev){
+  var wrap=document.getElementById('map-wrap'),r=wrap.getBoundingClientRect(),h=document.getElementById('hcard');
+  var x=ev.clientX-r.left+18,y=ev.clientY-r.top-90;
+  if(x+250>r.width)x=ev.clientX-r.left-260;
+  if(y<0)y=8;if(y+280>r.height-120)y=r.height-380;
+  h.style.left=x+'px';h.style.top=y+'px';
+}
+document.getElementById('hcard').addEventListener('mouseleave',function(){document.getElementById('hcard').classList.remove('show')});
 
-  // Split path into segments e.g. ['Master-Library', 'Apartments']
-  const segments = urlPath.split('/').filter(Boolean);
+// ── DETAIL PANEL ──
+function openDetail(loc){
+  if(!loc)return;
+  document.getElementById('hcard').classList.remove('show');
+  document.getElementById('dp-name').textContent=loc.name;
+  var sl=SL[loc.status]||SL.identified;
+  var tags=(loc.tags||[]).map(function(t){return'<span class="dp-tag">'+t+'</span>'}).join('');
+  var zone=hasCoords(loc)&&miles(loc.lat,loc.lng)<=30?' <span style="color:var(--green)">· in zone</span>':'';
 
-  // Walk the node tree segment by segment
-  let currentNodeUri = rootNodeUri;
-  for (const segment of segments) {
-    const nodeRes = await smRequest(currentNodeUri, accessToken, accessTokenSecret);
-    const node = nodeRes.Response?.Node;
-    if (!node) throw new Error(`Node not found at segment: ${segment}`);
+  // Set up image viewer
+  dpImages=loc.cover_photo_url?[loc.cover_photo_url]:[];
+  dpIndex=0;
+  dpUpdateViewer();
 
-    const childrenUri = node.Uris?.ChildNodes?.Uri;
-    if (!childrenUri) throw new Error(`No children at: ${segment}`);
-
-    // Fetch children and find matching segment
-    const childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
-    const children = childRes.Response?.Node || [];
-    const childArr = Array.isArray(children) ? children : [children];
-
-    const match = childArr.find(c =>
-      c && (
-        (c.UrlName || '').toLowerCase() === segment.toLowerCase() ||
-        (c.Name || '').toLowerCase() === segment.toLowerCase().replace(/-/g, ' ')
-      )
-    );
-
-    if (!match) throw new Error(`Folder not found: ${segment} (checked ${childArr.length} children)`);
-    currentNodeUri = match.Uri;
+  // Build text body
+  var html='<span class="dp-status" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span>'+zone;
+  if(loc.address||loc.city){
+    html+='<div class="dp-label">Address</div>';
+    html+='<div class="dp-val">'+[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')+'</div>';
   }
+  if(loc.notes){
+    html+='<div class="dp-label">Scout notes</div>';
+    html+='<div class="dp-notes">'+formatNotes(loc.notes)+'</div>';
+  }
+  if(tags){
+    html+='<div class="dp-label">Tags</div>';
+    html+='<div class="dp-tags">'+tags+'</div>';
+  }
+  if(loc.scout_name||loc.scout_date){
+    html+='<div class="dp-label">Scouted by</div>';
+    html+='<div class="dp-val" style="font-size:11px">'+[loc.scout_name,loc.scout_date].filter(Boolean).join(' - ')+'</div>';
+  }
+  html+='<div class="dp-actions">';
+  if(loc.smugmug_gallery_url){
+    html+='<button class="dp-btn pri" data-url="'+loc.smugmug_gallery_url+'" onclick="window.open(this.dataset.url,this.dataset.t)" data-t="_blank">open gallery ↗</button>';
+  }
+  if(hasCoords(loc)){
+    html+='<button class="dp-btn" data-url="https://www.google.com/maps?q='+loc.lat+','+loc.lng+'" onclick="window.open(this.dataset.url,this.dataset.t)" data-t="_blank">maps ↗</button>';
+  }
+  html+='</div>';
+  document.getElementById('dp-body').innerHTML=html;
+  document.getElementById('detail-panel').classList.add('open');
+  document.getElementById('dp-scroll').scrollTop=0;
+  loadDetailGallery(loc);
+}
 
-  // Now get children of the target node
-  const targetRes = await smRequest(currentNodeUri, accessToken, accessTokenSecret);
-  const targetNode = targetRes.Response?.Node;
-  const childrenUri = targetNode?.Uris?.ChildNodes?.Uri;
-  if (!childrenUri) return { folders: [], albums: [] };
+function dpUpdateViewer(){
+  var img=document.getElementById('dp-viewer-img');
+  var ph=document.getElementById('dp-viewer-ph');
+  var prev=document.getElementById('dp-prev');
+  var next=document.getElementById('dp-next');
+  var counter=document.getElementById('dp-counter');
+  var none=!dpImages.length;
+  ph.style.display=none?'flex':'none';
+  img.style.display=none?'none':'block';
+  if(!none)img.src=smLarge(dpImages[dpIndex]);
+  var multi=dpImages.length>1;
+  prev.style.display=multi?'block':'none';
+  next.style.display=multi?'block':'none';
+  counter.style.display=multi?'block':'none';
+  if(multi){
+    prev.disabled=false;
+    next.disabled=false;
+    counter.textContent=(dpIndex+1)+' / '+dpImages.length;
+  }
+}
 
-  const childData = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
-  const children = childData.Response?.Node || [];
-  const arr = Array.isArray(children) ? children : [children];
+function dpNav(dir){
+  if(!dpImages.length)return;
+  dpIndex=(dpIndex+dir+dpImages.length)%dpImages.length;
+  dpUpdateViewer();
+}
 
-  const folders = [];
-  const albums = [];
+async function cleanRemoved(){
+  var btn=document.getElementById('clean-btn');
+  btn.disabled=true;btn.textContent='checking...';
+  try{
+    // Get all albums from DB
+    var dbAlbums=await db('smugmug_albums?select=sm_key,name,web_url');
+    var removed=[];
+    // Check each album by trying to fetch its URL from SmugMug
+    // We use the web_url to group by folder and check
+    var folderPaths=new Set();
+    dbAlbums.forEach(function(a){
+      if(a.web_url){
+        var parts=a.web_url.replace('https://jordanhoffman.smugmug.com/','').split('/');
+        if(parts.length>1)folderPaths.add(parts.slice(0,-1).join('/'));
+      }
+    });
+    // Check each folder via SmugMug browse
+    var tb=btoa(JSON.stringify(smTokens));
+    var foundUrls=new Set();
+    var paths=Array.from(folderPaths);
+    btn.textContent='checking '+paths.length+' folders...';
+    for(var i=0;i<paths.length;i++){
+      try{
+        var r=await fetch(SM_BASE+'/api/smugmug?action=browse&path=/'+paths[i],{headers:{Authorization:'Bearer '+tb}});
+        if(r.ok){
+          var d=await r.json();
+          (d.albums||[]).forEach(function(a){if(a.url)foundUrls.add(a.url)});
+        }
+      }catch(e){}
+    }
+    // Delete albums not found
+    for(var j=0;j<dbAlbums.length;j++){
+      var a=dbAlbums[j];
+      if(a.web_url&&!foundUrls.has(a.web_url)){
+        await fetch(SB_URL+'/rest/v1/smugmug_albums?sm_key=eq.'+a.sm_key,{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
+        await fetch(SB_URL+'/rest/v1/locations?smugmug_album_key=eq.'+a.sm_key+'&address=is.null&notes=is.null',{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
+        removed.push(a.name);
+      }
+    }
+    libLoaded=false;
+    toast(removed.length?('Removed '+removed.length+' deleted albums'):'Nothing to remove','ok');
+    btn.textContent='clean removed';btn.disabled=false;
+  }catch(e){toast('Error: '+e.message,'err');btn.textContent='clean removed';btn.disabled=false}
+}
 
-  for (const item of arr) {
-    if (!item) continue;
-    if (item.Type === 'Album') {
-      const albumUri = item.Uris?.Album?.Uri;
-      let albumKey = null;
-      let imageCount = 0;
-      let description = '';
-      let keywords = '';
-      let thumbUrl = null;
+function closeDetail(){document.getElementById('detail-panel').classList.remove('open')}
 
-      if (albumUri) {
-        try {
-          const albumData = await smRequest(albumUri, accessToken, accessTokenSecret);
-          const album = albumData.Response?.Album;
-          if (album) {
-            albumKey = album.AlbumKey;
-            imageCount = album.ImageCount || 0;
-            description = album.Description || '';
-            keywords = album.Keywords || '';
-            const hlUri = album.Uris?.HighlightImage?.Uri;
-            if (hlUri) {
-              try {
-                const hlData = await smRequest(hlUri, accessToken, accessTokenSecret);
-                thumbUrl = hlData.Response?.Image?.ThumbnailUrl || null;
-              } catch(e) {}
+async function loadDetailGallery(loc){
+  if(!loc.smugmug_album_key)return;
+  try{
+    var imgs=await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url&limit=30');
+    if(!imgs||!imgs.length)return;
+    var thumbs=imgs.map(function(i){return i.thumb_url}).filter(Boolean);
+    if(!thumbs.length)return;
+    // cover_photo_url already in dpImages[0] from openDetail, just append new thumbs
+    var existing=dpImages[0]||null;
+    dpImages=existing?[existing].concat(thumbs.filter(function(t){return t!==existing})):thumbs;
+    dpIndex=0;
+    dpUpdateViewer();
+  }catch(e){console.error('gallery:',e)}
+}
+
+function formatNotes(raw){
+  if(!raw)return'';
+  var lines=raw.split('\n').map(function(l){return l.trim()}).filter(Boolean);
+  var start=lines[0]&&lines[0].length<60&&lines[0].indexOf('Notes:')<0?1:0;
+  return lines.slice(start).map(function(l){
+    if(/^notes?\s*:/i.test(l))return'<br><strong style="color:var(--text2);font-size:10px;font-family:monospace">NOTES</strong>';
+    if(/^C:\s*/i.test(l))return'<span style="color:var(--text3)">Contact: '+l.replace(/^C:\s*/i,'')+'</span>';
+    if(/^-\s/.test(l))return'&bull; '+l.replace(/^-\s/,'');
+    return l;
+  }).join('<br>');
+}
+
+function openLightbox(url){
+  document.getElementById('lightbox-img').src=smXL(url);
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox(){
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightbox-img').src='';
+}
+
+function toggleZone(){
+  zoneOn=!zoneOn;
+  document.getElementById('zone-ring-btn').classList.toggle('on',zoneOn);
+  if(zoneOn)drawZone();else if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null}
+}
+function drawZone(){
+  if(!gmap)return;
+  if(zoneCircle)zoneCircle.setMap(null);
+  zoneCircle=new google.maps.Circle({map:gmap,center:COLUMBUS,radius:ZONE_M,strokeColor:'#c26060',strokeOpacity:.8,strokeWeight:1.5,fillColor:'#c26060',fillOpacity:.04,clickable:false});
+}
+
+async function geocodeAll(){
+  var btn=document.getElementById('geocode-btn');
+  var toGeo=locations.filter(function(l){return!hasCoords(l)});
+  if(!toGeo.length){toast('All locations have coordinates','inf');return}
+  if(!confirm('Geocode '+toGeo.length+' locations without coordinates?'))return;
+  btn.disabled=true;
+  var done=0,failed=0;
+  for(var i=0;i<toGeo.length;i++){
+    var loc=toGeo[i];btn.textContent='geocoding '+(i+1)+'/'+toGeo.length+'...';
+    try{
+      var r=await fetch(SM_BASE+'/api/geocode?address='+encodeURIComponent((loc.geocode_query||loc.name)+' NY'));
+      var d=await r.json();
+      if(d.ok&&d.lat){
+        await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{
+          method:'PATCH',
+          headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+          body:JSON.stringify({lat:d.lat,lng:d.lng})
+        });
+        var l=locations.find(function(x){return x.id===loc.id});
+        if(l){l.lat=d.lat;l.lng=d.lng}
+        done++;
+      }else failed++;
+    }catch(e){failed++}
+    await new Promise(function(res){setTimeout(res,120)});
+  }
+  btn.disabled=false;btn.textContent='geocode addresses';
+  toast('Geocoded '+done+(failed?', '+failed+' failed':''),done>0?'ok':'err');
+  if(done>0&&gmap)refreshPins();
+}
+
+function checkAuth(){
+  var hash=window.location.hash;
+  if(hash.indexOf('sm_auth=')>=0){
+    try{
+      smTokens=JSON.parse(decodeURIComponent(hash.split('sm_auth=')[1]));
+      localStorage.setItem('sm_tokens',JSON.stringify(smTokens));
+      window.location.hash='';toast('SmugMug connected!');updateAuthUI(true);return;
+    }catch(e){}
+  }
+  var s=localStorage.getItem('sm_tokens');
+  if(s)try{smTokens=JSON.parse(s);updateAuthUI(true)}catch(e){}
+}
+function updateAuthUI(ok){
+  var b=document.getElementById('sm-btn'),s=document.getElementById('sync-btn');
+  var sq=document.getElementById('sync-square');
+  if(ok){b.textContent='smugmug ✓';b.classList.add('connected');if(sq){sq.style.display='flex';sq.style.alignItems='center';sq.style.justifyContent='center';sq.style.flexDirection='column';}}
+  else{b.textContent='connect smugmug';b.classList.remove('connected');if(sq)sq.style.display='none';}
+}
+async function checkSyncStatus(){
+  try{
+    var r=await db('sync_log?id=eq.1&select=*');
+    if(r&&r[0]&&r[0].last_sync){
+      var d=new Date(r[0].last_sync);
+      document.getElementById('sync-status-pill').textContent='synced '+d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' · '+(r[0].images_count||0)+' photos';
+    }
+  }catch(e){}
+}
+function openSyncModal(){document.getElementById('sync-modal').classList.add('open')}
+async function doAuth(){
+  var btn=document.getElementById('auth-btn');
+  btn.disabled=true;btn.textContent='connecting...';
+  try{
+    var r=await fetch(SM_BASE+'/api/smugmug?action=auth');
+    var d=await r.json();
+    if(d.authUrl)window.location.href=d.authUrl;
+    else throw new Error('No auth URL');
+  }catch(e){toast('Auth failed','err');btn.disabled=false;btn.textContent='authorize smugmug ↗'}
+}
+async function startSync(){
+  if(!smTokens){toast('Connect SmugMug first','err');return}
+  document.getElementById('sync-modal').classList.add('open');
+  document.getElementById('sync-prog').style.display='block';
+  document.getElementById('sm-steps').style.display='none';
+  document.getElementById('auth-btn').style.display='none';
+  var label=document.getElementById('prog-label'),fill=document.getElementById('prog-fill');
+  var tb=btoa(JSON.stringify(smTokens));
+  var syncStart=new Date().toISOString();
+  try{
+    label.textContent='connecting...';fill.style.width='10%';
+    var cr=await fetch(SM_BASE+'/api/smugmug?action=crawl',{headers:{Authorization:'Bearer '+tb}});
+    if(!cr.ok)throw new Error(await cr.text());
+    var cdata=await cr.json();
+    var library=cdata.library;
+    label.textContent='found '+(library.albums?library.albums.length:0)+' albums — syncing...';fill.style.width='30%';
+    var syncResp=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:syncStart})});
+    var syncData=syncResp.ok?await syncResp.json():{};
+    if(syncData.stats&&syncData.stats.deleted>0){
+      label.textContent='removed '+syncData.stats.deleted+' deleted albums';
+    }
+    fill.style.width='50%';
+
+
+    var imgs=library.images||[];
+    var chunks=Math.ceil(imgs.length/200)||1;
+    for(var i=0;i<imgs.length;i+=200){
+      var chunk=imgs.slice(i,i+200);if(!chunk.length)break;
+      label.textContent='syncing photos... '+(Math.floor(i/200)+1)+'/'+chunks;
+      fill.style.width=(50+(Math.floor(i/200)+1)/chunks*45)+'%';
+      var sr=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({library:{folders:[],albums:[],images:chunk}})});
+    }
+    fill.style.width='100%';label.textContent='✓ sync complete';
+    await loadLocations();if(gmap)refreshPins();checkSyncStatus();
+    libLoaded=false;toast('Sync complete');
+    setTimeout(function(){
+      closeModal('sync-modal');
+      document.getElementById('sync-prog').style.display='none';
+      document.getElementById('sm-steps').style.display='flex';
+      document.getElementById('auth-btn').style.display='block';
+      fill.style.width='0%';
+    },2000);
+  }catch(e){
+    label.textContent='error: '+e.message;
+    toast('Sync failed: '+e.message,'err');
+    document.getElementById('auth-btn').style.display='block';
+  }
+}
+
+// ── LIBRARY ──
+async function libInit(){
+  if(libLoaded){libRender();return}
+  document.getElementById('lib-grid').innerHTML='<div class="empty"><div class="spin"></div>&nbsp;loading library...</div>';
+  try{
+    libFolders=await db('smugmug_folders?select=name,path&order=path.asc');
+    libAlbums=await db('smugmug_albums?select=sm_key,name,path,web_url,image_count,highlight_url&order=name.asc');
+    libLoaded=true;
+    libStack=[];
+    libRender();
+  }catch(e){
+    document.getElementById('lib-grid').innerHTML='<div class="empty">error: '+e.message+'</div>';
+  }
+}
+
+function albumParentPath(a){
+  if(a.web_url){
+    var parts=a.web_url.replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
+    return parts.length>1?parts.slice(0,-1).join('/'):parts[0]||'';
+  }
+  return a.path||'';
+}
+
+function libGridClick(e){
+  // Close detail panel only if clicking empty grid area (not a card)
+  if(e.target===document.getElementById('lib-grid'))closeDetail();
+}
+
+function libBrowse(path,label){
+  document.getElementById('lib-q').value='';
+  document.getElementById('lib-status').value='';
+  if(path===null){
+    libRedoStack=libStack.slice().reverse();
+    libStack=[];
+  }else{
+    var ex=libStack.findIndex(function(s){return s.path===path});
+    if(ex>=0){
+      libRedoStack=libStack.slice(ex+1).reverse();
+      libStack=libStack.slice(0,ex+1);
+    }else{
+      libRedoStack=[];
+      libStack.push({path:path,label:label||path.split('/').pop().replace(/-/g,' ')});
+    }
+  }
+  libRender();
+}
+
+
+function libRender(){
+  var grid=document.getElementById('lib-grid');
+  var bc=document.getElementById('lib-bc');
+  var currentPath=libStack.length>0?libStack[libStack.length-1].path:null;
+  var targetPath=currentPath||'Master-Library';
+
+  // Breadcrumb
+  var bcHtml='<span class="lib-bc-seg'+(currentPath?'':' cur')+'" onclick="libBrowse(null)">Master Library</span>';
+  libStack.forEach(function(s,i){
+    var isCur=i===libStack.length-1;
+    bcHtml+='<span class="lib-bc-sep"> / </span>';
+    if(isCur){
+      bcHtml+='<span class="lib-bc-seg cur">'+s.label+'</span>';
+    }else{
+      bcHtml+='<span class="lib-bc-seg" data-p="'+s.path+'" data-l="'+s.label+'" onclick="libFolderClick(this)">'+s.label+'</span>';
+    }
+  });
+  bc.innerHTML=bcHtml;
+
+  // Subfolders — direct children only
+  var subFolders=libFolders.filter(function(f){
+    if(!f.path||f.path.indexOf(targetPath+'/')<0)return false;
+    var rest=f.path.slice(targetPath.length+1);
+    return rest.indexOf('/')<0;
+  });
+
+  // Albums whose parent path === targetPath
+  var directAlbums=libAlbums.filter(function(a){
+    return albumParentPath(a)===targetPath;
+  });
+
+  var cards='';
+
+  subFolders.forEach(function(f){
+    var children=libAlbums.filter(function(a){
+      var p=albumParentPath(a);
+      return p===f.path||p.indexOf(f.path+'/')===0;
+    });
+    var count=children.length;
+    var name=f.name||f.path.split('/').pop().replace(/-/g,' ');
+    // Always cascade from child location cover photos (guaranteed 16:9)
+    // Skip highlight_url which may be portrait format
+    var thumb='';
+    for(var i=0;i<children.length;i++){
+      var ca=children[i];
+      var loc=locations.find(function(l){return l.smugmug_album_key===ca.sm_key||l.smugmug_gallery_url===ca.web_url});
+      if(loc&&loc.cover_photo_url){thumb=loc.cover_photo_url;break}
+    }
+    cards+='<div class="gcard" data-p="'+f.path+'" data-l="'+name+'" onclick="libFolderClick(this)">';
+    cards+='<div class="gcard-tw">';
+    if(thumb)cards+='<img class="gcard-img" src="'+smMedium(thumb)+'" loading="lazy" onerror="hideOnError(this)">';
+    cards+='<div class="gcard-ph">&#9636;</div>';
+    cards+='<div class="gcard-overlay">'+name+'</div>';
+    cards+='</div>';
+    cards+='<div class="gcard-meta">'+count+' location'+(count!==1?'s':'')+'</div>';
+    cards+='</div>';
+  });
+
+  directAlbums.forEach(function(a){
+    var loc=locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url});
+    var thumb=(loc&&loc.cover_photo_url)||a.highlight_url||'';
+    var sl=loc?SL[loc.status]||SL.identified:null;
+    var locId=loc?loc.id:'';
+    var smUrl=a.web_url||'#';
+    cards+='<div class="gcard" data-locid="'+locId+'" data-smurl="'+smUrl+'" onclick="libCardClick(this)">';
+    cards+='<div class="gcard-tw">';
+    if(thumb)cards+='<img class="gcard-img" src="'+smMedium(thumb)+'" loading="lazy" onerror="hideOnError(this)">';
+    cards+='<div class="gcard-ph">&#9636;</div>';
+    cards+='<div class="gcard-overlay">'+a.name+'</div>';
+    cards+='</div>';
+    cards+='<div class="gcard-meta">';
+    if(sl)cards+='<span style="color:'+sl.c+'">'+loc.status+'</span> · ';
+    cards+=(a.image_count||0)+' photos';
+    cards+='</div></div>';
+  });
+
+  grid.innerHTML=cards||'<div class="empty">empty folder</div>';
+}
+
+function libCardClick(el){
+  var locId=el.dataset.locid;
+  if(locId){var loc=locations.find(function(l){return l.id===locId});if(loc){openDetail(loc);return}}
+  var smUrl=el.dataset.smurl;
+  if(smUrl&&smUrl!=='#')window.open(smUrl,'_blank');
+}
+function libFolderClick(el){
+  var p=el.getAttribute('data-p'),l=el.getAttribute('data-l');
+  if(p)libBrowse(p,l);
+}
+
+function libSearch(){
+  var q=document.getElementById('lib-q').value.toLowerCase();
+  var status=document.getElementById('lib-status').value;
+  if(!q&&!status){libRender();return}
+  var grid=document.getElementById('lib-grid'),bc=document.getElementById('lib-bc');
+  var f=locations.filter(function(l){
+    if(status&&l.status!==status)return false;
+    if(q){var h=[l.name,l.address,l.city,l.notes].concat(l.tags||[]).join(' ').toLowerCase();if(h.indexOf(q)<0)return false}
+    return true;
+  });
+  bc.innerHTML='<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span>'+
+    '<span class="lib-bc-sep"> / </span>'+
+    '<span class="lib-bc-seg cur">search ('+f.length+')</span>';
+  if(!f.length){grid.innerHTML='<div class="empty">no results</div>';return}
+  var cards=f.map(function(l){
+    var sl=SL[l.status]||SL.identified;
+    var c='<div class="gcard" data-locid="'+l.id+'" onclick="libCardClick(this)">';
+    c+='<div class="gcard-tw">';
+    if(l.cover_photo_url)c+='<img class="gcard-img" src="'+smMedium(l.cover_photo_url)+'" loading="lazy" onerror="hideOnError(this)">';
+    c+='<div class="gcard-ph">&#9636;</div>';
+    c+='<div class="gcard-overlay">'+l.name+'</div>';
+    c+='</div>';
+    c+='<div class="gcard-meta" style="color:'+sl.c+'">'+l.status+' · '+([l.city,l.state_code].filter(Boolean).join(', ')||'—')+'</div>';
+    c+='</div>';
+    return c;
+  }).join('');
+  grid.innerHTML=cards;
+}
+
+async function startImageSync(){
+  var btn=document.getElementById('img-sync-btn');
+  if(!smTokens){toast('Connect SmugMug first','err');return}
+  // Get all albums that have no images synced
+  var allAlbums=await db('smugmug_albums?select=sm_key,name,sm_uri&order=name.asc');
+  var synced=await db('smugmug_images?select=album_key');
+  var syncedKeys=new Set(synced.map(function(i){return i.album_key}));
+  var missing=allAlbums.filter(function(a){return!syncedKeys.has(a.sm_key)});
+  if(!missing.length){toast('All albums have images','inf');return}
+  if(!confirm('Sync images for '+missing.length+' albums without photos? This may take several minutes.'))return;
+  btn.disabled=true;
+  var tb=btoa(JSON.stringify(smTokens));
+  var done=0,failed=0;
+  for(var i=0;i<missing.length;i++){
+    var album=missing[i];
+    btn.textContent='syncing images '+(i+1)+'/'+missing.length+'...';
+    try{
+      // Fetch images for this album via sync-path action
+      var r=await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+album.sm_key,{
+        headers:{Authorization:'Bearer '+tb}
+      });
+      if(!r.ok){failed++;continue}
+      var d=await r.json();
+      var imgs=d.images||[];
+      if(imgs.length){
+        // Sync images to DB
+        var sr=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({library:{folders:[],albums:[],images:imgs}})});
+        // Set cover photo on location
+        var firstThumb=imgs[0]&&imgs[0].thumbUrl;
+        if(firstThumb){
+          var loc=locations.find(function(l){return l.smugmug_album_key===album.sm_key});
+          if(loc&&!loc.cover_photo_url){
+            await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{
+              method:'PATCH',
+              headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+              body:JSON.stringify({cover_photo_url:firstThumb})
+            });
+            loc.cover_photo_url=firstThumb;
+          }
+        }
+        done++;
+      }
+    }catch(e){failed++;console.error('img sync error:',album.name,e.message)}
+    // Small delay to avoid hammering API
+    await new Promise(function(res){setTimeout(res,200)});
+  }
+  btn.disabled=false;btn.textContent='sync images';
+  toast('Synced images for '+done+' albums'+(failed?' ('+failed+' failed)':''),'ok');
+  libLoaded=false;
+  if(gmap)refreshPins();
+}
+
+async function startFullSync(){
+  var btn=document.getElementById('sync-square');
+  if(!smTokens){openSyncModal();return}
+  if(btn){btn.querySelector('span:last-child').textContent='...';btn.disabled=true;}
+  var tb=btoa(JSON.stringify(smTokens));
+  var syncStart=new Date().toISOString();
+  try{
+    // Step 1: Sync structure
+    var ns=document.getElementById('nav-status');
+    if(ns)ns.textContent='syncing structure...';
+    var cr=await fetch(SM_BASE+'/api/smugmug?action=crawl',{headers:{Authorization:'Bearer '+tb}});
+    if(!cr.ok)throw new Error(await cr.text());
+    var library=(await cr.json()).library;
+    if(ns)ns.textContent='found '+(library.albums?library.albums.length:0)+' albums...';
+    await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:syncStart})});
+    // Step 2: Sync images for albums missing them
+    var allAlbums=await db('smugmug_albums?select=sm_key,name&order=name.asc');
+    var synced=await db('smugmug_images?select=album_key');
+    var syncedKeys=new Set(synced.map(function(i){return i.album_key}));
+    var missing=allAlbums.filter(function(a){return!syncedKeys.has(a.sm_key)});
+    if(ns)ns.textContent='syncing images for '+missing.length+' albums...';
+    var done=0;
+    for(var i=0;i<missing.length;i++){
+      var album=missing[i];
+      if(ns)ns.textContent='images '+(i+1)+'/'+missing.length+'...';
+      try{
+        var r=await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+album.sm_key,{headers:{Authorization:'Bearer '+tb}});
+        if(!r.ok)continue;
+        var imgs=(await r.json()).images||[];
+        if(imgs.length){
+          await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({library:{folders:[],albums:[],images:imgs}})});
+          var firstThumb=imgs[0]&&imgs[0].thumbUrl;
+          if(firstThumb){
+            var loc=locations.find(function(l){return l.smugmug_album_key===album.sm_key});
+            if(loc&&!loc.cover_photo_url){
+              await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{
+                method:'PATCH',
+                headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+                body:JSON.stringify({cover_photo_url:firstThumb})
+              });
+              loc.cover_photo_url=firstThumb;
             }
           }
-        } catch(e) { console.error('album error:', e.message); }
-      }
-
-      albums.push({
-        id: albumKey || item.NodeID,
-        name: item.Name,
-        urlName: item.UrlName,
-        url: item.WebUri,
-        imageCount,
-        description,
-        keywords,
-        thumbUrl,
-      });
-    } else if (item.Type === 'Folder' || item.Type === 'Page') {
-      folders.push({
-        name: item.Name,
-        urlName: item.UrlName,
-        path: `${urlPath}/${item.UrlName}`,
-        url: item.WebUri,
-      });
+          done++;
+        }
+      }catch(e){console.error('img sync:',e.message)}
+      await new Promise(function(res){setTimeout(res,150)});
     }
+    // Done
+    await loadLocations();
+    if(gmap)refreshPins();
+    libLoaded=false;
+    checkSyncStatus();
+    if(ns)ns.textContent='synced '+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    toast('Sync complete'+(done?' · '+done+' new albums with images':''),'ok');
+  }catch(e){
+    toast('Sync error: '+e.message,'err');
+    var ns=document.getElementById('nav-status');
+    if(ns)ns.textContent='sync error';
   }
-
-  return { folders, albums };
+  if(btn){btn.querySelector('span:last-child').textContent='sync';btn.disabled=false;}
 }
 
-// Sync albums from a specific path into Supabase
-async function syncAlbumsFromPath(urlPath, accessToken, accessTokenSecret) {
-  const { folders, albums } = await fetchFolderByPath(urlPath, accessToken, accessTokenSecret);
-  const images = [];
-
-  for (const album of albums) {
-    if (!album.id) continue;
-    // Get full album details for description
-    try {
-      const albumData = await smRequest(`/album/${album.id}`, accessToken, accessTokenSecret);
-      const full = albumData.Response?.Album;
-      if (full) {
-        album.description = full.Description || '';
-        album.keywords = full.Keywords || '';
-        album.imageCount = full.ImageCount || 0;
-
-        // Get cover/highlight image
-        const hlUri = full.Uris?.HighlightImage?.Uri;
-        if (hlUri) {
-          try {
-            const hlData = await smRequest(hlUri, accessToken, accessTokenSecret);
-            const hlImage = hlData.Response?.Image;
-            if (hlImage) album.thumbUrl = hlImage.ThumbnailUrl || hlImage.SmallImageUrl;
-          } catch(e) {}
-        }
-
-        // Get first page of images for thumbnails
-        const imagesUri = full.Uris?.AlbumImages?.Uri;
-        if (imagesUri) {
-          try {
-            const imgData = await smRequest(imagesUri, accessToken, accessTokenSecret, { count: '10' });
-            const imgs = imgData.Response?.AlbumImage || [];
-            const imgArr = Array.isArray(imgs) ? imgs : [imgs];
-            imgArr.forEach(img => {
-              if (!img || !img.ImageKey) return;
-              images.push({
-                id: img.ImageKey,
-                albumKey: album.id,
-                albumName: album.name,
-                albumPath: urlPath,
-                albumUrl: album.url,
-                filename: img.FileName || '',
-                title: img.Title || img.FileName || '',
-                caption: img.Caption || '',
-                keywords: img.Keywords || '',
-                thumbUrl: img.ThumbnailUrl || null,
-                webUri: img.WebUri || null,
-                lat: img.Latitude || null,
-                lng: img.Longitude || null,
-                isVideo: img.IsVideo || false,
-              });
-              // Use first image as album thumb if none set
-              if (!album.thumbUrl && img.ThumbnailUrl) album.thumbUrl = img.ThumbnailUrl;
-            });
-          } catch(e) {}
-        }
-      }
-    } catch(e) { console.error('album detail error:', e.message); }
-  }
-
-  return { folders, albums, images };
+// Auto-sync if last sync > 24 hours ago
+async function checkAutoSync(){
+  if(!smTokens)return;
+  try{
+    var r=await db('sync_log?id=eq.1&select=last_sync');
+    if(!r||!r[0]||!r[0].last_sync)return;
+    var lastSync=new Date(r[0].last_sync);
+    var hoursSince=(Date.now()-lastSync.getTime())/(1000*60*60);
+    if(hoursSince>24){
+      console.log('Auto-syncing — last sync was '+Math.round(hoursSince)+' hours ago');
+      var ns=document.getElementById('nav-status');
+      if(ns)ns.textContent='auto-syncing...';
+      startFullSync();
+    }
+  }catch(e){}
 }
 
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+document.addEventListener('keydown',function(e){
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA')return;
 
-  const { action } = req.query;
-
-  try {
-    if (action === 'auth') {
-      const host = req.headers.host || '';
-      const proto = host.includes('localhost') ? 'http' : 'https';
-      const callbackUrl = `${proto}://${host}/api/smugmug?action=callback`;
-      const { requestToken, requestTokenSecret } = await getRequestToken(callbackUrl);
-      res.setHeader('Set-Cookie', `sm_rts=${requestTokenSecret}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`);
-      const authUrl = `https://api.smugmug.com/services/oauth/1.0a/authorize?oauth_token=${requestToken}&Access=Full&Permissions=Read`;
-      res.json({ authUrl, requestToken });
-      return;
-    }
-
-    if (action === 'callback') {
-      const { oauth_token, oauth_verifier } = req.query;
-      const cookieStr = req.headers.cookie || '';
-      const rtsCookie = cookieStr.split(';').find(c => c.trim().startsWith('sm_rts='));
-      const requestTokenSecret = rtsCookie ? rtsCookie.split('=')[1].trim() : '';
-      if (!oauth_token || !oauth_verifier) { res.status(400).json({ error: 'Missing OAuth params' }); return; }
-      const { accessToken, accessTokenSecret } = await getAccessToken(oauth_token, requestTokenSecret, oauth_verifier);
-      const host = req.headers.host || '';
-      const proto = host.includes('localhost') ? 'http' : 'https';
-      const payload = pct(JSON.stringify({ accessToken, accessTokenSecret }));
-      res.writeHead(302, { Location: `${proto}://${host}/#sm_auth=${payload}` });
-      res.end();
-      return;
-    }
-
-    let accessToken = '', accessTokenSecret = '';
-    const authHeader = req.headers.authorization || '';
-    if (authHeader.startsWith('Bearer ')) {
-      try {
-        const tokens = JSON.parse(Buffer.from(authHeader.slice(7), 'base64').toString());
-        accessToken = tokens.accessToken;
-        accessTokenSecret = tokens.accessTokenSecret;
-      } catch(e) {}
-    }
-
-    if (action === 'test') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      const data = await smRequest('/!authuser', accessToken, accessTokenSecret);
-      res.json({ ok: true, user: data.Response?.User?.Name });
-      return;
-    }
-
-    // Browse a folder by URL path — live from SmugMug
-    if (action === 'browse') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      const urlPath = req.query.path || '/Master-Library';
-      const { folders, albums } = await fetchFolderByPath(urlPath, accessToken, accessTokenSecret);
-      res.json({ ok: true, folders, albums });
-      return;
-    }
-
-    // Sync a specific folder path into Supabase
-    if (action === 'sync-path') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      const urlPath = req.query.path || '/Master-Library';
-      const result = await syncAlbumsFromPath(urlPath, accessToken, accessTokenSecret);
-      res.json({ ok: true, ...result });
-      return;
-    }
-
-    if (action === 'crawl' || action === 'structure') {
-      // Crawl album+folder structure — no images, fast enough to avoid timeout
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-
-      const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
-      const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
-      if (!rootNodeUri) throw new Error('Could not get root node');
-
-      const folders = [];
-      const albums = [];
-      const folderSet = new Set();
-
-      // Walk node tree collecting folders and albums (no image fetching)
-      async function walkNode(nodeUri, depth) {
-        if (depth > 6) return;
-        let nodeRes;
-        try { nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret); } catch(e) { return; }
-        const node = nodeRes.Response?.Node;
-        if (!node) return;
-        const childrenUri = node.Uris?.ChildNodes?.Uri;
-        if (!childrenUri) return;
-        let childRes;
-        try { childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' }); } catch(e) { return; }
-        const children = childRes.Response?.Node || [];
-        const arr = Array.isArray(children) ? children : [children];
-        for (const child of arr) {
-          if (!child || !child.Uri) continue;
-          if (child.Type === 'Album') {
-            const albumUri = child.Uris?.Album?.Uri;
-            if (!albumUri) continue;
-            try {
-              const albumRes = await smRequest(albumUri, accessToken, accessTokenSecret);
-              const album = albumRes.Response?.Album;
-              if (!album) continue;
-              const webUrl = album.WebUri || '';
-              // Extract folder path from URL
-              const urlParts = webUrl.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
-              const folderPath = urlParts.length > 1 ? urlParts.slice(0, -1).join('/') : '';
-              // Add intermediate folders
-              if (folderPath) {
-                const parts = folderPath.split('/');
-                let cum = '';
-                parts.forEach((p, i) => {
-                  cum = i === 0 ? p : cum + '/' + p;
-                  if (!folderSet.has(cum)) {
-                    folderSet.add(cum);
-                    folders.push({ id: cum, name: p.replace(/-/g, ' '), path: cum, url: 'https://jordanhoffman.smugmug.com/' + cum });
-                  }
-                });
-              }
-              albums.push({
-                id: album.AlbumKey, name: album.Name,
-                path: folderPath, url: webUrl,
-                imageCount: album.ImageCount || 0,
-                description: album.Description || '',
-                keywords: album.Keywords || ''
-              });
-            } catch(e) { continue; }
-          } else if (child.Type === 'Folder') {
-            await walkNode(child.Uri, depth + 1);
-          }
-        }
-      }
-
-      await walkNode(rootNodeUri, 0);
-      res.json({ ok: true, library: { folders, albums, images: [] } });
-      return;
-    }
-
-    // Fetch images for a single album by key
-    if (action === 'album-images') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      const { albumKey } = req.query;
-      if (!albumKey) { res.status(400).json({ error: 'albumKey required' }); return; }
-      const images = [];
-      try {
-        const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
-        const album = albumRes.Response?.Album;
-        if (!album) { res.json({ ok: true, images: [] }); return; }
-        const imagesUri = album.Uris?.AlbumImages?.Uri;
-        if (!imagesUri) { res.json({ ok: true, images: [] }); return; }
-        let start = 1;
-        while (true) {
-          const imgRes = await smRequest(imagesUri, accessToken, accessTokenSecret, { count: '100', start: String(start) });
-          const imgs = imgRes.Response?.AlbumImage || [];
-          const arr = Array.isArray(imgs) ? imgs : [imgs];
-          for (const img of arr) {
-            if (!img || !img.ImageKey) continue;
-            images.push({
-              id: img.ImageKey, albumKey, albumName: album.Name,
-              albumPath: '', albumUrl: album.WebUri || '',
-              filename: img.FileName || '', title: img.Title || img.FileName || '',
-              caption: img.Caption || '', keywords: img.Keywords || '',
-              date: img.DateTimeOriginal || null,
-              width: img.OriginalWidth || null, height: img.OriginalHeight || null,
-              thumbUrl: img.ThumbnailUrl || null, webUri: img.WebUri || null,
-              lat: img.Latitude || null, lng: img.Longitude || null,
-              format: img.Format || null, size: img.ArchivedSize || null,
-              isVideo: img.IsVideo || false
-            });
-          }
-          if (arr.length < 100) break;
-          start += 100;
-        }
-      } catch(e) { console.error('album-images error:', e.message); }
-      res.json({ ok: true, images });
-      return;
-    }
-
-    res.status(400).json({ error: `Unknown action: ${action}` });
-
-  } catch(e) {
-    console.error('SmugMug error:', e.message);
-    res.status(500).json({ error: e.message });
+  if(e.key==='Escape'){
+    if(document.getElementById('lightbox').classList.contains('open')){closeLightbox();return}
+    document.querySelectorAll('.modal-ov.open').forEach(function(m){m.classList.remove('open')});
+    if(document.getElementById('detail-panel').classList.contains('open')){closeDetail();return}
+    document.getElementById('hcard').classList.remove('show');
+    return;
   }
-};
+
+  var panelOpen=document.getElementById('detail-panel').classList.contains('open');
+
+  if(panelOpen){
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'){
+      e.preventDefault();
+      dpIndex=(dpIndex+1)%Math.max(dpImages.length,1);
+      dpUpdateViewer();
+    }
+    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){
+      e.preventDefault();
+      dpIndex=(dpIndex-1+Math.max(dpImages.length,1))%Math.max(dpImages.length,1);
+      dpUpdateViewer();
+    }
+    return;
+  }
+
+  // Spacebar toggles lightbox when panel open
+  if(e.key===' '){
+    e.preventDefault();
+    var panelOpen2=document.getElementById('detail-panel').classList.contains('open');
+    if(panelOpen2){
+      if(document.getElementById('lightbox').classList.contains('open')){
+        closeLightbox();
+      }else{
+        var src=document.getElementById('dp-viewer-img').src;
+        if(src&&src!==window.location.href)openLightbox(src);
+      }
+    }
+    return;
+  }
+
+  var libActive=document.getElementById('library-page').classList.contains('active');
+  if(libActive){
+    if(e.key==='ArrowLeft'){
+      e.preventDefault();
+      if(libStack.length>0){
+        libRedoStack.push(libStack.pop());
+        libRender();
+      }
+    }
+    if(e.key==='ArrowRight'){
+      e.preventDefault();
+      if(libRedoStack.length>0){
+        libStack.push(libRedoStack.pop());
+        libRender();
+      }
+    }
+  }
+});
+document.querySelectorAll('.modal-ov').forEach(function(m){m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('open')})});
+
+function hideOnError(el){el.style.display="none"}
+(async function(){
+  checkAuth();
+  await loadLocations();
+  loadMapScript();
+  await checkAutoSync();
+})();
+</script>
+</body>
+</html>
