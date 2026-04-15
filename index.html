@@ -116,7 +116,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
 .lib-sel{padding:5px 8px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
-#lib-grid{flex:1;overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;align-content:start;min-height:0;height:0}
+#lib-grid{overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;align-content:start;height:calc(100vh - 44px - 48px - 50px)}
 #lib-grid::-webkit-scrollbar{width:3px}
 #lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
@@ -296,6 +296,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
         <div class="sm-step"><div class="sm-num">1</div><div>Click Authorize — SmugMug will ask you to grant access.</div></div>
         <div class="sm-step"><div class="sm-num">2</div><div>Approve on SmugMug, you'll be redirected back automatically.</div></div>
         <div class="sm-step"><div class="sm-num">3</div><div>Hit Sync Now to pull your full library including descriptions and metadata.</div></div>
+        <div class="sm-step"><div class="sm-num">4</div><div>If you deleted albums in SmugMug, hit <strong>Clean Removed</strong> to remove them from the database.</div></div>
       </div>
       <div id="sync-prog" style="display:none">
         <div class="prog-label" id="prog-label"></div>
@@ -304,6 +305,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     </div>
     <div class="mf">
       <button class="btn" onclick="closeModal('sync-modal')">cancel</button>
+      <button class="btn" id="clean-btn" onclick="cleanRemoved()">clean removed</button>
       <button class="btn primary" id="auth-btn" onclick="doAuth()">authorize smugmug ↗</button>
     </div>
   </div>
@@ -546,6 +548,51 @@ function dpNav(dir){
   dpUpdateViewer();
 }
 
+async function cleanRemoved(){
+  var btn=document.getElementById('clean-btn');
+  btn.disabled=true;btn.textContent='checking...';
+  try{
+    // Get all albums from DB
+    var dbAlbums=await db('smugmug_albums?select=sm_key,name,web_url');
+    var removed=[];
+    // Check each album by trying to fetch its URL from SmugMug
+    // We use the web_url to group by folder and check
+    var folderPaths=new Set();
+    dbAlbums.forEach(function(a){
+      if(a.web_url){
+        var parts=a.web_url.replace('https://jordanhoffman.smugmug.com/','').split('/');
+        if(parts.length>1)folderPaths.add(parts.slice(0,-1).join('/'));
+      }
+    });
+    // Check each folder via SmugMug browse
+    var tb=btoa(JSON.stringify(smTokens));
+    var foundUrls=new Set();
+    var paths=Array.from(folderPaths);
+    btn.textContent='checking '+paths.length+' folders...';
+    for(var i=0;i<paths.length;i++){
+      try{
+        var r=await fetch(SM_BASE+'/api/smugmug?action=browse&path=/'+paths[i],{headers:{Authorization:'Bearer '+tb}});
+        if(r.ok){
+          var d=await r.json();
+          (d.albums||[]).forEach(function(a){if(a.url)foundUrls.add(a.url)});
+        }
+      }catch(e){}
+    }
+    // Delete albums not found
+    for(var j=0;j<dbAlbums.length;j++){
+      var a=dbAlbums[j];
+      if(a.web_url&&!foundUrls.has(a.web_url)){
+        await fetch(SB_URL+'/rest/v1/smugmug_albums?sm_key=eq.'+a.sm_key,{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
+        await fetch(SB_URL+'/rest/v1/locations?smugmug_album_key=eq.'+a.sm_key+'&address=is.null&notes=is.null',{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
+        removed.push(a.name);
+      }
+    }
+    libLoaded=false;
+    toast(removed.length?('Removed '+removed.length+' deleted albums'):'Nothing to remove','ok');
+    btn.textContent='clean removed';btn.disabled=false;
+  }catch(e){toast('Error: '+e.message,'err');btn.textContent='clean removed';btn.disabled=false}
+}
+
 function closeDetail(){document.getElementById('detail-panel').classList.remove('open')}
 
 async function loadDetailGallery(loc){
@@ -558,7 +605,6 @@ async function loadDetailGallery(loc){
     // cover_photo_url already in dpImages[0] from openDetail, just append new thumbs
     var existing=dpImages[0]||null;
     dpImages=existing?[existing].concat(thumbs.filter(function(t){return t!==existing})):thumbs;
-    dpIndex=0;
     dpIndex=0;
     dpUpdateViewer();
   }catch(e){console.error('gallery:',e)}
@@ -679,8 +725,10 @@ async function startSync(){
     var library=cdata.library;
     label.textContent='found '+(library.albums?library.albums.length:0)+' albums — syncing...';fill.style.width='30%';
     await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]}})});
+      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:new Date().toISOString()})});
     fill.style.width='50%';
+
+
     var imgs=library.images||[];
     var chunks=Math.ceil(imgs.length/200)||1;
     for(var i=0;i<imgs.length;i+=200){
@@ -902,13 +950,16 @@ document.addEventListener('keydown',function(e){
   }
 
   // Spacebar toggles lightbox when panel open
-  if(e.key===' '&&document.getElementById('detail-panel').classList.contains('open')){
+  if(e.key===' '){
     e.preventDefault();
-    if(document.getElementById('lightbox').classList.contains('open')){
-      closeLightbox();
-    }else{
-      var src=document.getElementById('dp-viewer-img').src;
-      if(src)openLightbox(src);
+    var panelOpen2=document.getElementById('detail-panel').classList.contains('open');
+    if(panelOpen2){
+      if(document.getElementById('lightbox').classList.contains('open')){
+        closeLightbox();
+      }else{
+        var src=document.getElementById('dp-viewer-img').src;
+        if(src&&src!==window.location.href)openLightbox(src);
+      }
     }
     return;
   }
