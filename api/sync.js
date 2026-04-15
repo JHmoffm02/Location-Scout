@@ -297,9 +297,9 @@ module.exports = async function handler(req, res) {
 
     // Delete stale albums — anything not touched in this sync was removed from SmugMug
     const { sync_start } = body;
-    if (sync_start && (albums.length > 0 || folders.length > 0)) {
+    if (sync_start) {
       try {
-        const stale = await sb('smugmug_albums?synced_at=lt.' + encodeURIComponent(sync_start) + '&select=sm_key,name');
+        const stale = await sb('smugmug_albums?synced_at=lt.' + sync_start + '&select=sm_key,name');
         for (const s of (stale || [])) {
           await sb('smugmug_albums?sm_key=eq.' + s.sm_key, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
           // Only auto-delete locations with no manually entered data
