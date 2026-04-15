@@ -316,7 +316,8 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    if (// Crawl album+folder structure — no images, fast enough to avoid timeout
+    if (action === 'crawl' || action === 'structure') {
+      // Crawl album+folder structure — no images, fast enough to avoid timeout
       if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
 
       const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
@@ -382,7 +383,7 @@ module.exports = async function handler(req, res) {
       await walkNode(rootNodeUri, 0);
       res.json({ ok: true, library: { folders, albums, images: [] } });
       return;
-    }    }
+    }
 
     res.status(400).json({ error: `Unknown action: ${action}` });
 
