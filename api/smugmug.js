@@ -20,7 +20,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 #shell{display:flex;flex-direction:column;height:100vh}
 #header{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0;z-index:10;position:relative}
 #header h1{font-family:'DM Mono',monospace;font-size:12px;font-weight:400;letter-spacing:.2em;color:var(--accent);text-transform:uppercase}
-#nav{height:48px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;z-index:10;position:relative;padding-right:44px}
+#nav{height:48px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;z-index:10;position:relative}
 .nav-btn{padding:0 32px;height:48px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.1em;color:var(--text3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;text-transform:uppercase}
 .nav-btn:hover{color:var(--text2)}
 .nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -104,7 +104,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 
 /* ── Library ── */
-#library-page{background:var(--bg2);position:relative}
+#library-page{background:var(--bg2);overflow:hidden}
 .lib-header{height:50px;padding:0 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;overflow:hidden}
 .lib-bc{display:flex;align-items:center;gap:0;flex:1;min-width:0;overflow:hidden}
 .lib-bc-seg{font-size:11px;font-family:'DM Mono',monospace;color:var(--accent);cursor:pointer;padding:4px 6px;border-radius:4px;white-space:nowrap;transition:background .12s}
@@ -116,7 +116,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
 .lib-sel{padding:5px 8px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
-#lib-grid{position:absolute;top:50px;left:0;right:0;bottom:0;overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));grid-auto-rows:min-content;gap:16px;align-content:start}
+#lib-grid{flex:1;min-height:0;overflow-y:auto;padding:20px 20px 68px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));grid-auto-rows:min-content;gap:16px;align-content:start}
 #lib-grid::-webkit-scrollbar{width:3px}
 #lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
@@ -182,10 +182,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     <button class="nav-btn active" onclick="showPage('home',this)">Home</button>
     <button class="nav-btn" onclick="showPage('library',this)">Library</button>
   </div>
-  <button id="sync-square" onclick="startFullSync()" title="Sync library" style="display:none;position:fixed;top:0;right:0;width:44px;height:92px;background:var(--bg2);border-left:1px solid var(--border);border-bottom:1px solid var(--border);border-top:none;border-right:none;cursor:pointer;z-index:5;color:var(--accent);font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.05em;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:background .15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
-    <span style="font-size:16px">⟳</span>
-    <span>sync</span>
-  </button>
+
   <div id="pages">
 
     <!-- HOME -->
@@ -261,6 +258,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
       <div id="lib-grid" onclick="libGridClick(event)">
         <div class="empty"><div class="spin"></div>&nbsp;loading...</div>
       </div>
+    </div>
+
+    <!-- Library bottom bar -->
+    <div id="lib-bottom" style="display:none;position:absolute;bottom:0;left:0;right:0;height:48px;background:var(--bg2);border-top:1px solid var(--border);align-items:center;justify-content:flex-end;padding:0 16px;gap:12px;z-index:20">
+      <span id="lib-sync-status" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3)"></span>
+      <button id="sync-square" onclick="startFullSync()" style="height:30px;padding:0 14px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;color:var(--accent);font-size:10px;font-family:'DM Mono',monospace;display:flex;align-items:center;gap:6px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)'">
+        <span>⟳</span><span id="sync-label">sync</span>
+      </button>
     </div>
 
   </div>
@@ -689,9 +694,9 @@ function checkAuth(){
 }
 function updateAuthUI(ok){
   var b=document.getElementById('sm-btn'),s=document.getElementById('sync-btn');
-  var sq=document.getElementById('sync-square');
-  if(ok){b.textContent='smugmug ✓';b.classList.add('connected');if(sq){sq.style.display='flex';sq.style.alignItems='center';sq.style.justifyContent='center';sq.style.flexDirection='column';}}
-  else{b.textContent='connect smugmug';b.classList.remove('connected');if(sq)sq.style.display='none';}
+  var lb=document.getElementById('lib-bottom');
+  if(ok){b.textContent='smugmug ✓';b.classList.add('connected');if(lb)lb.style.display='flex';}
+  else{b.textContent='connect smugmug';b.classList.remove('connected');if(lb)lb.style.display='none';}
 }
 async function checkSyncStatus(){
   try{
@@ -987,7 +992,7 @@ async function startImageSync(){
 async function startFullSync(){
   var btn=document.getElementById('sync-square');
   if(!smTokens){openSyncModal();return}
-  if(btn){btn.querySelector('span:last-child').textContent='...';btn.disabled=true;}
+  if(btn){var sl=document.getElementById('sync-label');if(sl)sl.textContent='...';btn.disabled=true;}
   var tb=btoa(JSON.stringify(smTokens));
   var syncStart=new Date().toISOString();
   try{
@@ -1046,7 +1051,7 @@ async function startFullSync(){
     var ns=document.getElementById('nav-status');
     if(ns)ns.textContent='sync error';
   }
-  if(btn){btn.querySelector('span:last-child').textContent='sync';btn.disabled=false;}
+  if(btn){var sl2=document.getElementById('sync-label');if(sl2)sl2.textContent='sync';btn.disabled=false;}
 }
 
 // Auto-sync if last sync > 24 hours ago
