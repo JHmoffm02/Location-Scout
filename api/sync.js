@@ -295,20 +295,23 @@ module.exports = async function handler(req, res) {
       } catch(e) { console.error('folder deletion error:', e.message); }
     }
 
-    // Delete stale albums — anything not touched in this sync was removed from SmugMug
-    const { sync_start } = body;
-    if (sync_start) {
+    // Delete stale albums — only runs when we got a real album list from SmugMug
+    // Uses synced_key_set: album keys that were actually synced in this run
+    const { sync_start, synced_keys } = body;
+    if (sync_start && synced_keys && synced_keys.length > 0) {
       try {
-        const stale = await sb('smugmug_albums?synced_at=lt.' + sync_start + '&select=sm_key,name');
-        for (const s of (stale || [])) {
+        // Get all album keys in DB
+        const allInDb = await sb('smugmug_albums?select=sm_key,name');
+        // Any key NOT in synced_keys was removed from SmugMug
+        const toDelete = (allInDb || []).filter(a => !synced_keys.includes(a.sm_key));
+        for (const s of toDelete) {
           await sb('smugmug_albums?sm_key=eq.' + s.sm_key, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
-          // Only auto-delete locations with no manually entered data
           await sb('locations?smugmug_album_key=eq.' + s.sm_key + '&address=is.null&notes=is.null',
             { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
-          console.log('deleted stale album:', s.name);
+          console.log('deleted removed album:', s.name);
         }
-        stats.deleted = (stale || []).length;
-      } catch(e) { console.error('stale delete error:', e.message); }
+        stats.deleted = toDelete.length;
+      } catch(e) { console.error('delete error:', e.message); }
     }
 
     // Update sync log
