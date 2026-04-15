@@ -104,7 +104,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 
 /* ── Library ── */
-#library-page{background:var(--bg2)}
+#library-page{background:var(--bg2);position:relative}
 .lib-header{height:50px;padding:0 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;overflow:hidden}
 .lib-bc{display:flex;align-items:center;gap:0;flex:1;min-width:0;overflow:hidden}
 .lib-bc-seg{font-size:11px;font-family:'DM Mono',monospace;color:var(--accent);cursor:pointer;padding:4px 6px;border-radius:4px;white-space:nowrap;transition:background .12s}
@@ -116,7 +116,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
 .lib-sel{padding:5px 8px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
-#lib-grid{overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;align-content:start;height:calc(100vh - 44px - 48px - 50px)}
+#lib-grid{position:absolute;top:50px;left:0;right:0;bottom:0;overflow-y:auto;padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;align-content:start}
 #lib-grid::-webkit-scrollbar{width:3px}
 #lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
@@ -178,20 +178,22 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 <div id="shell">
   <div id="header"><h1>Jordan B. Hoffman &nbsp;·&nbsp; Locations</h1></div>
   <div id="nav">
+    <div id="nav-status" style="position:absolute;left:12px;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em"></div>
     <button class="nav-btn active" onclick="showPage('home',this)">Home</button>
     <button class="nav-btn" onclick="showPage('library',this)">Library</button>
   </div>
+  <button id="sync-square" onclick="startFullSync()" title="Sync library" style="display:none;position:fixed;top:0;right:0;width:44px;height:92px;background:var(--bg2);border:none;border-left:1px solid var(--border);border-bottom:1px solid var(--border);cursor:pointer;z-index:50;color:var(--accent);font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.05em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:background .15s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
+    <span style="font-size:14px">⟳</span>
+    <span>sync</span>
+  </button>
   <div id="pages">
 
     <!-- HOME -->
     <div class="page active" id="home-page">
       <div id="map-wrap">
         <div id="the-map"></div>
-        <div id="sync-bar">
-          <span id="sync-status-pill">not synced</span>
+        <div id="sync-bar" style="position:absolute;top:14px;right:58px;z-index:15;display:flex;align-items:center;gap:8px">
           <button class="sync-pill" id="sm-btn" onclick="openSyncModal()">connect smugmug</button>
-          <button class="sync-pill" id="sync-btn" onclick="startSync()" style="display:none">sync now</button>
-          <button class="sync-pill" id="img-sync-btn" onclick="startImageSync()" style="display:none">sync images</button>
         </div>
         <div class="hcard" id="hcard">
           <div id="hcard-media"></div>
@@ -687,9 +689,9 @@ function checkAuth(){
 }
 function updateAuthUI(ok){
   var b=document.getElementById('sm-btn'),s=document.getElementById('sync-btn');
-  var imgBtn=document.getElementById('img-sync-btn');
-  if(ok){b.textContent='smugmug ✓';b.classList.add('connected');s.style.display='block';if(imgBtn)imgBtn.style.display='block'}
-  else{b.textContent='connect smugmug';b.classList.remove('connected');s.style.display='none';if(imgBtn)imgBtn.style.display='none'}
+  var sq=document.getElementById('sync-square');
+  if(ok){b.textContent='smugmug ✓';b.classList.add('connected');if(sq)sq.style.display='flex';}
+  else{b.textContent='connect smugmug';b.classList.remove('connected');if(sq)sq.style.display='none';}
 }
 async function checkSyncStatus(){
   try{
@@ -982,6 +984,88 @@ async function startImageSync(){
   if(gmap)refreshPins();
 }
 
+async function startFullSync(){
+  var btn=document.getElementById('sync-square');
+  if(!smTokens){openSyncModal();return}
+  if(btn){btn.querySelector('span:last-child').textContent='...';btn.disabled=true;}
+  var tb=btoa(JSON.stringify(smTokens));
+  var syncStart=new Date().toISOString();
+  try{
+    // Step 1: Sync structure
+    var ns=document.getElementById('nav-status');
+    if(ns)ns.textContent='syncing structure...';
+    var cr=await fetch(SM_BASE+'/api/smugmug?action=crawl',{headers:{Authorization:'Bearer '+tb}});
+    if(!cr.ok)throw new Error(await cr.text());
+    var library=(await cr.json()).library;
+    if(ns)ns.textContent='found '+(library.albums?library.albums.length:0)+' albums...';
+    await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:syncStart})});
+    // Step 2: Sync images for albums missing them
+    var allAlbums=await db('smugmug_albums?select=sm_key,name&order=name.asc');
+    var synced=await db('smugmug_images?select=album_key');
+    var syncedKeys=new Set(synced.map(function(i){return i.album_key}));
+    var missing=allAlbums.filter(function(a){return!syncedKeys.has(a.sm_key)});
+    if(ns)ns.textContent='syncing images for '+missing.length+' albums...';
+    var done=0;
+    for(var i=0;i<missing.length;i++){
+      var album=missing[i];
+      if(ns)ns.textContent='images '+(i+1)+'/'+missing.length+'...';
+      try{
+        var r=await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+album.sm_key,{headers:{Authorization:'Bearer '+tb}});
+        if(!r.ok)continue;
+        var imgs=(await r.json()).images||[];
+        if(imgs.length){
+          await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({library:{folders:[],albums:[],images:imgs}})});
+          var firstThumb=imgs[0]&&imgs[0].thumbUrl;
+          if(firstThumb){
+            var loc=locations.find(function(l){return l.smugmug_album_key===album.sm_key});
+            if(loc&&!loc.cover_photo_url){
+              await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{
+                method:'PATCH',
+                headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+                body:JSON.stringify({cover_photo_url:firstThumb})
+              });
+              loc.cover_photo_url=firstThumb;
+            }
+          }
+          done++;
+        }
+      }catch(e){console.error('img sync:',e.message)}
+      await new Promise(function(res){setTimeout(res,150)});
+    }
+    // Done
+    await loadLocations();
+    if(gmap)refreshPins();
+    libLoaded=false;
+    checkSyncStatus();
+    if(ns)ns.textContent='synced '+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    toast('Sync complete'+(done?' · '+done+' new albums with images':''),'ok');
+  }catch(e){
+    toast('Sync error: '+e.message,'err');
+    var ns=document.getElementById('nav-status');
+    if(ns)ns.textContent='sync error';
+  }
+  if(btn){btn.querySelector('span:last-child').textContent='sync';btn.disabled=false;}
+}
+
+// Auto-sync if last sync > 24 hours ago
+async function checkAutoSync(){
+  if(!smTokens)return;
+  try{
+    var r=await db('sync_log?id=eq.1&select=last_sync');
+    if(!r||!r[0]||!r[0].last_sync)return;
+    var lastSync=new Date(r[0].last_sync);
+    var hoursSince=(Date.now()-lastSync.getTime())/(1000*60*60);
+    if(hoursSince>24){
+      console.log('Auto-syncing — last sync was '+Math.round(hoursSince)+' hours ago');
+      var ns=document.getElementById('nav-status');
+      if(ns)ns.textContent='auto-syncing...';
+      startFullSync();
+    }
+  }catch(e){}
+}
+
 document.addEventListener('keydown',function(e){
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA')return;
 
@@ -1049,6 +1133,7 @@ function hideOnError(el){el.style.display="none"}
   checkAuth();
   await loadLocations();
   loadMapScript();
+  await checkAutoSync();
 })();
 </script>
 </body>
