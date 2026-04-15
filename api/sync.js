@@ -295,6 +295,22 @@ module.exports = async function handler(req, res) {
       } catch(e) { console.error('folder deletion error:', e.message); }
     }
 
+    // Delete stale albums — anything not touched in this sync was removed from SmugMug
+    const { sync_start } = body;
+    if (sync_start && (albums.length > 0 || folders.length > 0)) {
+      try {
+        const stale = await sb('smugmug_albums?synced_at=lt.' + encodeURIComponent(sync_start) + '&select=sm_key,name');
+        for (const s of (stale || [])) {
+          await sb('smugmug_albums?sm_key=eq.' + s.sm_key, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+          // Only auto-delete locations with no manually entered data
+          await sb('locations?smugmug_album_key=eq.' + s.sm_key + '&address=is.null&notes=is.null',
+            { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+          console.log('deleted stale album:', s.name);
+        }
+        stats.deleted = (stale || []).length;
+      } catch(e) { console.error('stale delete error:', e.message); }
+    }
+
     // Update sync log
     try {
       await sb('sync_log?on_conflict=id', {
