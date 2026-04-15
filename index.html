@@ -717,6 +717,7 @@ async function startSync(){
   document.getElementById('auth-btn').style.display='none';
   var label=document.getElementById('prog-label'),fill=document.getElementById('prog-fill');
   var tb=btoa(JSON.stringify(smTokens));
+  var syncStart=new Date().toISOString();
   try{
     label.textContent='connecting...';fill.style.width='10%';
     var cr=await fetch(SM_BASE+'/api/smugmug?action=crawl',{headers:{Authorization:'Bearer '+tb}});
@@ -724,8 +725,12 @@ async function startSync(){
     var cdata=await cr.json();
     var library=cdata.library;
     label.textContent='found '+(library.albums?library.albums.length:0)+' albums — syncing...';fill.style.width='30%';
-    await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:new Date().toISOString()})});
+    var syncResp=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:syncStart})});
+    var syncData=syncResp.ok?await syncResp.json():{};
+    if(syncData.stats&&syncData.stats.deleted>0){
+      label.textContent='removed '+syncData.stats.deleted+' deleted albums';
+    }
     fill.style.width='50%';
 
 
