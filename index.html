@@ -21,6 +21,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 #header{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0;z-index:10;position:relative}
 #header h1{font-family:'DM Mono',monospace;font-size:12px;font-weight:400;letter-spacing:.2em;color:var(--accent);text-transform:uppercase}
 #nav{height:48px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;z-index:10;position:relative}
+#nav-status{position:absolute;left:12px;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em}
 .nav-btn{padding:0 32px;height:48px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.1em;color:var(--text3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;text-transform:uppercase}
 .nav-btn:hover{color:var(--text2)}
 .nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -28,15 +29,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .page{position:absolute;inset:0;display:none;flex-direction:column}
 .page.active{display:flex}
 
-/* ── Home / Map ── */
+/* ── Home ── */
 #home-page{background:var(--bg);overflow:hidden}
 #map-wrap{flex:1;position:relative;overflow:hidden}
 #the-map{position:absolute;inset:0;width:100%;height:100%}
-#sync-bar{position:absolute;top:14px;right:14px;z-index:15;display:flex;align-items:center;gap:8px}
-.sync-pill{padding:5px 12px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.06em;border:1px solid var(--border2);border-radius:20px;background:rgba(0,0,0,.7);color:var(--text2);cursor:pointer;transition:all .15s;white-space:nowrap}
-.sync-pill:hover{border-color:var(--accent);color:var(--accent)}
-.sync-pill.connected{border-color:var(--green);color:var(--green)}
-#sync-status-pill{padding:4px 10px;font-size:9px;font-family:'DM Mono',monospace;background:rgba(0,0,0,.7);color:var(--text3);border-radius:20px;border:1px solid var(--border)}
 #map-controls{position:absolute;bottom:0;left:0;right:0;z-index:15;background:linear-gradient(transparent,rgba(0,0,0,.92) 35%);padding:28px 24px 18px;display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
 .cg{display:flex;flex-direction:column;gap:5px}
 .cl{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase}
@@ -78,8 +74,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .dp-scroll{flex:1;overflow-y:auto}
 .dp-scroll::-webkit-scrollbar{width:3px}
 .dp-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-
-/* Image viewer */
 .dp-viewer{position:relative;background:var(--bg4);flex-shrink:0}
 .dp-viewer-img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;cursor:zoom-in}
 .dp-viewer-ph{width:100%;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;font-size:11px;font-family:'DM Mono',monospace;color:var(--text3)}
@@ -87,10 +81,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .dp-arrow:hover{background:rgba(0,0,0,.85)}
 .dp-arrow.prev{left:0;border-radius:0 4px 4px 0}
 .dp-arrow.next{right:0;border-radius:4px 0 0 4px}
-.dp-arrow:disabled{opacity:.15;cursor:default}
 .dp-counter{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-size:9px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.5);background:rgba(0,0,0,.5);padding:2px 8px;border-radius:10px;pointer-events:none}
-
-/* Text body */
 .dp-body{padding:14px 18px 20px}
 .dp-label{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);text-transform:uppercase;margin-bottom:4px;margin-top:14px}
 .dp-val{font-size:12px;color:var(--text2);line-height:1.6}
@@ -116,7 +107,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
 .lib-sel{padding:5px 8px;font-size:11px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
-#lib-grid{flex:1;min-height:0;overflow-y:auto;padding:20px 20px 68px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));grid-auto-rows:min-content;gap:16px;align-content:start}
+#lib-grid{flex:1;min-height:0;overflow-y:auto;padding:20px 20px 20px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));grid-auto-rows:min-content;gap:16px;align-content:start}
 #lib-grid::-webkit-scrollbar{width:3px}
 #lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
@@ -125,10 +116,19 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .gcard:hover{border-color:var(--border2)}
 .gcard-tw{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
 .gcard-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:1}
-/* placeholder only shows when no image present — sits behind image */
 .gcard-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:22px;font-family:'DM Mono',monospace;z-index:0}
 .gcard-overlay{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:20px 10px 8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:2}
 .gcard-meta{padding:6px 10px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;border-top:1px solid var(--border)}
+
+/* ── SmugMug dock — fixed bottom right, both pages ── */
+#sm-dock{position:fixed;bottom:16px;right:16px;z-index:400;display:flex;align-items:center;gap:8px}
+#sm-dock .dock-btn{height:34px;padding:0 14px;border-radius:20px;border:1px solid var(--border2);background:var(--bg2);font-size:10px;font-family:'DM Mono',monospace;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;color:var(--text2)}
+#sm-dock .dock-btn:hover{border-color:var(--accent2);color:var(--accent)}
+#sm-dock #dock-sm-btn{border-color:var(--green);color:var(--green)}
+#sm-dock #dock-sm-btn.unconnected{border-color:var(--border2);color:var(--text2)}
+#sm-dock #dock-sm-btn:hover{background:rgba(76,175,130,.1)}
+#dock-actions{display:none;align-items:center;gap:8px}
+#dock-actions.open{display:flex}
 
 /* ── Shared ── */
 .s-identified{color:#555350}.s-scouted{color:#5b9bd5}.s-pending{color:#d4943a}.s-approved{color:#4caf82}.s-rejected{color:#c26060}
@@ -146,7 +146,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .btn.primary:hover{opacity:.85}
 .btn.primary:disabled{opacity:.4;cursor:not-allowed}
-.toast{position:fixed;bottom:18px;right:18px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:11px;font-family:'DM Mono',monospace;z-index:700;transform:translateY(60px);opacity:0;transition:all .25s;max-width:280px;pointer-events:none}
+.toast{position:fixed;bottom:60px;right:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:11px;font-family:'DM Mono',monospace;z-index:700;transform:translateY(60px);opacity:0;transition:all .25s;max-width:280px;pointer-events:none}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.ok{border-color:var(--green);color:var(--green)}
 .toast.err{border-color:var(--red);color:var(--red)}
@@ -154,12 +154,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .spin{width:13px;height:13px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
 .empty{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text3);font-family:'DM Mono',monospace;font-size:11px;grid-column:1/-1;min-height:120px}
-.prog-bar{height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;margin-top:8px}
-.prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
-.prog-label{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);margin-bottom:4px;min-height:16px}
-.sm-steps{display:flex;flex-direction:column;gap:10px}
-.sm-step{display:flex;gap:10px;align-items:flex-start;font-size:12px;color:var(--text2);line-height:1.5}
-.sm-num{width:20px;height:20px;border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:'DM Mono',monospace;flex-shrink:0;margin-top:1px}
 
 /* ── Lightbox ── */
 #lightbox{display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.97);align-items:center;justify-content:center;cursor:zoom-out}
@@ -178,20 +172,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 <div id="shell">
   <div id="header"><h1>Jordan B. Hoffman &nbsp;·&nbsp; Locations</h1></div>
   <div id="nav">
-    <div id="nav-status" style="position:absolute;left:12px;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em"></div>
+    <div id="nav-status"></div>
     <button class="nav-btn active" onclick="showPage('home',this)">Home</button>
     <button class="nav-btn" onclick="showPage('library',this)">Library</button>
   </div>
-
   <div id="pages">
 
     <!-- HOME -->
     <div class="page active" id="home-page">
       <div id="map-wrap">
         <div id="the-map"></div>
-        <div id="sync-bar" style="position:absolute;top:14px;right:58px;z-index:15;display:flex;align-items:center;gap:8px">
-          <button class="sync-pill" id="sm-btn" onclick="openSyncModal()">connect smugmug</button>
-        </div>
         <div class="hcard" id="hcard">
           <div id="hcard-media"></div>
           <div class="hcard-body">
@@ -258,19 +248,28 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
       <div id="lib-grid" onclick="libGridClick(event)">
         <div class="empty"><div class="spin"></div>&nbsp;loading...</div>
       </div>
-      <!-- Library bottom bar -->
-      <div id="lib-bottom" style="display:none;position:absolute;bottom:0;left:0;right:0;height:48px;background:var(--bg2);border-top:1px solid var(--border);align-items:center;justify-content:flex-end;padding:0 16px;gap:12px;z-index:20">
-      <span id="lib-sync-status" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3)"></span>
-      <button id="sync-square" onclick="startFullSync()" style="height:30px;padding:0 14px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;color:var(--accent);font-size:10px;font-family:'DM Mono',monospace;display:flex;align-items:center;gap:6px;transition:border-color .15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)'">
-        <span>⟳</span><span id="sync-label">sync</span>
-      </button>
-      </div>
     </div>
 
   </div>
 </div>
 
-<!-- Detail panel — fixed, outside shell -->
+<!-- SmugMug dock — fixed bottom right, visible on all pages -->
+<div id="sm-dock">
+  <div id="dock-actions">
+    <!-- Authorize button — hidden when connected -->
+    <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none">authorize ↗</button>
+    <!-- Sync button — hidden until connected -->
+    <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none">
+      <span id="dock-sync-icon">⟳</span><span id="dock-sync-label">sync</span>
+    </button>
+  </div>
+  <!-- Green smugmug button — always visible -->
+  <button class="dock-btn" id="dock-sm-btn" onclick="toggleDock()">
+    <span id="dock-sm-label">smugmug</span>
+  </button>
+</div>
+
+<!-- Detail panel -->
 <div id="detail-panel" tabindex="-1" style="outline:none">
   <div class="dp-header">
     <div class="dp-name" id="dp-name"></div>
@@ -294,30 +293,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
   <img id="lightbox-img" src="" alt="">
 </div>
 
-<!-- Sync Modal -->
-<div class="modal-ov" id="sync-modal">
-  <div class="modal">
-    <div class="mh"><h2>SmugMug sync</h2><button class="mx" onclick="closeModal('sync-modal')">×</button></div>
-    <div class="mb">
-      <div class="sm-steps" id="sm-steps">
-        <div class="sm-step"><div class="sm-num">1</div><div>Click Authorize — SmugMug will ask you to grant access.</div></div>
-        <div class="sm-step"><div class="sm-num">2</div><div>Approve on SmugMug, you'll be redirected back automatically.</div></div>
-        <div class="sm-step"><div class="sm-num">3</div><div>Hit Sync Now to pull your full library including descriptions and metadata.</div></div>
-        <div class="sm-step"><div class="sm-num">4</div><div>If you deleted albums in SmugMug, hit <strong>Clean Removed</strong> to remove them from the database.</div></div>
-      </div>
-      <div id="sync-prog" style="display:none">
-        <div class="prog-label" id="prog-label"></div>
-        <div class="prog-bar"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
-      </div>
-    </div>
-    <div class="mf">
-      <button class="btn" onclick="closeModal('sync-modal')">cancel</button>
-      <button class="btn" id="clean-btn" onclick="cleanRemoved()">clean removed</button>
-      <button class="btn primary" id="auth-btn" onclick="doAuth()">authorize smugmug ↗</button>
-    </div>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
 <script>
@@ -336,15 +311,29 @@ const SL={
   rejected:{bg:'rgba(194,96,96,.2)',c:'#c26060'}
 };
 
-let locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false;
-let smTokens=null,currentHoverLoc=null;
-let libFolders=[],libAlbums=[],libLoaded=false,libStack=[],libRedoStack=[];
-let dpImages=[],dpIndex=0;
+var locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false;
+var smTokens=null,currentHoverLoc=null;
+var libFolders=[],libAlbums=[],libLoaded=false,libStack=[],libRedoStack=[];
+var dpImages=[],dpIndex=0;
+var dockOpen=false;
 
-const db=(p,o={})=>fetch(SB_URL+'/rest/v1/'+p,{
-  headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',
-    Prefer:o.prefer||'return=representation',...(o.headers||{})},...o
-}).then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)));
+var db=function(p,o){
+  o=o||{};
+  return fetch(SB_URL+'/rest/v1/'+p,{
+    headers:Object.assign({apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',
+      Prefer:o.prefer||'return=representation'},o.headers||{})
+  }.assign||Object.assign({},o,{headers:Object.assign({apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:o.prefer||'return=representation'},o.headers||{})})).then(function(r){return r.ok?r.json():r.json().then(function(e){return Promise.reject(e)})});
+};
+
+// Fix db function - simpler version
+db=function(p,o){
+  o=o||{};
+  var opts={headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:o.prefer||'return=representation'}};
+  if(o.method)opts.method=o.method;
+  if(o.body)opts.body=o.body;
+  if(o.headers)Object.assign(opts.headers,o.headers);
+  return fetch(SB_URL+'/rest/v1/'+p,opts).then(function(r){return r.ok?r.json():r.json().then(function(e){return Promise.reject(e)})});
+};
 
 function toast(m,t){
   t=t||'ok';
@@ -358,11 +347,11 @@ function showPage(page,btn){
   document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.remove('active')});
   document.getElementById(page+'-page').classList.add('active');
   btn.classList.add('active');
+  closeDock();
   closeDetail();
   if(page==='home'){if(!mapReady)loadMapScript();else if(gmap)setTimeout(function(){google.maps.event.trigger(gmap,'resize')},50)}
   if(page==='library')libInit();
 }
-function closeModal(id){document.getElementById(id).classList.remove('open')}
 
 async function loadLocations(){
   try{locations=await db('locations?select=*&order=name.asc');return locations}
@@ -375,19 +364,9 @@ function miles(lat,lng){
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 function hasCoords(l){return l.lat&&l.lng&&!(l.lat===0&&l.lng===0)}
-
-function smMedium(url){
-  if(!url)return '';
-  return url.replace('/Th/','/M/').replace('/Ti/','/M/').replace('/S/','/M/');
-}
-function smLarge(url){
-  if(!url)return '';
-  return url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/L/').replace('/M/','/L/');
-}
-function smXL(url){
-  if(!url)return '';
-  return url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/XL/').replace('/M/','/XL/').replace('/L/','/XL/');
-}
+function smMedium(url){if(!url)return '';return url.replace('/Th/','/M/').replace('/Ti/','/M/').replace('/S/','/M/')}
+function smLarge(url){if(!url)return '';return url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/L/').replace('/M/','/L/')}
+function smXL(url){if(!url)return '';return url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/XL/').replace('/M/','/XL/').replace('/L/','/XL/')}
 
 function loadMapScript(){
   if(document.getElementById('gms'))return;
@@ -482,7 +461,6 @@ function posHcard(ev){
 }
 document.getElementById('hcard').addEventListener('mouseleave',function(){document.getElementById('hcard').classList.remove('show')});
 
-// ── DETAIL PANEL ──
 function openDetail(loc){
   if(!loc)return;
   document.getElementById('hcard').classList.remove('show');
@@ -490,37 +468,17 @@ function openDetail(loc){
   var sl=SL[loc.status]||SL.identified;
   var tags=(loc.tags||[]).map(function(t){return'<span class="dp-tag">'+t+'</span>'}).join('');
   var zone=hasCoords(loc)&&miles(loc.lat,loc.lng)<=30?' <span style="color:var(--green)">· in zone</span>':'';
-
-  // Set up image viewer
   dpImages=loc.cover_photo_url?[loc.cover_photo_url]:[];
   dpIndex=0;
   dpUpdateViewer();
-
-  // Build text body
   var html='<span class="dp-status" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span>'+zone;
-  if(loc.address||loc.city){
-    html+='<div class="dp-label">Address</div>';
-    html+='<div class="dp-val">'+[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')+'</div>';
-  }
-  if(loc.notes){
-    html+='<div class="dp-label">Scout notes</div>';
-    html+='<div class="dp-notes">'+formatNotes(loc.notes)+'</div>';
-  }
-  if(tags){
-    html+='<div class="dp-label">Tags</div>';
-    html+='<div class="dp-tags">'+tags+'</div>';
-  }
-  if(loc.scout_name||loc.scout_date){
-    html+='<div class="dp-label">Scouted by</div>';
-    html+='<div class="dp-val" style="font-size:11px">'+[loc.scout_name,loc.scout_date].filter(Boolean).join(' - ')+'</div>';
-  }
+  if(loc.address||loc.city){html+='<div class="dp-label">Address</div><div class="dp-val">'+[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')+'</div>'}
+  if(loc.notes){html+='<div class="dp-label">Scout notes</div><div class="dp-notes">'+formatNotes(loc.notes)+'</div>'}
+  if(tags){html+='<div class="dp-label">Tags</div><div class="dp-tags">'+tags+'</div>'}
+  if(loc.scout_name||loc.scout_date){html+='<div class="dp-label">Scouted by</div><div class="dp-val" style="font-size:11px">'+(loc.scout_name||'')+(loc.scout_date?' · '+loc.scout_date:'')+'</div>'}
   html+='<div class="dp-actions">';
-  if(loc.smugmug_gallery_url){
-    html+='<button class="dp-btn pri" data-url="'+loc.smugmug_gallery_url+'" onclick="window.open(this.dataset.url,this.dataset.t)" data-t="_blank">open gallery ↗</button>';
-  }
-  if(hasCoords(loc)){
-    html+='<button class="dp-btn" data-url="https://www.google.com/maps?q='+loc.lat+','+loc.lng+'" onclick="window.open(this.dataset.url,this.dataset.t)" data-t="_blank">maps ↗</button>';
-  }
+  if(loc.smugmug_gallery_url){html+='<button class="dp-btn pri" onclick="window.open(this.dataset.url,this.dataset.t)" data-url="'+loc.smugmug_gallery_url+'" data-t="_blank">open gallery ↗</button>'}
+  if(hasCoords(loc)){html+='<button class="dp-btn" onclick="window.open(this.dataset.url,this.dataset.t)" data-url="https://www.google.com/maps?q='+loc.lat+','+loc.lng+'" data-t="_blank">maps ↗</button>'}
   html+='</div>';
   document.getElementById('dp-body').innerHTML=html;
   document.getElementById('detail-panel').classList.add('open');
@@ -542,64 +500,13 @@ function dpUpdateViewer(){
   prev.style.display=multi?'block':'none';
   next.style.display=multi?'block':'none';
   counter.style.display=multi?'block':'none';
-  if(multi){
-    prev.disabled=false;
-    next.disabled=false;
-    counter.textContent=(dpIndex+1)+' / '+dpImages.length;
-  }
+  if(multi){prev.disabled=false;next.disabled=false;counter.textContent=(dpIndex+1)+' / '+dpImages.length}
 }
-
 function dpNav(dir){
   if(!dpImages.length)return;
   dpIndex=(dpIndex+dir+dpImages.length)%dpImages.length;
   dpUpdateViewer();
 }
-
-async function cleanRemoved(){
-  var btn=document.getElementById('clean-btn');
-  btn.disabled=true;btn.textContent='checking...';
-  try{
-    // Get all albums from DB
-    var dbAlbums=await db('smugmug_albums?select=sm_key,name,web_url');
-    var removed=[];
-    // Check each album by trying to fetch its URL from SmugMug
-    // We use the web_url to group by folder and check
-    var folderPaths=new Set();
-    dbAlbums.forEach(function(a){
-      if(a.web_url){
-        var parts=a.web_url.replace('https://jordanhoffman.smugmug.com/','').split('/');
-        if(parts.length>1)folderPaths.add(parts.slice(0,-1).join('/'));
-      }
-    });
-    // Check each folder via SmugMug browse
-    var tb=btoa(JSON.stringify(smTokens));
-    var foundUrls=new Set();
-    var paths=Array.from(folderPaths);
-    btn.textContent='checking '+paths.length+' folders...';
-    for(var i=0;i<paths.length;i++){
-      try{
-        var r=await fetch(SM_BASE+'/api/smugmug?action=browse&path=/'+paths[i],{headers:{Authorization:'Bearer '+tb}});
-        if(r.ok){
-          var d=await r.json();
-          (d.albums||[]).forEach(function(a){if(a.url)foundUrls.add(a.url)});
-        }
-      }catch(e){}
-    }
-    // Delete albums not found
-    for(var j=0;j<dbAlbums.length;j++){
-      var a=dbAlbums[j];
-      if(a.web_url&&!foundUrls.has(a.web_url)){
-        await fetch(SB_URL+'/rest/v1/smugmug_albums?sm_key=eq.'+a.sm_key,{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
-        await fetch(SB_URL+'/rest/v1/locations?smugmug_album_key=eq.'+a.sm_key+'&address=is.null&notes=is.null',{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
-        removed.push(a.name);
-      }
-    }
-    libLoaded=false;
-    toast(removed.length?('Removed '+removed.length+' deleted albums'):'Nothing to remove','ok');
-    btn.textContent='clean removed';btn.disabled=false;
-  }catch(e){toast('Error: '+e.message,'err');btn.textContent='clean removed';btn.disabled=false}
-}
-
 function closeDetail(){document.getElementById('detail-panel').classList.remove('open')}
 
 async function loadDetailGallery(loc){
@@ -609,7 +516,6 @@ async function loadDetailGallery(loc){
     if(!imgs||!imgs.length)return;
     var thumbs=imgs.map(function(i){return i.thumb_url}).filter(Boolean);
     if(!thumbs.length)return;
-    // cover_photo_url already in dpImages[0] from openDetail, just append new thumbs
     var existing=dpImages[0]||null;
     dpImages=existing?[existing].concat(thumbs.filter(function(t){return t!==existing})):thumbs;
     dpIndex=0;
@@ -629,14 +535,8 @@ function formatNotes(raw){
   }).join('<br>');
 }
 
-function openLightbox(url){
-  document.getElementById('lightbox-img').src=smXL(url);
-  document.getElementById('lightbox').classList.add('open');
-}
-function closeLightbox(){
-  document.getElementById('lightbox').classList.remove('open');
-  document.getElementById('lightbox-img').src='';
-}
+function openLightbox(url){document.getElementById('lightbox-img').src=smXL(url);document.getElementById('lightbox').classList.add('open')}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('open');document.getElementById('lightbox-img').src=''}
 
 function toggleZone(){
   zoneOn=!zoneOn;
@@ -662,13 +562,8 @@ async function geocodeAll(){
       var r=await fetch(SM_BASE+'/api/geocode?address='+encodeURIComponent((loc.geocode_query||loc.name)+' NY'));
       var d=await r.json();
       if(d.ok&&d.lat){
-        await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{
-          method:'PATCH',
-          headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
-          body:JSON.stringify({lat:d.lat,lng:d.lng})
-        });
-        var l=locations.find(function(x){return x.id===loc.id});
-        if(l){l.lat=d.lat;l.lng=d.lng}
+        await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({lat:d.lat,lng:d.lng})});
+        var l=locations.find(function(x){return x.id===loc.id});if(l){l.lat=d.lat;l.lng=d.lng}
         done++;
       }else failed++;
     }catch(e){failed++}
@@ -677,6 +572,16 @@ async function geocodeAll(){
   btn.disabled=false;btn.textContent='geocode addresses';
   toast('Geocoded '+done+(failed?', '+failed+' failed':''),done>0?'ok':'err');
   if(done>0&&gmap)refreshPins();
+}
+
+// ── SMUGMUG DOCK ──
+function toggleDock(){
+  dockOpen=!dockOpen;
+  document.getElementById('dock-actions').classList.toggle('open',dockOpen);
+}
+function closeDock(){
+  dockOpen=false;
+  document.getElementById('dock-actions').classList.remove('open');
 }
 
 function checkAuth(){
@@ -691,82 +596,172 @@ function checkAuth(){
   var s=localStorage.getItem('sm_tokens');
   if(s)try{smTokens=JSON.parse(s);updateAuthUI(true)}catch(e){}
 }
+
 function updateAuthUI(ok){
-  var b=document.getElementById('sm-btn'),s=document.getElementById('sync-btn');
-  var lb=document.getElementById('lib-bottom');
-  if(ok){b.textContent='smugmug ✓';b.classList.add('connected');if(lb)lb.style.display='flex';}
-  else{b.textContent='connect smugmug';b.classList.remove('connected');if(lb)lb.style.display='none';}
+  var smBtn=document.getElementById('dock-sm-btn');
+  var smLabel=document.getElementById('dock-sm-label');
+  var authBtn=document.getElementById('dock-auth-btn');
+  var syncBtn=document.getElementById('dock-sync-btn');
+  if(ok){
+    smBtn.classList.remove('unconnected');
+    smLabel.textContent='smugmug ✓';
+    authBtn.style.display='none';
+    syncBtn.style.display='flex';
+  }else{
+    smBtn.classList.add('unconnected');
+    smLabel.textContent='smugmug';
+    authBtn.style.display='flex';
+    syncBtn.style.display='none';
+  }
 }
+
 async function checkSyncStatus(){
   try{
     var r=await db('sync_log?id=eq.1&select=*');
     if(r&&r[0]&&r[0].last_sync){
       var d=new Date(r[0].last_sync);
-      document.getElementById('sync-status-pill').textContent='synced '+d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' · '+(r[0].images_count||0)+' photos';
+      var txt='synced '+d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' · '+(r[0].images_count||0)+' photos';
+      var ns=document.getElementById('nav-status');if(ns)ns.textContent=txt;
     }
   }catch(e){}
 }
-function openSyncModal(){document.getElementById('sync-modal').classList.add('open')}
+
 async function doAuth(){
-  var btn=document.getElementById('auth-btn');
-  btn.disabled=true;btn.textContent='connecting...';
+  var btn=document.getElementById('dock-auth-btn');
+  btn.textContent='connecting...';btn.disabled=true;
   try{
     var r=await fetch(SM_BASE+'/api/smugmug?action=auth');
     var d=await r.json();
     if(d.authUrl)window.location.href=d.authUrl;
     else throw new Error('No auth URL');
-  }catch(e){toast('Auth failed','err');btn.disabled=false;btn.textContent='authorize smugmug ↗'}
+  }catch(e){toast('Auth failed','err');btn.textContent='authorize ↗';btn.disabled=false}
 }
-async function startSync(){
+
+// ── FULL SYNC (structure + orphan handling + new images) ──
+async function startFullSync(){
   if(!smTokens){toast('Connect SmugMug first','err');return}
-  document.getElementById('sync-modal').classList.add('open');
-  document.getElementById('sync-prog').style.display='block';
-  document.getElementById('sm-steps').style.display='none';
-  document.getElementById('auth-btn').style.display='none';
-  var label=document.getElementById('prog-label'),fill=document.getElementById('prog-fill');
+  closeDock();
+  var label=document.getElementById('dock-sync-label');
+  var ns=document.getElementById('nav-status');
+  if(label)label.textContent='...';
+  var btn=document.getElementById('dock-sync-btn');
+  if(btn)btn.disabled=true;
+
   var tb=btoa(JSON.stringify(smTokens));
-  var syncStart=new Date().toISOString();
+
   try{
-    label.textContent='connecting...';fill.style.width='10%';
+    // Step 1: Crawl structure from SmugMug
+    if(ns)ns.textContent='crawling...';
     var cr=await fetch(SM_BASE+'/api/smugmug?action=crawl',{headers:{Authorization:'Bearer '+tb}});
     if(!cr.ok)throw new Error(await cr.text());
-    var cdata=await cr.json();
-    var library=cdata.library;
-    label.textContent='found '+(library.albums?library.albums.length:0)+' albums — syncing...';fill.style.width='30%';
-    var syncedKeys=(library.albums||[]).map(function(a){return a.id}).filter(Boolean);
-    var syncResp=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:syncStart,synced_keys:syncedKeys})});
-    var syncData=syncResp.ok?await syncResp.json():{};
-    if(syncData.stats&&syncData.stats.deleted>0){
-      if(ns)ns.textContent='removed '+syncData.stats.deleted+' deleted albums';
-    }
-    fill.style.width='50%';
+    var library=(await cr.json()).library;
+    var smAlbums=library.albums||[];
+    var smAlbumUrls=new Set(smAlbums.map(function(a){return a.url}).filter(Boolean));
+    if(ns)ns.textContent='found '+smAlbums.length+' albums';
 
+    // Step 2: Sync folders + albums to DB
+    await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({library:{folders:library.folders||[],albums:smAlbums,images:[]}})});
 
-    var imgs=library.images||[];
-    var chunks=Math.ceil(imgs.length/200)||1;
-    for(var i=0;i<imgs.length;i+=200){
-      var chunk=imgs.slice(i,i+200);if(!chunk.length)break;
-      label.textContent='syncing photos... '+(Math.floor(i/200)+1)+'/'+chunks;
-      fill.style.width=(50+(Math.floor(i/200)+1)/chunks*45)+'%';
-      var sr=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({library:{folders:[],albums:[],images:chunk}})});
+    // Step 3: Handle removed albums
+    // Get all albums in DB
+    var dbAlbums=await db('smugmug_albums?select=sm_key,name,web_url');
+    var orphaned=0,deleted=0;
+
+    for(var i=0;i<dbAlbums.length;i++){
+      var a=dbAlbums[i];
+      if(!a.web_url||smAlbumUrls.has(a.web_url))continue; // still exists in SmugMug
+
+      // Check if this album has images in smugmug_images
+      var hasImgs=await db('smugmug_images?album_key=eq.'+a.sm_key+'&select=sm_key&limit=1');
+
+      if(hasImgs&&hasImgs.length>0){
+        // Has images — move to Orphans folder instead of deleting
+        await fetch(SB_URL+'/rest/v1/smugmug_albums?sm_key=eq.'+a.sm_key,{
+          method:'PATCH',
+          headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+          body:JSON.stringify({path:'Master-Library/Orphans'})
+        });
+        orphaned++;
+      }else{
+        // No images — safe to delete
+        await fetch(SB_URL+'/rest/v1/smugmug_albums?sm_key=eq.'+a.sm_key,{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
+        await fetch(SB_URL+'/rest/v1/locations?smugmug_album_key=eq.'+a.sm_key+'&address=is.null&notes=is.null',{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
+        deleted++;
+      }
     }
-    fill.style.width='100%';label.textContent='✓ sync complete';
-    await loadLocations();if(gmap)refreshPins();checkSyncStatus();
-    libLoaded=false;toast('Sync complete');
-    setTimeout(function(){
-      closeModal('sync-modal');
-      document.getElementById('sync-prog').style.display='none';
-      document.getElementById('sm-steps').style.display='flex';
-      document.getElementById('auth-btn').style.display='block';
-      fill.style.width='0%';
-    },2000);
+
+    // Ensure Orphans folder exists if we have orphans
+    if(orphaned>0){
+      await fetch(SB_URL+'/rest/v1/smugmug_folders',{method:'POST',
+        headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},
+        body:JSON.stringify({sm_id:'orphans',name:'Orphans',path:'Master-Library/Orphans',synced_at:new Date().toISOString()})});
+    }
+
+    // Step 4: Sync images for albums missing them
+    var allAlbums=await db('smugmug_albums?select=sm_key,name&order=name.asc');
+    var synced=await db('smugmug_images?select=album_key');
+    var syncedKeys=new Set(synced.map(function(i){return i.album_key}));
+    var missing=allAlbums.filter(function(a){return!syncedKeys.has(a.sm_key)});
+
+    if(ns)ns.textContent='syncing images for '+missing.length+' albums...';
+
+    var imgDone=0;
+    for(var j=0;j<missing.length;j++){
+      var album=missing[j];
+      if(ns)ns.textContent='images '+(j+1)+'/'+missing.length+'...';
+      try{
+        var ir=await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+album.sm_key,{headers:{Authorization:'Bearer '+tb}});
+        if(!ir.ok)continue;
+        var imgs=(await ir.json()).images||[];
+        if(imgs.length){
+          await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library:{folders:[],albums:[],images:imgs}})});
+          var firstThumb=imgs[0]&&imgs[0].thumbUrl;
+          if(firstThumb){
+            var loc=locations.find(function(l){return l.smugmug_album_key===album.sm_key});
+            if(loc&&!loc.cover_photo_url){
+              await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({cover_photo_url:firstThumb})});
+              loc.cover_photo_url=firstThumb;
+            }
+          }
+          imgDone++;
+        }
+      }catch(e){console.error('img sync:',e.message)}
+      await new Promise(function(res){setTimeout(res,150)});
+    }
+
+    // Done
+    await loadLocations();
+    if(gmap)refreshPins();
+    libLoaded=false;
+    checkSyncStatus();
+    var msg='Sync complete';
+    if(deleted)msg+=' · '+deleted+' removed';
+    if(orphaned)msg+=' · '+orphaned+' orphaned';
+    if(imgDone)msg+=' · '+imgDone+' new albums with images';
+    toast(msg,'ok');
+    if(ns)ns.textContent='synced just now';
+
   }catch(e){
-    label.textContent='error: '+e.message;
-    toast('Sync failed: '+e.message,'err');
-    document.getElementById('auth-btn').style.display='block';
+    toast('Sync error: '+e.message,'err');
+    if(ns)ns.textContent='sync error';
   }
+  if(label)label.textContent='sync';
+  if(btn)btn.disabled=false;
+}
+
+async function checkAutoSync(){
+  if(!smTokens)return;
+  try{
+    var r=await db('sync_log?id=eq.1&select=last_sync');
+    if(!r||!r[0]||!r[0].last_sync)return;
+    var hoursSince=(Date.now()-new Date(r[0].last_sync).getTime())/(1000*60*60);
+    if(hoursSince>24){
+      var ns=document.getElementById('nav-status');
+      if(ns)ns.textContent='auto-syncing...';
+      startFullSync();
+    }
+  }catch(e){}
 }
 
 // ── LIBRARY ──
@@ -776,8 +771,7 @@ async function libInit(){
   try{
     libFolders=await db('smugmug_folders?select=name,path&order=path.asc');
     libAlbums=await db('smugmug_albums?select=sm_key,name,path,web_url,image_count,highlight_url&order=name.asc');
-    libLoaded=true;
-    libStack=[];
+    libLoaded=true;libStack=[];
     libRender();
   }catch(e){
     document.getElementById('lib-grid').innerHTML='<div class="empty">error: '+e.message+'</div>';
@@ -792,30 +786,20 @@ function albumParentPath(a){
   return a.path||'';
 }
 
-function libGridClick(e){
-  // Close detail panel only if clicking empty grid area (not a card)
-  if(e.target===document.getElementById('lib-grid'))closeDetail();
-}
+function libGridClick(e){if(e.target===document.getElementById('lib-grid'))closeDetail()}
 
 function libBrowse(path,label){
   document.getElementById('lib-q').value='';
   document.getElementById('lib-status').value='';
   if(path===null){
-    libRedoStack=libStack.slice().reverse();
-    libStack=[];
+    libRedoStack=libStack.slice().reverse();libStack=[];
   }else{
     var ex=libStack.findIndex(function(s){return s.path===path});
-    if(ex>=0){
-      libRedoStack=libStack.slice(ex+1).reverse();
-      libStack=libStack.slice(0,ex+1);
-    }else{
-      libRedoStack=[];
-      libStack.push({path:path,label:label||path.split('/').pop().replace(/-/g,' ')});
-    }
+    if(ex>=0){libRedoStack=libStack.slice(ex+1).reverse();libStack=libStack.slice(0,ex+1)}
+    else{libRedoStack=[];libStack.push({path:path,label:label||path.split('/').pop().replace(/-/g,' ')})}
   }
   libRender();
 }
-
 
 function libRender(){
   var grid=document.getElementById('lib-grid');
@@ -823,42 +807,27 @@ function libRender(){
   var currentPath=libStack.length>0?libStack[libStack.length-1].path:null;
   var targetPath=currentPath||'Master-Library';
 
-  // Breadcrumb
   var bcHtml='<span class="lib-bc-seg'+(currentPath?'':' cur')+'" onclick="libBrowse(null)">Master Library</span>';
   libStack.forEach(function(s,i){
     var isCur=i===libStack.length-1;
     bcHtml+='<span class="lib-bc-sep"> / </span>';
-    if(isCur){
-      bcHtml+='<span class="lib-bc-seg cur">'+s.label+'</span>';
-    }else{
-      bcHtml+='<span class="lib-bc-seg" data-p="'+s.path+'" data-l="'+s.label+'" onclick="libFolderClick(this)">'+s.label+'</span>';
-    }
+    if(isCur){bcHtml+='<span class="lib-bc-seg cur">'+s.label+'</span>'}
+    else{bcHtml+='<span class="lib-bc-seg" data-p="'+s.path+'" data-l="'+s.label+'" onclick="libFolderClick(this)">'+s.label+'</span>'}
   });
   bc.innerHTML=bcHtml;
 
-  // Subfolders — direct children only
   var subFolders=libFolders.filter(function(f){
     if(!f.path||f.path.indexOf(targetPath+'/')<0)return false;
-    var rest=f.path.slice(targetPath.length+1);
-    return rest.indexOf('/')<0;
+    return f.path.slice(targetPath.length+1).indexOf('/')<0;
   });
-
-  // Albums whose parent path === targetPath
-  var directAlbums=libAlbums.filter(function(a){
-    return albumParentPath(a)===targetPath;
-  });
+  var directAlbums=libAlbums.filter(function(a){return albumParentPath(a)===targetPath});
 
   var cards='';
 
   subFolders.forEach(function(f){
-    var children=libAlbums.filter(function(a){
-      var p=albumParentPath(a);
-      return p===f.path||p.indexOf(f.path+'/')===0;
-    });
+    var children=libAlbums.filter(function(a){var p=albumParentPath(a);return p===f.path||p.indexOf(f.path+'/')===0});
     var count=children.length;
     var name=f.name||f.path.split('/').pop().replace(/-/g,' ');
-    // Always cascade from child location cover photos (guaranteed 16:9)
-    // Skip highlight_url which may be portrait format
     var thumb='';
     for(var i=0;i<children.length;i++){
       var ca=children[i];
@@ -879,18 +848,14 @@ function libRender(){
     var loc=locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url});
     var thumb=(loc&&loc.cover_photo_url)||a.highlight_url||'';
     var sl=loc?SL[loc.status]||SL.identified:null;
-    var locId=loc?loc.id:'';
-    var smUrl=a.web_url||'#';
-    cards+='<div class="gcard" data-locid="'+locId+'" data-smurl="'+smUrl+'" onclick="libCardClick(this)">';
+    cards+='<div class="gcard" data-locid="'+(loc?loc.id:'')+'" data-smurl="'+(a.web_url||'#')+'" onclick="libCardClick(this)">';
     cards+='<div class="gcard-tw">';
     if(thumb)cards+='<img class="gcard-img" src="'+smMedium(thumb)+'" loading="lazy" onerror="hideOnError(this)">';
     cards+='<div class="gcard-ph">&#9636;</div>';
     cards+='<div class="gcard-overlay">'+a.name+'</div>';
     cards+='</div>';
-    cards+='<div class="gcard-meta">';
-    if(sl)cards+='<span style="color:'+sl.c+'">'+loc.status+'</span> · ';
-    cards+=(a.image_count||0)+' photos';
-    cards+='</div></div>';
+    cards+='<div class="gcard-meta">'+(sl?'<span style="color:'+sl.c+'">'+loc.status+'</span> · ':'')+(a.image_count||0)+' photos</div>';
+    cards+='</div>';
   });
 
   grid.innerHTML=cards||'<div class="empty">empty folder</div>';
@@ -902,10 +867,7 @@ function libCardClick(el){
   var smUrl=el.dataset.smurl;
   if(smUrl&&smUrl!=='#')window.open(smUrl,'_blank');
 }
-function libFolderClick(el){
-  var p=el.getAttribute('data-p'),l=el.getAttribute('data-l');
-  if(p)libBrowse(p,l);
-}
+function libFolderClick(el){var p=el.getAttribute('data-p'),l=el.getAttribute('data-l');if(p)libBrowse(p,l)}
 
 function libSearch(){
   var q=document.getElementById('lib-q').value.toLowerCase();
@@ -917,223 +879,53 @@ function libSearch(){
     if(q){var h=[l.name,l.address,l.city,l.notes].concat(l.tags||[]).join(' ').toLowerCase();if(h.indexOf(q)<0)return false}
     return true;
   });
-  bc.innerHTML='<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span>'+
-    '<span class="lib-bc-sep"> / </span>'+
-    '<span class="lib-bc-seg cur">search ('+f.length+')</span>';
+  bc.innerHTML='<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span><span class="lib-bc-sep"> / </span><span class="lib-bc-seg cur">search ('+f.length+')</span>';
   if(!f.length){grid.innerHTML='<div class="empty">no results</div>';return}
-  var cards=f.map(function(l){
+  grid.innerHTML=f.map(function(l){
     var sl=SL[l.status]||SL.identified;
     var c='<div class="gcard" data-locid="'+l.id+'" onclick="libCardClick(this)">';
     c+='<div class="gcard-tw">';
     if(l.cover_photo_url)c+='<img class="gcard-img" src="'+smMedium(l.cover_photo_url)+'" loading="lazy" onerror="hideOnError(this)">';
-    c+='<div class="gcard-ph">&#9636;</div>';
-    c+='<div class="gcard-overlay">'+l.name+'</div>';
-    c+='</div>';
-    c+='<div class="gcard-meta" style="color:'+sl.c+'">'+l.status+' · '+([l.city,l.state_code].filter(Boolean).join(', ')||'—')+'</div>';
-    c+='</div>';
+    c+='<div class="gcard-ph">&#9636;</div><div class="gcard-overlay">'+l.name+'</div></div>';
+    c+='<div class="gcard-meta" style="color:'+sl.c+'">'+l.status+' · '+([l.city,l.state_code].filter(Boolean).join(', ')||'—')+'</div></div>';
     return c;
   }).join('');
-  grid.innerHTML=cards;
 }
 
-async function startImageSync(){
-  var btn=document.getElementById('img-sync-btn');
-  if(!smTokens){toast('Connect SmugMug first','err');return}
-  // Get all albums that have no images synced
-  var allAlbums=await db('smugmug_albums?select=sm_key,name,sm_uri&order=name.asc');
-  var synced=await db('smugmug_images?select=album_key');
-  var syncedKeys=new Set(synced.map(function(i){return i.album_key}));
-  var missing=allAlbums.filter(function(a){return!syncedKeys.has(a.sm_key)});
-  if(!missing.length){toast('All albums have images','inf');return}
-  if(!confirm('Sync images for '+missing.length+' albums without photos? This may take several minutes.'))return;
-  btn.disabled=true;
-  var tb=btoa(JSON.stringify(smTokens));
-  var done=0,failed=0;
-  for(var i=0;i<missing.length;i++){
-    var album=missing[i];
-    btn.textContent='syncing images '+(i+1)+'/'+missing.length+'...';
-    try{
-      // Fetch images for this album via sync-path action
-      var r=await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+album.sm_key,{
-        headers:{Authorization:'Bearer '+tb}
-      });
-      if(!r.ok){failed++;continue}
-      var d=await r.json();
-      var imgs=d.images||[];
-      if(imgs.length){
-        // Sync images to DB
-        var sr=await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({library:{folders:[],albums:[],images:imgs}})});
-        // Set cover photo on location
-        var firstThumb=imgs[0]&&imgs[0].thumbUrl;
-        if(firstThumb){
-          var loc=locations.find(function(l){return l.smugmug_album_key===album.sm_key});
-          if(loc&&!loc.cover_photo_url){
-            await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{
-              method:'PATCH',
-              headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
-              body:JSON.stringify({cover_photo_url:firstThumb})
-            });
-            loc.cover_photo_url=firstThumb;
-          }
-        }
-        done++;
-      }
-    }catch(e){failed++;console.error('img sync error:',album.name,e.message)}
-    // Small delay to avoid hammering API
-    await new Promise(function(res){setTimeout(res,200)});
-  }
-  btn.disabled=false;btn.textContent='sync images';
-  toast('Synced images for '+done+' albums'+(failed?' ('+failed+' failed)':''),'ok');
-  libLoaded=false;
-  if(gmap)refreshPins();
-}
-
-async function startFullSync(){
-  var btn=document.getElementById('sync-square');
-  if(!smTokens){openSyncModal();return}
-  if(btn){var sl=document.getElementById('sync-label');if(sl)sl.textContent='...';btn.disabled=true;}
-  var tb=btoa(JSON.stringify(smTokens));
-  var syncStart=new Date().toISOString();
-  try{
-    // Step 1: Sync structure
-    var ns=document.getElementById('nav-status');
-    if(ns)ns.textContent='syncing structure...';
-    var cr=await fetch(SM_BASE+'/api/smugmug?action=crawl',{headers:{Authorization:'Bearer '+tb}});
-    if(!cr.ok)throw new Error(await cr.text());
-    var library=(await cr.json()).library;
-    if(ns)ns.textContent='found '+(library.albums?library.albums.length:0)+' albums...';
-    await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({library:{folders:library.folders||[],albums:library.albums||[],images:[]},sync_start:syncStart})});
-    // Step 2: Sync images for albums missing them
-    var allAlbums=await db('smugmug_albums?select=sm_key,name&order=name.asc');
-    var synced=await db('smugmug_images?select=album_key');
-    var syncedKeys=new Set(synced.map(function(i){return i.album_key}));
-    var missing=allAlbums.filter(function(a){return!syncedKeys.has(a.sm_key)});
-    if(ns)ns.textContent='syncing images for '+missing.length+' albums...';
-    var done=0;
-    for(var i=0;i<missing.length;i++){
-      var album=missing[i];
-      if(ns)ns.textContent='images '+(i+1)+'/'+missing.length+'...';
-      try{
-        var r=await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+album.sm_key,{headers:{Authorization:'Bearer '+tb}});
-        if(!r.ok)continue;
-        var imgs=(await r.json()).images||[];
-        if(imgs.length){
-          await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({library:{folders:[],albums:[],images:imgs}})});
-          var firstThumb=imgs[0]&&imgs[0].thumbUrl;
-          if(firstThumb){
-            var loc=locations.find(function(l){return l.smugmug_album_key===album.sm_key});
-            if(loc&&!loc.cover_photo_url){
-              await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{
-                method:'PATCH',
-                headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
-                body:JSON.stringify({cover_photo_url:firstThumb})
-              });
-              loc.cover_photo_url=firstThumb;
-            }
-          }
-          done++;
-        }
-      }catch(e){console.error('img sync:',e.message)}
-      await new Promise(function(res){setTimeout(res,150)});
-    }
-    // Done
-    await loadLocations();
-    if(gmap)refreshPins();
-    libLoaded=false;
-    checkSyncStatus();
-    if(ns)ns.textContent='synced '+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    toast('Sync complete'+(done?' · '+done+' new albums with images':''),'ok');
-  }catch(e){
-    toast('Sync error: '+e.message,'err');
-    var ns=document.getElementById('nav-status');
-    if(ns)ns.textContent='sync error';
-  }
-  if(btn){var sl2=document.getElementById('sync-label');if(sl2)sl2.textContent='sync';btn.disabled=false;}
-}
-
-// Auto-sync if last sync > 24 hours ago
-async function checkAutoSync(){
-  if(!smTokens)return;
-  try{
-    var r=await db('sync_log?id=eq.1&select=last_sync');
-    if(!r||!r[0]||!r[0].last_sync)return;
-    var lastSync=new Date(r[0].last_sync);
-    var hoursSince=(Date.now()-lastSync.getTime())/(1000*60*60);
-    if(hoursSince>24){
-      console.log('Auto-syncing — last sync was '+Math.round(hoursSince)+' hours ago');
-      var ns=document.getElementById('nav-status');
-      if(ns)ns.textContent='auto-syncing...';
-      startFullSync();
-    }
-  }catch(e){}
-}
+function hideOnError(el){el.style.display='none'}
 
 document.addEventListener('keydown',function(e){
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA')return;
-
   if(e.key==='Escape'){
     if(document.getElementById('lightbox').classList.contains('open')){closeLightbox();return}
+    if(dockOpen){closeDock();return}
     document.querySelectorAll('.modal-ov.open').forEach(function(m){m.classList.remove('open')});
     if(document.getElementById('detail-panel').classList.contains('open')){closeDetail();return}
     document.getElementById('hcard').classList.remove('show');
     return;
   }
-
   var panelOpen=document.getElementById('detail-panel').classList.contains('open');
-
   if(panelOpen){
-    if(e.key==='ArrowRight'||e.key==='ArrowDown'){
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();dpIndex=(dpIndex+1)%Math.max(dpImages.length,1);dpUpdateViewer()}
+    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();dpIndex=(dpIndex-1+Math.max(dpImages.length,1))%Math.max(dpImages.length,1);dpUpdateViewer()}
+    if(e.key===' '){
       e.preventDefault();
-      dpIndex=(dpIndex+1)%Math.max(dpImages.length,1);
-      dpUpdateViewer();
-    }
-    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){
-      e.preventDefault();
-      dpIndex=(dpIndex-1+Math.max(dpImages.length,1))%Math.max(dpImages.length,1);
-      dpUpdateViewer();
+      if(document.getElementById('lightbox').classList.contains('open')){closeLightbox()}
+      else{var src=document.getElementById('dp-viewer-img').src;if(src&&src!==window.location.href)openLightbox(src)}
     }
     return;
   }
-
-  // Spacebar toggles lightbox when panel open
-  if(e.key===' '){
-    e.preventDefault();
-    var panelOpen2=document.getElementById('detail-panel').classList.contains('open');
-    if(panelOpen2){
-      if(document.getElementById('lightbox').classList.contains('open')){
-        closeLightbox();
-      }else{
-        var src=document.getElementById('dp-viewer-img').src;
-        if(src&&src!==window.location.href)openLightbox(src);
-      }
-    }
-    return;
-  }
-
   var libActive=document.getElementById('library-page').classList.contains('active');
   if(libActive){
-    if(e.key==='ArrowLeft'){
-      e.preventDefault();
-      if(libStack.length>0){
-        libRedoStack.push(libStack.pop());
-        libRender();
-      }
-    }
-    if(e.key==='ArrowRight'){
-      e.preventDefault();
-      if(libRedoStack.length>0){
-        libStack.push(libRedoStack.pop());
-        libRender();
-      }
-    }
+    if(e.key==='ArrowLeft'){e.preventDefault();if(libStack.length>0){libRedoStack.push(libStack.pop());libRender()}}
+    if(e.key==='ArrowRight'){e.preventDefault();if(libRedoStack.length>0){libStack.push(libRedoStack.pop());libRender()}}
   }
 });
-document.querySelectorAll('.modal-ov').forEach(function(m){m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('open')})});
 
-function hideOnError(el){el.style.display="none"}
+document.addEventListener('click',function(e){
+  if(dockOpen&&!document.getElementById('sm-dock').contains(e.target))closeDock();
+});
+
 (async function(){
   checkAuth();
   await loadLocations();
