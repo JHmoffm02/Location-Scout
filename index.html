@@ -366,6 +366,7 @@ function setCatColor(cat,color){
 }
 
 var locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false,mapInitialLoad=true;
+var selectedMarker=null,selectedMarkerLoc=null;
 var mapFolders=[],mapAlbums=[],filterState={}; // left panel state
 var smTokens=null,currentHoverLoc=null;
 var libFolders=[],libAlbums=[],libLoaded=false,libStack=[],libRedoStack=[];
@@ -519,10 +520,13 @@ function refreshPins(){
   markers.forEach(function(m){m.setMap(null)});markers=[];
   var filtered=getFiltered();
   filtered.forEach(function(loc){
+    var baseColor=getCatColor(loc);
     var m=new google.maps.Marker({
       position:{lat:Number(loc.lat),lng:Number(loc.lng)},map:gmap,title:loc.name,
-      icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,fillColor:getCatColor(loc),fillOpacity:.95,strokeColor:'#000',strokeWeight:1.5}
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,fillColor:baseColor,fillOpacity:.95,strokeColor:'#000',strokeWeight:1.5},
+      zIndex:1
     });
+    m._loc=loc;m._baseColor=baseColor;
     m.addListener('mouseover',function(e){currentHoverLoc=loc;showHcard(loc,e.domEvent)});
     m.addListener('mouseout',function(){setTimeout(function(){var h=document.getElementById('hcard');if(!h.matches(':hover'))h.classList.remove('show')},200)});
     m.addListener('mousemove',function(e){posHcard(e.domEvent)});
@@ -590,7 +594,7 @@ function openDetail(loc){
   document.getElementById('detail-panel').classList.add('open');
   document.getElementById('dp-scroll').scrollTop=0;
   // Pan map to center pin in visible area (home page only)
-  if(document.getElementById('home-page').classList.contains('active'))panToVisible(loc);
+  if(document.getElementById('home-page').classList.contains('active')){panToVisible(loc);highlightMarker(loc);}
   loadDetailGallery(loc);
 }
 
@@ -615,6 +619,55 @@ function dpNav(dir){
   dpIndex=(dpIndex+dir+dpImages.length)%dpImages.length;
   dpUpdateViewer();
 }
+function highlightMarker(loc){
+  // Unhighlight previous
+  if(selectedMarker){
+    selectedMarker.setIcon({
+      path:google.maps.SymbolPath.CIRCLE,
+      scale:9,
+      fillColor:selectedMarker._baseColor,
+      fillOpacity:.95,
+      strokeColor:'#000',
+      strokeWeight:1.5
+    });
+    selectedMarker.setZIndex(1);
+  }
+  // Find marker for this loc
+  selectedMarker=null;
+  for(var i=0;i<markers.length;i++){
+    if(markers[i]._loc&&markers[i]._loc.id===loc.id){
+      selectedMarker=markers[i];
+      break;
+    }
+  }
+  if(!selectedMarker)return;
+  // Brighten color
+  var col=selectedMarker._baseColor;
+  selectedMarker.setIcon({
+    path:google.maps.SymbolPath.CIRCLE,
+    scale:14,
+    fillColor:col,
+    fillOpacity:1,
+    strokeColor:'#fff',
+    strokeWeight:2.5
+  });
+  selectedMarker.setZIndex(999);
+}
+
+function unhighlightSelected(){
+  if(!selectedMarker)return;
+  selectedMarker.setIcon({
+    path:google.maps.SymbolPath.CIRCLE,
+    scale:9,
+    fillColor:selectedMarker._baseColor,
+    fillOpacity:.95,
+    strokeColor:'#000',
+    strokeWeight:1.5
+  });
+  selectedMarker.setZIndex(1);
+  selectedMarker=null;
+}
+
 function panToVisible(loc){
   if(!gmap||!hasCoords(loc))return;
   // First pan to the location
@@ -631,7 +684,7 @@ function panToVisible(loc){
   }, 50);
 }
 
-function closeDetail(){document.getElementById('detail-panel').classList.remove('open')}
+function closeDetail(){document.getElementById('detail-panel').classList.remove('open');unhighlightSelected();}
 
 async function loadDetailGallery(loc){
   if(!loc.smugmug_album_key)return;
@@ -1766,6 +1819,7 @@ function setCatColor(cat,color){
 }
 
 var locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false,mapInitialLoad=true;
+var selectedMarker=null,selectedMarkerLoc=null;
 var mapFolders=[],mapAlbums=[],filterState={}; // left panel state
 var smTokens=null,currentHoverLoc=null;
 var libFolders=[],libAlbums=[],libLoaded=false,libStack=[],libRedoStack=[];
@@ -1919,10 +1973,13 @@ function refreshPins(){
   markers.forEach(function(m){m.setMap(null)});markers=[];
   var filtered=getFiltered();
   filtered.forEach(function(loc){
+    var baseColor=getCatColor(loc);
     var m=new google.maps.Marker({
       position:{lat:Number(loc.lat),lng:Number(loc.lng)},map:gmap,title:loc.name,
-      icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,fillColor:getCatColor(loc),fillOpacity:.95,strokeColor:'#000',strokeWeight:1.5}
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:9,fillColor:baseColor,fillOpacity:.95,strokeColor:'#000',strokeWeight:1.5},
+      zIndex:1
     });
+    m._loc=loc;m._baseColor=baseColor;
     m.addListener('mouseover',function(e){currentHoverLoc=loc;showHcard(loc,e.domEvent)});
     m.addListener('mouseout',function(){setTimeout(function(){var h=document.getElementById('hcard');if(!h.matches(':hover'))h.classList.remove('show')},200)});
     m.addListener('mousemove',function(e){posHcard(e.domEvent)});
@@ -1990,7 +2047,7 @@ function openDetail(loc){
   document.getElementById('detail-panel').classList.add('open');
   document.getElementById('dp-scroll').scrollTop=0;
   // Pan map to center pin in visible area (home page only)
-  if(document.getElementById('home-page').classList.contains('active'))panToVisible(loc);
+  if(document.getElementById('home-page').classList.contains('active')){panToVisible(loc);highlightMarker(loc);}
   loadDetailGallery(loc);
 }
 
@@ -2015,6 +2072,55 @@ function dpNav(dir){
   dpIndex=(dpIndex+dir+dpImages.length)%dpImages.length;
   dpUpdateViewer();
 }
+function highlightMarker(loc){
+  // Unhighlight previous
+  if(selectedMarker){
+    selectedMarker.setIcon({
+      path:google.maps.SymbolPath.CIRCLE,
+      scale:9,
+      fillColor:selectedMarker._baseColor,
+      fillOpacity:.95,
+      strokeColor:'#000',
+      strokeWeight:1.5
+    });
+    selectedMarker.setZIndex(1);
+  }
+  // Find marker for this loc
+  selectedMarker=null;
+  for(var i=0;i<markers.length;i++){
+    if(markers[i]._loc&&markers[i]._loc.id===loc.id){
+      selectedMarker=markers[i];
+      break;
+    }
+  }
+  if(!selectedMarker)return;
+  // Brighten color
+  var col=selectedMarker._baseColor;
+  selectedMarker.setIcon({
+    path:google.maps.SymbolPath.CIRCLE,
+    scale:14,
+    fillColor:col,
+    fillOpacity:1,
+    strokeColor:'#fff',
+    strokeWeight:2.5
+  });
+  selectedMarker.setZIndex(999);
+}
+
+function unhighlightSelected(){
+  if(!selectedMarker)return;
+  selectedMarker.setIcon({
+    path:google.maps.SymbolPath.CIRCLE,
+    scale:9,
+    fillColor:selectedMarker._baseColor,
+    fillOpacity:.95,
+    strokeColor:'#000',
+    strokeWeight:1.5
+  });
+  selectedMarker.setZIndex(1);
+  selectedMarker=null;
+}
+
 function panToVisible(loc){
   if(!gmap||!hasCoords(loc))return;
   // First pan to the location
@@ -2031,7 +2137,7 @@ function panToVisible(loc){
   }, 50);
 }
 
-function closeDetail(){document.getElementById('detail-panel').classList.remove('open')}
+function closeDetail(){document.getElementById('detail-panel').classList.remove('open');unhighlightSelected();}
 
 async function loadDetailGallery(loc){
   if(!loc.smugmug_album_key)return;
