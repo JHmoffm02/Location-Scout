@@ -455,10 +455,27 @@ window.initMap=async function(){
   checkSyncStatus();
 };
 
+function getActiveStates(){
+  return ['ny','nj','ct','pa'].filter(function(s){
+    var el=document.getElementById('f-'+s);return el&&el.checked;
+  }).map(function(s){return s.toUpperCase()});
+}
+function getActiveStatuses(){
+  return ['approved','scouted','pending','identified'].filter(function(s){
+    var el=document.getElementById('f-'+s);return el&&el.checked;
+  });
+}
+function locPassesFilter(l){
+  var states=getActiveStates();
+  var statuses=getActiveStatuses();
+  if(states.length&&l.state_code&&states.indexOf((l.state_code||'').toUpperCase())<0)return false;
+  if(statuses.length&&statuses.indexOf(l.status)<0)return false;
+  return true;
+}
 function getFiltered(){
   var zoneOnly=document.getElementById('f-zone').checked;
-  var states=['ny','nj','ct','pa'].filter(function(s){return document.getElementById('f-'+s).checked}).map(function(s){return s.toUpperCase()});
-  var statuses=['approved','scouted','pending','identified'].filter(function(s){return document.getElementById('f-'+s).checked});
+  var states=getActiveStates();
+  var statuses=getActiveStatuses();
   // Build set of allowed album keys from left panel filter
   var useLeftFilter=Object.keys(filterState).length>0;
   var allowedAlbumKeys=null;
@@ -485,7 +502,14 @@ function getFiltered(){
     return true;
   });
 }
-function applyFilters(){if(gmap)refreshPins()}
+function applyFilters(){
+  if(gmap)refreshPins();
+  // Also re-render library if active
+  if(document.getElementById('library-page').classList.contains('active')){
+    libLoaded=false;
+    libInit();
+  }
+}
 
 function refreshPins(){
   markers.forEach(function(m){m.setMap(null)});markers=[];
@@ -714,10 +738,12 @@ async function buildLeftPanel(){
     var areasDiv=document.createElement('div');areasDiv.className='lp-areas';
     if(hasAreas){
       var tog=document.createElement('span');tog.className='lp-cat-toggle';tog.textContent='›';
-      catRow.appendChild(tog);
-      catRow.addEventListener('click',function(){
+      tog.style.cssText='padding:4px 6px;cursor:pointer;flex-shrink:0;font-size:12px;color:var(--text3)';
+      tog.addEventListener('click',function(e){
+        e.stopPropagation();
         var open=areasDiv.classList.toggle('open');tog.classList.toggle('open',open);
       });
+      catRow.appendChild(tog);
     }
     catDiv.appendChild(catRow);
     // Area rows
@@ -1100,13 +1126,39 @@ function libRender(){
     if(!f.path||f.path.indexOf(targetPath+'/')<0)return false;
     return f.path.slice(targetPath.length+1).indexOf('/')<0;
   });
-  var directAlbums=libAlbums.filter(function(a){return albumParentPath(a)===targetPath});
+  // Build allowed album keys from left panel category filter
+  var useLeftFilter=Object.keys(filterState).length>0&&Object.values(filterState).some(function(v){return!v});
+  var allowedAlbumKeysLib=null;
+  if(useLeftFilter){
+    allowedAlbumKeysLib=new Set();
+    libAlbums.forEach(function(a){
+      var parts=(a.web_url||'').replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
+      var cat=parts[1]||'';var area=parts[2]||'';
+      var catKey='cat:'+cat;var areaKey='area:'+cat+'/'+area;
+      var checked=filterState.hasOwnProperty(areaKey)?filterState[areaKey]:(filterState.hasOwnProperty(catKey)?filterState[catKey]:true);
+      if(checked)allowedAlbumKeysLib.add(a.sm_key);
+    });
+  }
+  var directAlbums=libAlbums.filter(function(a){
+    if(albumParentPath(a)!==targetPath)return false;
+    if(allowedAlbumKeysLib&&!allowedAlbumKeysLib.has(a.sm_key))return false;
+    var loc=locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url});
+    if(loc&&!locPassesFilter(loc))return false;
+    return true;
+  });
 
   var cards='';
 
   subFolders.forEach(function(f){
     var children=libAlbums.filter(function(a){var p=albumParentPath(a);return p===f.path||p.indexOf(f.path+'/')===0});
+    // Filter children by state/status AND category
+    children=children.filter(function(a){
+      if(allowedAlbumKeysLib&&!allowedAlbumKeysLib.has(a.sm_key))return false;
+      var loc=locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url});
+      return !loc||locPassesFilter(loc);
+    });
     var count=children.length;
+    if(count===0)return; // hide folder if all children filtered out
     var name=f.name||f.path.split('/').pop().replace(/-/g,' ');
     var thumb='';
     for(var i=0;i<children.length;i++){
@@ -1706,10 +1758,27 @@ window.initMap=async function(){
   checkSyncStatus();
 };
 
+function getActiveStates(){
+  return ['ny','nj','ct','pa'].filter(function(s){
+    var el=document.getElementById('f-'+s);return el&&el.checked;
+  }).map(function(s){return s.toUpperCase()});
+}
+function getActiveStatuses(){
+  return ['approved','scouted','pending','identified'].filter(function(s){
+    var el=document.getElementById('f-'+s);return el&&el.checked;
+  });
+}
+function locPassesFilter(l){
+  var states=getActiveStates();
+  var statuses=getActiveStatuses();
+  if(states.length&&l.state_code&&states.indexOf((l.state_code||'').toUpperCase())<0)return false;
+  if(statuses.length&&statuses.indexOf(l.status)<0)return false;
+  return true;
+}
 function getFiltered(){
   var zoneOnly=document.getElementById('f-zone').checked;
-  var states=['ny','nj','ct','pa'].filter(function(s){return document.getElementById('f-'+s).checked}).map(function(s){return s.toUpperCase()});
-  var statuses=['approved','scouted','pending','identified'].filter(function(s){return document.getElementById('f-'+s).checked});
+  var states=getActiveStates();
+  var statuses=getActiveStatuses();
   // Build set of allowed album keys from left panel filter
   var useLeftFilter=Object.keys(filterState).length>0;
   var allowedAlbumKeys=null;
@@ -1736,7 +1805,14 @@ function getFiltered(){
     return true;
   });
 }
-function applyFilters(){if(gmap)refreshPins()}
+function applyFilters(){
+  if(gmap)refreshPins();
+  // Also re-render library if active
+  if(document.getElementById('library-page').classList.contains('active')){
+    libLoaded=false;
+    libInit();
+  }
+}
 
 function refreshPins(){
   markers.forEach(function(m){m.setMap(null)});markers=[];
@@ -2337,13 +2413,39 @@ function libRender(){
     if(!f.path||f.path.indexOf(targetPath+'/')<0)return false;
     return f.path.slice(targetPath.length+1).indexOf('/')<0;
   });
-  var directAlbums=libAlbums.filter(function(a){return albumParentPath(a)===targetPath});
+  // Build allowed album keys from left panel category filter
+  var useLeftFilter=Object.keys(filterState).length>0&&Object.values(filterState).some(function(v){return!v});
+  var allowedAlbumKeysLib=null;
+  if(useLeftFilter){
+    allowedAlbumKeysLib=new Set();
+    libAlbums.forEach(function(a){
+      var parts=(a.web_url||'').replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
+      var cat=parts[1]||'';var area=parts[2]||'';
+      var catKey='cat:'+cat;var areaKey='area:'+cat+'/'+area;
+      var checked=filterState.hasOwnProperty(areaKey)?filterState[areaKey]:(filterState.hasOwnProperty(catKey)?filterState[catKey]:true);
+      if(checked)allowedAlbumKeysLib.add(a.sm_key);
+    });
+  }
+  var directAlbums=libAlbums.filter(function(a){
+    if(albumParentPath(a)!==targetPath)return false;
+    if(allowedAlbumKeysLib&&!allowedAlbumKeysLib.has(a.sm_key))return false;
+    var loc=locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url});
+    if(loc&&!locPassesFilter(loc))return false;
+    return true;
+  });
 
   var cards='';
 
   subFolders.forEach(function(f){
     var children=libAlbums.filter(function(a){var p=albumParentPath(a);return p===f.path||p.indexOf(f.path+'/')===0});
+    // Filter children by state/status AND category
+    children=children.filter(function(a){
+      if(allowedAlbumKeysLib&&!allowedAlbumKeysLib.has(a.sm_key))return false;
+      var loc=locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url});
+      return !loc||locPassesFilter(loc);
+    });
     var count=children.length;
+    if(count===0)return; // hide folder if all children filtered out
     var name=f.name||f.path.split('/').pop().replace(/-/g,' ');
     var thumb='';
     for(var i=0;i<children.length;i++){
