@@ -334,11 +334,11 @@ const SL={
 
 // Category colors — stored in localStorage, keyed by category slug
 var CAT_PALETTE=[
-  '#6b9fd4','#72b58a','#d4935a','#9f7fd4','#d46b6b',
-  '#5ab8b8','#d4bf5a','#d47db8','#7faa5a','#5a7fd4',
-  '#d4a05a','#6bbfd4','#c47272','#7fd4a0','#b85ad4',
-  '#d4c45a','#5ab87f','#d45a9f','#8fd45a','#5a9fd4',
-  '#d4705a','#5ad4c4','#9fd45a','#d45a70','#5a8fd4'];
+  '#4a9edd','#3dbb7a','#e8832a','#9060d0','#e04545',
+  '#20b8c0','#d4b800','#e060a8','#68bb28','#3060d8',
+  '#e06830','#28b0e0','#c03838','#40cc90','#a030d0',
+  '#d0a000','#28b888','#d83880','#88cc20','#3888d8',
+  '#e05020','#18c8b8','#98cc18','#e03068','#2878e8'];
 var catColors={};
 function getCatColorByKey(ck){
   if(!ck)return '#888680';
@@ -366,7 +366,7 @@ function setCatColor(cat,color){
 }
 
 var locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false,mapInitialLoad=true;
-var selectedMarker=null,selectedMarkerLoc=null;
+var selectedMarker=null,selectedMarkerLoc=null,enterFromHome=false;
 var mapFolders=[],mapAlbums=[],filterState={}; // left panel state
 var smTokens=null,currentHoverLoc=null;
 var libFolders=[],libAlbums=[],libLoaded=false,libStack=[],libRedoStack=[];
@@ -670,18 +670,18 @@ function unhighlightSelected(){
 
 function panToVisible(loc){
   if(!gmap||!hasCoords(loc))return;
-  // First pan to the location
-  gmap.panTo({lat:Number(loc.lat),lng:Number(loc.lng)});
-  // Then offset: detail panel takes right half, so shift pin left by half the detail panel width
-  // to center it in the remaining visible map strip
+  var lat=Number(loc.lat),lng=Number(loc.lng);
+  // Zoom to ~1 mile view (zoom 14), then pan to center in visible strip
+  gmap.setZoom(14);
+  gmap.panTo({lat:lat,lng:lng});
   setTimeout(function(){
     var dp=document.getElementById('detail-panel');
     var dpWidth=dp&&dp.classList.contains('open')?dp.offsetWidth:0;
     if(dpWidth>0){
-      // Shift map left by half the detail panel width
-      gmap.panBy(dpWidth/2, 0);
+      // Shift right by half detail width to center pin in remaining visible map
+      gmap.panBy(dpWidth/2,0);
     }
-  }, 50);
+  },80);
 }
 
 function closeDetail(){document.getElementById('detail-panel').classList.remove('open');unhighlightSelected();}
@@ -1340,31 +1340,27 @@ document.addEventListener('keydown',function(e){
     e.preventDefault();
     var homeActive=document.getElementById('home-page').classList.contains('active');
     if(homeActive){
-      // Home→Library: navigate to album's folder and keep detail open
+      // On map: Enter → go to Library, keep panel open
+      enterFromHome=true;
       var libBtn=document.querySelectorAll('.nav-btn')[1];
       showPage('library',libBtn);
+      // Navigate to album folder
       if(currentDetailLoc.smugmug_album_key){
         var targetAlbum=libAlbums.find(function(a){return a.sm_key===currentDetailLoc.smugmug_album_key});
         if(targetAlbum){
           var parentPath=albumParentPath(targetAlbum);
           var parts=parentPath.split('/').filter(Boolean);
-          libStack=[];
-          var cum='';
+          libStack=[];var cum='';
           parts.forEach(function(p){cum=cum?cum+'/'+p:p;libStack.push({path:cum,label:p.replace(/-/g,' ')})});
           libRender();
         }
       }
       setTimeout(function(){openDetail(currentDetailLoc)},50);
     }else{
-      // Library→Home: go to map and center on pin
+      // On library: Enter → go to map centered on pin
       var homeBtn=document.querySelectorAll('.nav-btn')[0];
       showPage('home',homeBtn);
-      setTimeout(function(){
-        if(gmap&&hasCoords(currentDetailLoc)){
-          // panToVisible called inside openDetail automatically
-        }
-        openDetail(currentDetailLoc);
-      },150);
+      setTimeout(function(){openDetail(currentDetailLoc)},150);
     }
     return;
   }
@@ -1443,6 +1439,11 @@ function loadFilterSettings(){
 }
 
 (async function(){
+  // Clear old muted palette colors if version changed
+  if(localStorage.getItem('catPaletteVer')!=='2'){
+    Object.keys(localStorage).forEach(function(k){if(k.startsWith('catcolor:'))localStorage.removeItem(k)});
+    localStorage.setItem('catPaletteVer','2');
+  }
   loadFilterSettings();
   checkAuth();
   await loadLocations();
@@ -1787,11 +1788,11 @@ const SL={
 
 // Category colors — stored in localStorage, keyed by category slug
 var CAT_PALETTE=[
-  '#6b9fd4','#72b58a','#d4935a','#9f7fd4','#d46b6b',
-  '#5ab8b8','#d4bf5a','#d47db8','#7faa5a','#5a7fd4',
-  '#d4a05a','#6bbfd4','#c47272','#7fd4a0','#b85ad4',
-  '#d4c45a','#5ab87f','#d45a9f','#8fd45a','#5a9fd4',
-  '#d4705a','#5ad4c4','#9fd45a','#d45a70','#5a8fd4'];
+  '#4a9edd','#3dbb7a','#e8832a','#9060d0','#e04545',
+  '#20b8c0','#d4b800','#e060a8','#68bb28','#3060d8',
+  '#e06830','#28b0e0','#c03838','#40cc90','#a030d0',
+  '#d0a000','#28b888','#d83880','#88cc20','#3888d8',
+  '#e05020','#18c8b8','#98cc18','#e03068','#2878e8'];
 var catColors={};
 function getCatColorByKey(ck){
   if(!ck)return '#888680';
@@ -1819,7 +1820,7 @@ function setCatColor(cat,color){
 }
 
 var locations=[],gmap=null,mapReady=false,markers=[],zoneCircle=null,zoneOn=false,mapInitialLoad=true;
-var selectedMarker=null,selectedMarkerLoc=null;
+var selectedMarker=null,selectedMarkerLoc=null,enterFromHome=false;
 var mapFolders=[],mapAlbums=[],filterState={}; // left panel state
 var smTokens=null,currentHoverLoc=null;
 var libFolders=[],libAlbums=[],libLoaded=false,libStack=[],libRedoStack=[];
@@ -2123,18 +2124,18 @@ function unhighlightSelected(){
 
 function panToVisible(loc){
   if(!gmap||!hasCoords(loc))return;
-  // First pan to the location
-  gmap.panTo({lat:Number(loc.lat),lng:Number(loc.lng)});
-  // Then offset: detail panel takes right half, so shift pin left by half the detail panel width
-  // to center it in the remaining visible map strip
+  var lat=Number(loc.lat),lng=Number(loc.lng);
+  // Zoom to ~1 mile view (zoom 14), then pan to center in visible strip
+  gmap.setZoom(14);
+  gmap.panTo({lat:lat,lng:lng});
   setTimeout(function(){
     var dp=document.getElementById('detail-panel');
     var dpWidth=dp&&dp.classList.contains('open')?dp.offsetWidth:0;
     if(dpWidth>0){
-      // Shift map left by half the detail panel width
-      gmap.panBy(dpWidth/2, 0);
+      // Shift right by half detail width to center pin in remaining visible map
+      gmap.panBy(dpWidth/2,0);
     }
-  }, 50);
+  },80);
 }
 
 function closeDetail(){document.getElementById('detail-panel').classList.remove('open');unhighlightSelected();}
@@ -2762,31 +2763,27 @@ document.addEventListener('keydown',function(e){
     e.preventDefault();
     var homeActive=document.getElementById('home-page').classList.contains('active');
     if(homeActive){
-      // Home→Library: navigate to album's folder and keep detail open
+      // On map: Enter → go to Library, keep panel open
+      enterFromHome=true;
       var libBtn=document.querySelectorAll('.nav-btn')[1];
       showPage('library',libBtn);
+      // Navigate to album folder
       if(currentDetailLoc.smugmug_album_key){
         var targetAlbum=libAlbums.find(function(a){return a.sm_key===currentDetailLoc.smugmug_album_key});
         if(targetAlbum){
           var parentPath=albumParentPath(targetAlbum);
           var parts=parentPath.split('/').filter(Boolean);
-          libStack=[];
-          var cum='';
+          libStack=[];var cum='';
           parts.forEach(function(p){cum=cum?cum+'/'+p:p;libStack.push({path:cum,label:p.replace(/-/g,' ')})});
           libRender();
         }
       }
       setTimeout(function(){openDetail(currentDetailLoc)},50);
     }else{
-      // Library→Home: go to map and center on pin
+      // On library: Enter → go to map centered on pin
       var homeBtn=document.querySelectorAll('.nav-btn')[0];
       showPage('home',homeBtn);
-      setTimeout(function(){
-        if(gmap&&hasCoords(currentDetailLoc)){
-          // panToVisible called inside openDetail automatically
-        }
-        openDetail(currentDetailLoc);
-      },150);
+      setTimeout(function(){openDetail(currentDetailLoc)},150);
     }
     return;
   }
@@ -2865,6 +2862,11 @@ function loadFilterSettings(){
 }
 
 (async function(){
+  // Clear old muted palette colors if version changed
+  if(localStorage.getItem('catPaletteVer')!=='2'){
+    Object.keys(localStorage).forEach(function(k){if(k.startsWith('catcolor:'))localStorage.removeItem(k)});
+    localStorage.setItem('catPaletteVer','2');
+  }
   loadFilterSettings();
   checkAuth();
   await loadLocations();
