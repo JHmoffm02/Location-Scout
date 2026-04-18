@@ -78,34 +78,36 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 #lp-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
 .lp-cat{border-bottom:1px solid var(--border)}
-.lp-cat-row{
-  display:flex;align-items:center;gap:5px;padding:5px 8px;
-  user-select:none;
-}
+.lp-cat-row{display:flex;align-items:center;gap:6px;padding:6px 10px;user-select:none;cursor:pointer}
 .lp-cat-row:hover{background:var(--bg3)}
-.lp-col{width:9px;height:9px;border-radius:50%;flex-shrink:0;cursor:context-menu}
-.lp-cb{width:12px;height:12px;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
-.lp-cat-name{
-  font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);
-  flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
+.lp-col{width:10px;height:10px;border-radius:50%;flex-shrink:0;transition:all .15s;border:1.5px solid rgba(0,0,0,.4)}
+.lp-col.active{box-shadow:0 0 7px currentColor}
+
+.lp-cat-name{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s;cursor:pointer}
+.lp-cat-name:hover{color:var(--text)}
+.lp-cat-name.active{color:var(--text);font-weight:500}
+.lp-cat-name.dimmed{color:var(--text3)}
 .lp-tog{
-  font-size:11px;color:var(--text3);cursor:pointer;padding:0 2px;
-  transition:transform .15s;flex-shrink:0;line-height:1;
+  font-size:15px;color:var(--text2);cursor:pointer;padding:0 2px;
+  transition:transform .2s;flex-shrink:0;line-height:1;font-weight:300;
 }
+.lp-tog:hover{color:var(--text)}
 .lp-tog.open{transform:rotate(90deg)}
 
 .lp-areas{display:none;padding-bottom:2px}
 .lp-areas.open{display:block}
-.lp-area-row{
-  display:flex;align-items:center;gap:5px;
-  padding:3px 8px 3px 20px;user-select:none;
-}
+.lp-area-row{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;user-select:none;cursor:pointer}
 .lp-area-row:hover{background:var(--bg3)}
-.lp-area-name{
-  font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);
-  flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+.lp-area-dot{
+  width:7px;height:7px;border-radius:50%;flex-shrink:0;
+  background:var(--border2);transition:all .15s;
 }
+.lp-area-dot.active{box-shadow:0 0 4px currentColor}
+.lp-area-name{font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s}
+.lp-area-name.active{color:var(--text2)}
+.lp-area-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--border2);transition:all .15s}
+.lp-area-dot.active{box-shadow:0 0 4px currentColor}
+.lp-area-name.active{color:var(--text2)}
 
 /* ── Map ── */
 #map-wrap{flex:1;position:relative;overflow:hidden}
@@ -437,10 +439,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     <!-- HOME -->
     <div class="page active" id="home-page">
       <div id="left-panel">
-        <div id="lp-head">
-          <span>Categories</span>
-          <button onclick="lpToggleAll(true)" title="Check all">all</button>
-          <button onclick="lpToggleAll(false)" title="Uncheck all">none</button>
+        <div id="lp-head"><span>Categories</span><button onclick="lpToggleAll()" title="Clear color selections">clear</button>
         </div>
         <div id="lp-body"><div class="empty"><div class="spin"></div></div></div>
       </div>
@@ -488,7 +487,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
           </div>
           <div class="zone-tog" id="zone-btn" onclick="toggleZone()">
             <div class="zdot"></div>
-            <label>30mi zone</label>
+            <label>zone</label>
           </div>
           <div class="fc" style="margin-left:auto">
             <div class="fl" id="pin-count-label">pins</div>
@@ -501,9 +500,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     <!-- LIBRARY -->
     <div class="page" id="library-page">
       <div class="lib-header">
-        <div class="lib-bc" id="lib-bc">
-          <span class="lib-bc-seg cur" onclick="libBrowse(null)">Master Library</span>
-        </div>
+        <div class="lib-bc" id="lib-bc"></div>
         <input class="lib-search" id="lib-q" placeholder="search locations..." oninput="libSearch()">
         <select class="lib-sel" id="lib-status-sel" onchange="libSearch()">
           <option value="">all status</option>
@@ -588,7 +585,7 @@ var SL={
   rejected:{bg:'rgba(194,96,96,.18)',c:'#c26060'}
 };
 
-// Category color palette — vibrant but not garish
+// Category palette for color picker swatches
 var CAT_PALETTE=[
   '#4a9edd','#3dbb7a','#e8832a','#9060d0','#e04545',
   '#20b8c0','#d4b800','#e060a8','#68bb28','#3060d8',
@@ -596,7 +593,9 @@ var CAT_PALETTE=[
   '#d0a000','#28b888','#d83880','#88cc20','#3888d8',
   '#e05020','#18c8b8','#98cc18','#e03068','#2878e8'
 ];
-var catColors={};
+// catPinColors: {catKey: hexColor} — cats in here show colored, others gray/hidden
+// Empty object = all gray, all visible
+var catPinColors={};
 
 // ── State ──
 var locations=[], gmap=null, mapReady=false;
@@ -630,18 +629,6 @@ function db(p, o) {
 }
 
 // ── Category colors ──
-function catColorByKey(ck) {
-  if (!ck) return '#888680';
-  if (catColors[ck]) return catColors[ck];
-  var stored = localStorage.getItem('cc:' + ck);
-  if (stored) { catColors[ck] = stored; return stored; }
-  var hash = 0;
-  for (var i = 0; i < ck.length; i++) hash = (hash * 31 + ck.charCodeAt(i)) & 0xffff;
-  catColors[ck] = CAT_PALETTE[hash % CAT_PALETTE.length];
-  localStorage.setItem('cc:' + ck, catColors[ck]);
-  return catColors[ck];
-}
-
 function getCatForLoc(loc) {
   var a = mapAlbums.find(function(a) { return a.sm_key === loc.smugmug_album_key; });
   if (!a || !a.web_url) return '';
@@ -649,15 +636,31 @@ function getCatForLoc(loc) {
   return parts[1] || '';
 }
 
-function catColor(loc) {
+// Pin color: if catPinColors has entries, only those cats show colored, others hidden
+// If empty, all pins show gray
+function pinColorForLoc(loc) {
   var cat = getCatForLoc(loc);
-  return cat ? catColorByKey(cat) : (SL[loc.status] ? SL[loc.status].c : '#888680');
+  if (Object.keys(catPinColors).length === 0) return '#888680'; // all gray
+  return catPinColors[cat] || null; // null = hidden
 }
 
-function setCatColor(cat, color) {
-  catColors[cat] = color;
-  localStorage.setItem('cc:' + cat, color);
+function toggleCatPinColor(cat, color) {
+  if (catPinColors[cat]) {
+    // Already colored: clicking removes it
+    delete catPinColors[cat];
+  } else {
+    catPinColors[cat] = color;
+  }
+  savePinColors();
+  buildLeftPanel();
   refreshPins();
+}
+
+function savePinColors() {
+  try { localStorage.setItem('pinColors', JSON.stringify(catPinColors)); } catch(e) {}
+}
+function loadPinColors() {
+  try { var s=localStorage.getItem('pinColors'); if(s) catPinColors=JSON.parse(s); } catch(e) {}
 }
 
 // ── Toast ──
@@ -783,7 +786,7 @@ function buildAllowedAlbumKeys() {
 }
 
 function getFiltered() {
-  var zoneOnly = document.getElementById('f-zone') && document.getElementById('f-zone').checked;
+  var zoneOnly = zoneOn;
   var allowed = buildAllowedAlbumKeys();
   return locations.filter(function(l) {
     if (!hasCoords(l)) return false;
@@ -806,11 +809,12 @@ function refreshPins() {
   var filtered = getFiltered();
   document.getElementById('pin-count').textContent = filtered.length;
   filtered.forEach(function(loc) {
-    var col = catColor(loc);
+    var col = pinColorForLoc(loc);
+    if (col === null) return; // hidden by category filter
     var m = new google.maps.Marker({
       position: {lat: Number(loc.lat), lng: Number(loc.lng)},
       map: gmap, title: loc.name,
-      icon: {path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: col, fillOpacity: .9, strokeColor: 'rgba(0,0,0,.6)', strokeWeight: 1.5},
+      icon: {path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: col, fillOpacity: .9, strokeColor: 'rgba(0,0,0,.5)', strokeWeight: 1.5},
       zIndex: 1
     });
     m._loc = loc; m._col = col;
@@ -1220,162 +1224,87 @@ function buildLeftPanel() {
   mapFolders.forEach(function(f) {
     if (!f.path) return;
     var parts = f.path.split('/');
-    if (parts.length === 2 && parts[0] === 'Master-Library') {
-      var ck = parts[1];
-      if (!cats[ck]) cats[ck] = {name: f.name || ck.replace(/-/g,' '), areas: {}};
+    if (parts.length===2&&parts[0]==='Master-Library') {
+      var ck=parts[1]; if(!cats[ck])cats[ck]={name:f.name||ck.replace(/-/g,' '),areas:{}};
     }
-    if (parts.length === 3 && parts[0] === 'Master-Library') {
-      var ck2 = parts[1], ak = parts[2];
-      if (!cats[ck2]) cats[ck2] = {name: ck2.replace(/-/g,' '), areas: {}};
-      cats[ck2].areas[ak] = {name: f.name || ak.replace(/-/g,' ')};
+    if (parts.length===3&&parts[0]==='Master-Library') {
+      var ck2=parts[1],ak=parts[2];
+      if(!cats[ck2])cats[ck2]={name:ck2.replace(/-/g,' '),areas:{}};
+      cats[ck2].areas[ak]={name:f.name||ak.replace(/-/g,' ')};
     }
   });
-
-  var body = document.getElementById('lp-body');
-  body.innerHTML = '';
-
-  Object.keys(cats).sort().forEach(function(ck) {
-    var cat = cats[ck];
-    var hasAreas = Object.keys(cat.areas).length > 0;
-    var catDiv = document.createElement('div'); catDiv.className = 'lp-cat';
-
-    var catRow = document.createElement('div'); catRow.className = 'lp-cat-row';
-
-    // Color dot (right-click to change color)
-    var dot = document.createElement('div'); dot.className = 'lp-col';
-    dot.style.background = catColorByKey(ck);
-    dot.id = 'lp-dot-' + ck;
-    dot.title = 'right-click to change color';
-    (function(catKey){ dot.addEventListener('contextmenu', function(e){ e.preventDefault(); showColorPicker(catKey, e.clientX, e.clientY); }); })(ck);
-
-    // Checkbox
-    var cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.className = 'lp-cb'; cb.checked = true;
-    cb.id = 'lp-cb-' + ck;
-    (function(catKey, areasDiv_ref){ cb.addEventListener('change', function(){ lpCatChange(catKey, this.checked, areasDiv_ref); }); })(ck, null);
-    cb.addEventListener('click', function(e){ e.stopPropagation(); });
-
-    // Label (no htmlFor — clicking label does NOT toggle checkbox)
-    var lbl = document.createElement('span'); lbl.className = 'lp-cat-name'; lbl.textContent = cat.name;
-
-    catRow.appendChild(dot); catRow.appendChild(cb); catRow.appendChild(lbl);
-
-    var areasDiv = document.createElement('div'); areasDiv.className = 'lp-areas';
-    // Fix closure: now pass actual areasDiv
-    cb.addEventListener('change', function(){ lpCatChange(ck, this.checked, areasDiv); });
-    // Remove the placeholder listener
-    cb.onchange = null;
-    // Actually just reset properly:
-    cb.replaceWith(cb); // no-op but keep reference
-
-    if (hasAreas) {
-      var tog = document.createElement('span'); tog.className = 'lp-tog'; tog.textContent = '›';
-      tog.addEventListener('click', function(e) {
+  var body=document.getElementById('lp-body');
+  body.innerHTML='';
+  var anyColored=Object.keys(catPinColors).length>0;
+  Object.keys(cats).sort().forEach(function(ck){
+    var cat=cats[ck];
+    var isColored=!!catPinColors[ck];
+    var catDiv=document.createElement('div');catDiv.className='lp-cat';
+    var catRow=document.createElement('div');catRow.className='lp-cat-row';
+    // Color dot
+    var dot=document.createElement('div');dot.className='lp-col';dot.id='lp-dot-'+ck;
+    dot.style.background=isColored?catPinColors[ck]:'var(--border2)';
+    dot.style.borderColor=isColored?catPinColors[ck]:'transparent';
+    if(isColored)dot.classList.add('active');
+    // Name label
+    var lbl=document.createElement('span');lbl.className='lp-cat-name';lbl.textContent=cat.name;
+    if(isColored){lbl.classList.add('active');lbl.style.color=catPinColors[ck];}
+    else if(anyColored)lbl.classList.add('dimmed');
+    catRow.appendChild(dot);catRow.appendChild(lbl);
+    var hasAreas=Object.keys(cat.areas).length>0;
+    var areasDiv=document.createElement('div');areasDiv.className='lp-areas';
+    // Click handler: name or dot = toggle color
+    (function(catKey){
+      function handleClick(e){
         e.stopPropagation();
-        var open = areasDiv.classList.toggle('open'); tog.classList.toggle('open', open);
+        if(catPinColors[catKey]){
+          delete catPinColors[catKey];
+          savePinColors();buildLeftPanel();refreshPins();
+        }else{
+          showColorPicker(catKey,e.clientX,e.clientY,function(color){
+            catPinColors[catKey]=color;
+            savePinColors();buildLeftPanel();refreshPins();
+          });
+        }
+      }
+      lbl.addEventListener('click',handleClick);
+      dot.addEventListener('click',handleClick);
+    })(ck);
+    if(hasAreas){
+      var tog=document.createElement('span');tog.className='lp-tog';tog.textContent='›';
+      tog.addEventListener('click',function(e){
+        e.stopPropagation();
+        var open=areasDiv.classList.toggle('open');tog.classList.toggle('open',open);
       });
       catRow.appendChild(tog);
     }
     catDiv.appendChild(catRow);
-
-    if (hasAreas) {
-      Object.keys(cat.areas).sort().forEach(function(ak) {
-        var area = cat.areas[ak];
-        var aRow = document.createElement('div'); aRow.className = 'lp-area-row';
-        var acb = document.createElement('input'); acb.type='checkbox'; acb.className='lp-cb'; acb.checked=true; acb.id='lp-cb-'+ck+'-'+ak;
-        (function(catKey, areaKey, catCb){ acb.addEventListener('change', function(){ lpAreaChange(catKey, areaKey, this.checked, catCb); }); })(ck, ak, cb);
-        var albl = document.createElement('span'); albl.className='lp-area-name'; albl.textContent=area.name;
-        aRow.appendChild(acb); aRow.appendChild(albl);
+    if(hasAreas){
+      Object.keys(cat.areas).sort().forEach(function(ak){
+        var area=cat.areas[ak];
+        var aRow=document.createElement('div');aRow.className='lp-area-row';
+        var adot=document.createElement('div');adot.className='lp-area-dot';
+        adot.style.background=isColored?catPinColors[ck]:'var(--border2)';
+        if(isColored){adot.classList.add('active');adot.style.boxShadow='0 0 4px '+catPinColors[ck];}
+        var albl=document.createElement('span');albl.className='lp-area-name';albl.textContent=area.name;
+        if(isColored)albl.classList.add('active');
+        else if(anyColored)albl.classList.add('dimmed');
+        aRow.appendChild(adot);aRow.appendChild(albl);
         areasDiv.appendChild(aRow);
       });
       catDiv.appendChild(areasDiv);
     }
     body.appendChild(catDiv);
   });
-
-  // Fix checkbox change handlers — rebuild correctly
-  // (The closure issue above means we need a cleaner approach)
-  // Actually let's just clear all and rebuild with proper closures
-  body.innerHTML = '';
-  Object.keys(cats).sort().forEach(function(ck) {
-    var cat = cats[ck];
-    var hasAreas = Object.keys(cat.areas).length > 0;
-    var catDiv = document.createElement('div'); catDiv.className = 'lp-cat';
-    var catRow = document.createElement('div'); catRow.className = 'lp-cat-row';
-    var dot = document.createElement('div'); dot.className = 'lp-col';
-    dot.style.background = catColorByKey(ck); dot.id = 'lp-dot-' + ck; dot.title = 'right-click to change color';
-    var areasDiv = document.createElement('div'); areasDiv.className = 'lp-areas';
-    var cb = document.createElement('input'); cb.type='checkbox'; cb.className='lp-cb'; cb.checked=true; cb.id='lp-cb-'+ck;
-    cb.addEventListener('click',function(e){e.stopPropagation();});
-    cb.addEventListener('change',makeHandler(ck, areasDiv));
-    var lbl = document.createElement('span'); lbl.className='lp-cat-name'; lbl.textContent=cat.name;
-    dot.addEventListener('contextmenu',makePicker(ck));
-    catRow.appendChild(dot); catRow.appendChild(cb); catRow.appendChild(lbl);
-    if (hasAreas) {
-      var tog = document.createElement('span'); tog.className='lp-tog'; tog.textContent='›';
-      tog.addEventListener('click',makeToggler(areasDiv,tog));
-      catRow.appendChild(tog);
-    }
-    catDiv.appendChild(catRow);
-    if (hasAreas) {
-      Object.keys(cat.areas).sort().forEach(function(ak) {
-        var aRow = document.createElement('div'); aRow.className='lp-area-row';
-        var acb = document.createElement('input'); acb.type='checkbox'; acb.className='lp-cb'; acb.checked=true; acb.id='lp-cb-'+ck+'-'+ak;
-        acb.addEventListener('change',makeAreaHandler(ck,ak,cb));
-        var albl = document.createElement('span'); albl.className='lp-area-name'; albl.textContent=cat.areas[ak].name;
-        aRow.appendChild(acb); aRow.appendChild(albl); areasDiv.appendChild(aRow);
-      });
-      catDiv.appendChild(areasDiv);
-    }
-    body.appendChild(catDiv);
-  });
-
-  // Restore saved state
-  Object.keys(filterState).forEach(function(key) {
-    var el;
-    if (key.startsWith('cat:')) el = document.getElementById('lp-cb-' + key.slice(4));
-    else if (key.startsWith('area:')) {
-      var parts = key.slice(5).split('/'); el = document.getElementById('lp-cb-' + parts[0] + '-' + parts.slice(1).join('/'));
-    }
-    if (el) el.checked = filterState[key];
-  });
 }
 
-function makeHandler(ck, arDiv) {
-  return function() { lpCatChange(ck, this.checked, arDiv); };
-}
-function makeAreaHandler(ck, ak, catCb) {
-  return function() { lpAreaChange(ck, ak, this.checked, catCb); };
-}
+function lpToggleAll(){catPinColors={};savePinColors();buildLeftPanel();refreshPins();}
+function makeToggler(a,b){return function(e){e.stopPropagation();var o=a.classList.toggle('open');b.classList.toggle('open',o);};}
+
 function makeToggler(arDiv, tog) {
   return function(e) { e.stopPropagation(); var open=arDiv.classList.toggle('open'); tog.classList.toggle('open',open); };
 }
-function makePicker(ck) {
-  return function(e) { e.preventDefault(); showColorPicker(ck, e.clientX, e.clientY); };
-}
 
-function lpCatChange(ck, checked, arDiv) {
-  filterState['cat:'+ck] = checked;
-  if (arDiv) {
-    arDiv.querySelectorAll('input').forEach(function(a) {
-      a.checked = checked;
-      var ak = a.id.replace('lp-cb-'+ck+'-','');
-      filterState['area:'+ck+'/'+ak] = checked;
-    });
-  }
-  saveFilterSettings();
-  applyFilters();
-}
-function lpAreaChange(ck, ak, checked, catCb) {
-  filterState['area:'+ck+'/'+ak] = checked;
-  if (catCb) {
-    var all = catCb.closest('.lp-cat').querySelectorAll('.lp-areas input');
-    catCb.checked = Array.from(all).every(function(a){return a.checked;});
-    filterState['cat:'+ck] = catCb.checked;
-  }
-  saveFilterSettings();
-  applyFilters();
-}
 function lpToggleAll(val) {
   document.querySelectorAll('#lp-body input[type=checkbox]').forEach(function(cb){ cb.checked=val; });
   filterState = {};
@@ -1389,36 +1318,29 @@ function lpToggleAll(val) {
 }
 
 // ── Color Picker ──
-function showColorPicker(ck, x, y) {
-  var ex = document.getElementById('cat-color-picker'); if (ex) ex.remove();
-  var p = document.createElement('div'); p.id='cat-color-picker';
-  var t = document.createElement('div'); t.className='ccp-title'; t.textContent=ck.replace(/-/g,' ')+' color'; p.appendChild(t);
-  var g = document.createElement('div'); g.className='ccp-grid';
-  CAT_PALETTE.concat(['#ffffff','#cccccc','#999999','#666666','#333333']).forEach(function(col) {
-    var sw = document.createElement('div'); sw.className='ccp-swatch'; sw.style.background=col;
-    if (catColors[ck]===col) sw.classList.add('active');
-    sw.addEventListener('click',function(){
-      setCatColor(ck,col);
-      var dot=document.getElementById('lp-dot-'+ck); if(dot)dot.style.background=col;
-      p.remove();
-    });
+function showColorPicker(ck, x, y, onPick) {
+  var ex=document.getElementById('cat-color-picker'); if(ex)ex.remove();
+  var p=document.createElement('div'); p.id='cat-color-picker';
+  var t=document.createElement('div'); t.className='ccp-title';
+  t.textContent=(ck.replace(/-/g,' '))+' — pick a color'; p.appendChild(t);
+  var g=document.createElement('div'); g.className='ccp-grid';
+  CAT_PALETTE.forEach(function(col){
+    var sw=document.createElement('div'); sw.className='ccp-swatch'; sw.style.background=col;
+    if(catPinColors[ck]===col)sw.classList.add('active');
+    sw.addEventListener('click',function(){p.remove();if(onPick)onPick(col);});
     g.appendChild(sw);
   });
   p.appendChild(g);
-  var cr = document.createElement('div'); cr.className='ccp-custom';
-  var ci = document.createElement('input'); ci.type='color'; ci.value=catColors[ck]||'#888888';
-  ci.addEventListener('change',function(){
-    setCatColor(ck,this.value);
-    var dot=document.getElementById('lp-dot-'+ck); if(dot)dot.style.background=this.value;
-  });
-  var cl = document.createElement('span'); cl.textContent='custom color';
+  var cr=document.createElement('div'); cr.className='ccp-custom';
+  var ci=document.createElement('input'); ci.type='color'; ci.value=catPinColors[ck]||'#4a9edd';
+  ci.addEventListener('change',function(){p.remove();if(onPick)onPick(this.value);});
+  var cl=document.createElement('span'); cl.textContent='custom';
   cr.appendChild(ci); cr.appendChild(cl); p.appendChild(cr);
-  // Position
-  p.style.left = Math.min(x, window.innerWidth-200)+'px';
-  p.style.top = Math.min(y, window.innerHeight-300)+'px';
+  p.style.left=Math.min(x,window.innerWidth-220)+'px';
+  p.style.top=Math.min(y,window.innerHeight-320)+'px';
   document.body.appendChild(p);
   setTimeout(function(){
-    document.addEventListener('click',function close(){p.remove();document.removeEventListener('click',close);});
+    document.addEventListener('click',function cls(){p.remove();document.removeEventListener('click',cls);});
   },10);
 }
 
@@ -1568,19 +1490,17 @@ function hideOnError(el) { el.style.display='none'; }
 // ── Settings persistence ──
 function saveFilterSettings() {
   var s = {};
-  ['ny','nj','ct','pa','zone','approved','scouted','pending','identified'].forEach(function(id) {
+  ['ny','nj','ct','pa','approved','scouted','pending','identified'].forEach(function(id) {
     var el=document.getElementById('f-'+id); if(el) s['f-'+id]=el.checked;
   });
-  s.filterState = filterState;
   try { localStorage.setItem('mapFilters', JSON.stringify(s)); } catch(e) {}
 }
 function loadFilterSettings() {
   try {
     var s = JSON.parse(localStorage.getItem('mapFilters')||'{}');
-    ['ny','nj','ct','pa','zone','approved','scouted','pending','identified'].forEach(function(id) {
+    ['ny','nj','ct','pa','approved','scouted','pending','identified'].forEach(function(id) {
       var el=document.getElementById('f-'+id); if(el&&s.hasOwnProperty('f-'+id))el.checked=s['f-'+id];
     });
-    if (s.filterState) filterState = s.filterState;
   } catch(e) {}
 }
 
@@ -1674,6 +1594,7 @@ document.addEventListener('click', function(e) {
     localStorage.setItem('paletteV','3');
   }
   loadFilterSettings();
+  loadPinColors();
   checkAuth();
   await loadLocations();
   loadMapScript();
