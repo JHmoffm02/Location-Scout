@@ -596,8 +596,8 @@ var CAT_PALETTE=[
 // catPinColors: {catKey: hexColor} — cats in here show colored, others gray/hidden
 // Empty object = all gray, all visible
 var catPinColors={};
-var pinColorHistory=[]; // undo stack [{catKey,oldColors}]
-var pinColorFuture=[];  // redo stack
+var actionHistory=[]; // undo stack — snapshots of {catPinColors, filterState checkboxes}
+var actionFuture=[];  // redo stack
 
 // ── State ──
 var locations=[], gmap=null, mapReady=false;
@@ -631,6 +631,15 @@ function db(p, o) {
 }
 
 // ── Category colors ──
+function catColorByKey(ck) {
+  // Returns a stable display color for a category (UI only, not pin color)
+  if (!ck) return '#888680';
+  if (catPinColors[ck]) return catPinColors[ck];
+  var hash = 0;
+  for (var i = 0; i < ck.length; i++) hash = (hash * 31 + ck.charCodeAt(i)) & 0xffff;
+  return CAT_PALETTE[hash % CAT_PALETTE.length];
+}
+
 function getCatForLoc(loc) {
   var a = mapAlbums.find(function(a) { return a.sm_key === loc.smugmug_album_key; });
   if (!a || !a.web_url) return '';
@@ -641,18 +650,37 @@ function getCatForLoc(loc) {
 // Pin color: if catPinColors has entries, only those cats show colored, others hidden
 // If empty, all pins show gray
 var highlightedCat = null;
-function highlightCategoryPins(catKey) {
-  // If same cat clicked again, clear highlight
-  if (highlightedCat === catKey) { highlightedCat=null; } else { highlightedCat=catKey; }
+var selectedAreas = new Set();
+function getAreaForLoc(loc) {
+  var a = mapAlbums.find(function(a){return a.sm_key===loc.smugmug_album_key;});
+  if (!a || !a.web_url) return '';
+  var parts = a.web_url.replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
+  return parts[2] || '';
+}
+
+function updatePinHighlights() {
+  if (!gmap) return;
+  var hasSelection = highlightedCat || selectedAreas.size > 0;
   markers.forEach(function(m) {
     var mCat = getCatForLoc(m._loc);
-    var isMatch = mCat === highlightedCat;
-    var baseScale = pinColorForLoc(m._loc)===null ? 0 : 8;
-    if (highlightedCat && isMatch) {
-      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:m._col,fillOpacity:1,strokeColor:'#fff',strokeWeight:2,zIndex:999});
+    var mArea = getAreaForLoc(m._loc);
+    var col = m._col;
+    var isVisible = pinColorForLoc(m._loc) !== null;
+    if (!isVisible) return;
+    var isSelected = false;
+    if (selectedAreas.size > 0) {
+      isSelected = selectedAreas.has(mCat + '/' + mArea);
+    } else if (highlightedCat) {
+      isSelected = mCat === highlightedCat;
+    }
+    if (hasSelection && isSelected) {
+      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:col,fillOpacity:1,strokeColor:'#fff',strokeWeight:2.5});
       m.setZIndex(999);
+    } else if (hasSelection) {
+      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:7,fillColor:col,fillOpacity:.4,strokeColor:'rgba(0,0,0,.3)',strokeWeight:1});
+      m.setZIndex(1);
     } else {
-      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:m._col,fillOpacity:.9,strokeColor:'rgba(0,0,0,.5)',strokeWeight:1.5});
+      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:col,fillOpacity:.9,strokeColor:'rgba(0,0,0,.5)',strokeWeight:1.5});
       m.setZIndex(1);
     }
   });
@@ -664,26 +692,40 @@ function pinColorForLoc(loc) {
   return catPinColors[cat] || null; // null = hidden
 }
 
-function setPinColors(newColors) {
-  // Push current state to history
-  pinColorHistory.push(JSON.stringify(catPinColors));
-  pinColorFuture = []; // clear redo on new action
-  catPinColors = newColors;
+function snapshotState() {
+  return JSON.stringify({
+    colors: catPinColors,
+    highlighted: highlightedCat,
+    selectedAreas: Array.from(selectedAreas)
+  });
+}
+function applySnapshot(snap) {
+  var s = JSON.parse(snap);
+  catPinColors = s.colors || {};
+  highlightedCat = s.highlighted || null;
+  selectedAreas = new Set(s.selectedAreas || []);
   savePinColors();
   buildLeftPanel();
   refreshPins();
 }
-function undoPinColors() {
-  if (!pinColorHistory.length) return;
-  pinColorFuture.push(JSON.stringify(catPinColors));
-  catPinColors = JSON.parse(pinColorHistory.pop());
+function pushHistory() {
+  actionHistory.push(snapshotState());
+  actionFuture = [];
+}
+function setPinColors(newColors) {
+  pushHistory();
+  catPinColors = newColors;
   savePinColors(); buildLeftPanel(); refreshPins();
 }
+function undoPinColors() {
+  if (!actionHistory.length) return;
+  actionFuture.push(snapshotState());
+  applySnapshot(actionHistory.pop());
+}
 function redoPinColors() {
-  if (!pinColorFuture.length) return;
-  pinColorHistory.push(JSON.stringify(catPinColors));
-  catPinColors = JSON.parse(pinColorFuture.pop());
-  savePinColors(); buildLeftPanel(); refreshPins();
+  if (!actionFuture.length) return;
+  actionHistory.push(snapshotState());
+  applySnapshot(actionFuture.pop());
 }
 function toggleCatPinColor(cat, color) {
   var next = Object.assign({}, catPinColors);
@@ -841,7 +883,7 @@ function applyFilters() {
 
 // ── Pins ──
 function refreshPins() {
-  highlightedCat = null;
+  highlightedCat = null; selectedAreas = new Set();
   markers.forEach(function(m) { m.setMap(null); }); markers = [];
   var filtered = getFiltered();
   document.getElementById('pin-count').textContent = filtered.length;
@@ -1288,74 +1330,107 @@ function buildLeftPanel() {
   var body=document.getElementById('lp-body');
   body.innerHTML='';
   var anyColored=Object.keys(catPinColors).length>0;
+
   Object.keys(cats).sort().forEach(function(ck){
     var cat=cats[ck];
     var isColored=!!catPinColors[ck];
-    var catDiv=document.createElement('div');catDiv.className='lp-cat';
-    var catRow=document.createElement('div');catRow.className='lp-cat-row';
-    // Color dot
-    var dot=document.createElement('div');dot.className='lp-col';dot.id='lp-dot-'+ck;
+    var isCatOpen=highlightedCat===ck;
+    var catDiv=document.createElement('div'); catDiv.className='lp-cat';
+    var catRow=document.createElement('div'); catRow.className='lp-cat-row';
+    if(isCatOpen)catRow.style.background='var(--bg3)';
+
+    // Color dot — click = color picker
+    var dot=document.createElement('div'); dot.className='lp-col'; dot.id='lp-dot-'+ck;
     dot.style.background=isColored?catPinColors[ck]:'var(--border2)';
     dot.style.borderColor=isColored?catPinColors[ck]:'transparent';
     if(isColored)dot.classList.add('active');
-    // Name label
-    var lbl=document.createElement('span');lbl.className='lp-cat-name';lbl.textContent=cat.name;
-    if(isColored){lbl.classList.add('active');lbl.style.color=catPinColors[ck];}
-    else if(anyColored)lbl.classList.add('dimmed');
-    catRow.appendChild(dot);catRow.appendChild(lbl);
-    var hasAreas=Object.keys(cat.areas).length>0;
-    var areasDiv=document.createElement('div');areasDiv.className='lp-areas';
-    // DOT click = color picker (single selection mode)
-    (function(catKey, dotEl, lblEl, areasDiv, catDivEl){
-      dotEl.addEventListener('click', function(e){
+    dot.title='click to assign pin color';
+    (function(catKey){
+      dot.addEventListener('click',function(e){
         e.stopPropagation();
         if(catPinColors[catKey]){
-          // Toggle off
-          var next={}; setPinColors(next);
+          var next=Object.assign({},catPinColors); delete next[catKey]; setPinColors(next);
         }else{
-          // Open color picker — single selection: clear others first
-          showColorPicker(catKey, e.clientX, e.clientY, function(color){
-            var next={}; next[catKey]=color;
-            setPinColors(next);
+          showColorPicker(catKey,e.clientX,e.clientY,function(color){
+            var next=Object.assign({},catPinColors); next[catKey]=color; setPinColors(next);
           });
         }
       });
-      // NAME / ROW click = expand dropdown + highlight this cat's pins
-      function handleRowClick(e){
-        e.stopPropagation();
-        var isOpen=areasDiv.classList.contains('open');
-        // Close all other open areas first
-        document.querySelectorAll('.lp-areas.open').forEach(function(a){a.classList.remove('open');});
-        document.querySelectorAll('.lp-tog.open').forEach(function(t){t.classList.remove('open');});
-        if(!isOpen&&Object.keys(cat.areas).length>0){
-          areasDiv.classList.add('open');
-          var tog=catDivEl.querySelector('.lp-tog');if(tog)tog.classList.add('open');
-        }
-        // Pop pins for this category
-        highlightCategoryPins(catKey);
-      }
-      lblEl.addEventListener('click', handleRowClick);
-    })(ck, dot, lbl, areasDiv, catDiv);
+    })(ck);
+
+    // Category name — click = open/close tree + select all cat pins
+    var lbl=document.createElement('span'); lbl.className='lp-cat-name';
+    lbl.textContent=cat.name;
+    if(isColored)lbl.style.color=catPinColors[ck];
+    if(isCatOpen)lbl.classList.add('active');
+    else if(anyColored&&!isColored)lbl.classList.add('dimmed');
+
+    var hasAreas=Object.keys(cat.areas).length>0;
+    var areasDiv=document.createElement('div'); areasDiv.className='lp-areas';
+    if(isCatOpen)areasDiv.classList.add('open');
+
+    var tog=null;
     if(hasAreas){
-      var tog=document.createElement('span');tog.className='lp-tog';tog.textContent='›';
-      tog.addEventListener('click',function(e){
-        e.stopPropagation();
-        var open=areasDiv.classList.toggle('open');tog.classList.toggle('open',open);
-      });
-      catRow.appendChild(tog);
+      tog=document.createElement('span'); tog.className='lp-tog'; tog.textContent='›';
+      if(isCatOpen)tog.classList.add('open');
     }
+
+    (function(catKey, arDiv, togEl){
+      lbl.addEventListener('click',function(e){
+        e.stopPropagation();
+        pushHistory();
+        if(highlightedCat===catKey){
+          // Toggle off: close tree, clear selection
+          highlightedCat=null; selectedAreas=new Set();
+        }else{
+          // Close any other open cat
+          highlightedCat=catKey; selectedAreas=new Set();
+        }
+        buildLeftPanel();
+        updatePinHighlights();
+      });
+      catRow.addEventListener('click',function(e){
+        e.stopPropagation();
+        lbl.click();
+      });
+    })(ck, areasDiv, tog);
+
+    catRow.appendChild(dot); catRow.appendChild(lbl);
+    if(tog)catRow.appendChild(tog);
     catDiv.appendChild(catRow);
+
     if(hasAreas){
       Object.keys(cat.areas).sort().forEach(function(ak){
         var area=cat.areas[ak];
-        var aRow=document.createElement('div');aRow.className='lp-area-row';
-        var adot=document.createElement('div');adot.className='lp-area-dot';
+        var aKey=ck+'/'+ak;
+        var isAreaSel=selectedAreas.has(aKey);
+        var aRow=document.createElement('div'); aRow.className='lp-area-row';
+        if(isAreaSel)aRow.style.background='var(--bg3)';
+
+        var adot=document.createElement('div'); adot.className='lp-area-dot';
         adot.style.background=isColored?catPinColors[ck]:'var(--border2)';
-        if(isColored){adot.classList.add('active');adot.style.boxShadow='0 0 4px '+catPinColors[ck];}
-        var albl=document.createElement('span');albl.className='lp-area-name';albl.textContent=area.name;
-        if(isColored)albl.classList.add('active');
-        else if(anyColored)albl.classList.add('dimmed');
-        aRow.appendChild(adot);aRow.appendChild(albl);
+        if(isAreaSel){adot.classList.add('active');if(isColored)adot.style.boxShadow='0 0 5px '+catPinColors[ck];}
+
+        var albl=document.createElement('span'); albl.className='lp-area-name'; albl.textContent=area.name;
+        if(isAreaSel)albl.classList.add('active');
+
+        (function(areaKey, areaDiv){
+          function handleAreaClick(e){
+            e.stopPropagation();
+            pushHistory();
+            if(selectedAreas.has(areaKey)){
+              selectedAreas.delete(areaKey);
+            }else{
+              selectedAreas.add(areaKey);
+            }
+            highlightedCat=ck; // keep parent open
+            buildLeftPanel();
+            updatePinHighlights();
+          }
+          aRow.addEventListener('click',handleAreaClick);
+        })(aKey);
+
+        aRow.appendChild(adot); aRow.appendChild(albl);
         areasDiv.appendChild(aRow);
       });
       catDiv.appendChild(areasDiv);
@@ -1364,7 +1439,7 @@ function buildLeftPanel() {
   });
 }
 
-function lpToggleAll(){setPinColors({});}
+function lpToggleAll(){pushHistory();catPinColors={};highlightedCat=null;selectedAreas=new Set();savePinColors();buildLeftPanel();refreshPins();}
 function makeToggler(a,b){return function(e){e.stopPropagation();var o=a.classList.toggle('open');b.classList.toggle('open',o);};}
 
 function makeToggler(arDiv, tog) {
