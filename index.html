@@ -328,25 +328,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 }
 .gcard-status-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
 
-/* ── SmugMug Dock ── */
-#sm-dock{
-  position:fixed;bottom:14px;right:14px;z-index:400;
-  display:flex;align-items:center;gap:6px;
-}
 .dock-btn{
   height:32px;padding:0 12px;border-radius:20px;
-  border:1px solid var(--border2);background:rgba(14,15,18,.9);
+  border:1px solid var(--border2);background:rgba(14,15,18,.8);
   font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
   cursor:pointer;display:flex;align-items:center;gap:5px;
   transition:all .15s;white-space:nowrap;color:var(--text2);
-  backdrop-filter:blur(8px);
 }
 .dock-btn:hover{border-color:var(--accent2);color:var(--accent)}
 #dock-sm-btn{border-color:var(--green);color:var(--green)}
 #dock-sm-btn.unconnected{border-color:var(--border2);color:var(--text2)}
 #dock-sm-btn:hover{background:rgba(76,175,130,.08)}
-#dock-actions{display:none;align-items:center;gap:6px}
-#dock-actions.open{display:flex}
+#dock-actions.open{display:flex !important}
 
 /* ── Shared ── */
 .modal-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
@@ -430,9 +423,22 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 <div id="shell">
   <div id="header"><h1>Jordan B. Hoffman &nbsp;·&nbsp; Locations</h1></div>
   <div id="nav">
-    <div id="nav-status"></div>
+    <!-- SmugMug button lives in nav left -->
+    <div id="nav-sm" style="position:absolute;left:10px;display:flex;align-items:center;gap:6px">
+      <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px;font-size:9px;border-radius:20px">
+        <span id="dock-sm-label">smugmug</span>
+      </button>
+      <div id="dock-actions" style="display:none;align-items:center;gap:6px">
+        <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px">authorize ↗</button>
+        <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px">
+          <span id="dock-sync-label">⟳ sync</span>
+        </button>
+        <button class="dock-btn" id="dock-signout-btn" onclick="signOutSmugMug()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;border-color:var(--red);color:var(--red)">sign out</button>
+      </div>
+    </div>
     <button class="nav-btn active" onclick="showPage('home',this)">Home</button>
     <button class="nav-btn" onclick="showPage('library',this)">Library</button>
+    <div id="nav-status" style="position:absolute;right:12px"></div>
   </div>
   <div id="pages">
 
@@ -485,9 +491,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
               <div class="fi"><input type="checkbox" id="f-identified" checked onchange="applyFilters()"><label for="f-identified">Identified</label></div>
             </div>
           </div>
-          <div class="zone-tog" id="zone-btn" onclick="toggleZone()">
-            <div class="zdot"></div>
-            <label>zone</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="fi">
+              <input type="checkbox" id="f-zone" onchange="applyFilters()">
+              <label for="f-zone" style="color:var(--text2)">zone</label>
+            </div>
+            <div class="zone-tog" id="zone-btn" onclick="toggleZone()">
+              <div class="zdot"></div>
+            </div>
           </div>
           <div class="fc" style="margin-left:auto">
             <div class="fl" id="pin-count-label">pins</div>
@@ -553,18 +564,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
   <div id="lb-counter"></div>
 </div>
 
-<!-- SmugMug Dock -->
-<div id="sm-dock">
-  <div id="dock-actions">
-    <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none">authorize ↗</button>
-    <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none">
-      <span id="dock-sync-label">⟳ sync</span>
-    </button>
-  </div>
-  <button class="dock-btn" id="dock-sm-btn" onclick="toggleDock()">
-    <span id="dock-sm-label">smugmug</span>
-  </button>
-</div>
+
 
 <div class="toast" id="toast"></div>
 
@@ -596,6 +596,8 @@ var CAT_PALETTE=[
 // catPinColors: {catKey: hexColor} — cats in here show colored, others gray/hidden
 // Empty object = all gray, all visible
 var catPinColors={};
+var pinColorHistory=[]; // undo stack [{catKey,oldColors}]
+var pinColorFuture=[];  // redo stack
 
 // ── State ──
 var locations=[], gmap=null, mapReady=false;
@@ -638,22 +640,56 @@ function getCatForLoc(loc) {
 
 // Pin color: if catPinColors has entries, only those cats show colored, others hidden
 // If empty, all pins show gray
+var highlightedCat = null;
+function highlightCategoryPins(catKey) {
+  // If same cat clicked again, clear highlight
+  if (highlightedCat === catKey) { highlightedCat=null; } else { highlightedCat=catKey; }
+  markers.forEach(function(m) {
+    var mCat = getCatForLoc(m._loc);
+    var isMatch = mCat === highlightedCat;
+    var baseScale = pinColorForLoc(m._loc)===null ? 0 : 8;
+    if (highlightedCat && isMatch) {
+      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:m._col,fillOpacity:1,strokeColor:'#fff',strokeWeight:2,zIndex:999});
+      m.setZIndex(999);
+    } else {
+      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:m._col,fillOpacity:.9,strokeColor:'rgba(0,0,0,.5)',strokeWeight:1.5});
+      m.setZIndex(1);
+    }
+  });
+}
+
 function pinColorForLoc(loc) {
   var cat = getCatForLoc(loc);
   if (Object.keys(catPinColors).length === 0) return '#888680'; // all gray
   return catPinColors[cat] || null; // null = hidden
 }
 
-function toggleCatPinColor(cat, color) {
-  if (catPinColors[cat]) {
-    // Already colored: clicking removes it
-    delete catPinColors[cat];
-  } else {
-    catPinColors[cat] = color;
-  }
+function setPinColors(newColors) {
+  // Push current state to history
+  pinColorHistory.push(JSON.stringify(catPinColors));
+  pinColorFuture = []; // clear redo on new action
+  catPinColors = newColors;
   savePinColors();
   buildLeftPanel();
   refreshPins();
+}
+function undoPinColors() {
+  if (!pinColorHistory.length) return;
+  pinColorFuture.push(JSON.stringify(catPinColors));
+  catPinColors = JSON.parse(pinColorHistory.pop());
+  savePinColors(); buildLeftPanel(); refreshPins();
+}
+function redoPinColors() {
+  if (!pinColorFuture.length) return;
+  pinColorHistory.push(JSON.stringify(catPinColors));
+  catPinColors = JSON.parse(pinColorFuture.pop());
+  savePinColors(); buildLeftPanel(); refreshPins();
+}
+function toggleCatPinColor(cat, color) {
+  var next = Object.assign({}, catPinColors);
+  if (next[cat]) delete next[cat];
+  else next[cat] = color;
+  setPinColors(next);
 }
 
 function savePinColors() {
@@ -786,7 +822,7 @@ function buildAllowedAlbumKeys() {
 }
 
 function getFiltered() {
-  var zoneOnly = zoneOn;
+  var zoneOnly = (document.getElementById('f-zone')&&document.getElementById('f-zone').checked)||zoneOn;
   var allowed = buildAllowedAlbumKeys();
   return locations.filter(function(l) {
     if (!hasCoords(l)) return false;
@@ -805,6 +841,7 @@ function applyFilters() {
 
 // ── Pins ──
 function refreshPins() {
+  highlightedCat = null;
   markers.forEach(function(m) { m.setMap(null); }); markers = [];
   var filtered = getFiltered();
   document.getElementById('pin-count').textContent = filtered.length;
@@ -1049,6 +1086,15 @@ function toggleDock() {
 }
 function closeDock() { dockOpen = false; document.getElementById('dock-actions').classList.remove('open'); }
 
+function signOutSmugMug() {
+  if (!confirm('Sign out of SmugMug? You can reconnect anytime to re-sync.')) return;
+  smTokens = null;
+  localStorage.removeItem('sm_tokens');
+  updateAuthUI(false);
+  closeDock();
+  toast('Signed out of SmugMug', 'inf');
+}
+
 function checkAuth() {
   var hash = window.location.hash;
   if (hash.indexOf('sm_auth=') >= 0) {
@@ -1067,8 +1113,14 @@ function updateAuthUI(ok) {
   var btn = document.getElementById('dock-sm-btn');
   var ab = document.getElementById('dock-auth-btn');
   var sb = document.getElementById('dock-sync-btn');
-  if (ok) { lbl.textContent = 'smugmug ✓'; btn.classList.remove('unconnected'); ab.style.display='none'; sb.style.display='flex'; }
-  else { lbl.textContent = 'smugmug'; btn.classList.add('unconnected'); ab.style.display='flex'; sb.style.display='none'; }
+  var so = document.getElementById('dock-signout-btn');
+  if (ok) {
+    lbl.textContent = 'smugmug ✓'; btn.classList.remove('unconnected');
+    if(ab)ab.style.display='none'; if(sb)sb.style.display='flex'; if(so)so.style.display='flex';
+  } else {
+    lbl.textContent = 'smugmug'; btn.classList.add('unconnected');
+    if(ab)ab.style.display='flex'; if(sb)sb.style.display='none'; if(so)so.style.display='none';
+  }
 }
 
 async function checkSyncStatus() {
@@ -1253,23 +1305,37 @@ function buildLeftPanel() {
     catRow.appendChild(dot);catRow.appendChild(lbl);
     var hasAreas=Object.keys(cat.areas).length>0;
     var areasDiv=document.createElement('div');areasDiv.className='lp-areas';
-    // Click handler: name or dot = toggle color
-    (function(catKey){
-      function handleClick(e){
+    // DOT click = color picker (single selection mode)
+    (function(catKey, dotEl, lblEl, areasDiv, catDivEl){
+      dotEl.addEventListener('click', function(e){
         e.stopPropagation();
         if(catPinColors[catKey]){
-          delete catPinColors[catKey];
-          savePinColors();buildLeftPanel();refreshPins();
+          // Toggle off
+          var next={}; setPinColors(next);
         }else{
-          showColorPicker(catKey,e.clientX,e.clientY,function(color){
-            catPinColors[catKey]=color;
-            savePinColors();buildLeftPanel();refreshPins();
+          // Open color picker — single selection: clear others first
+          showColorPicker(catKey, e.clientX, e.clientY, function(color){
+            var next={}; next[catKey]=color;
+            setPinColors(next);
           });
         }
+      });
+      // NAME / ROW click = expand dropdown + highlight this cat's pins
+      function handleRowClick(e){
+        e.stopPropagation();
+        var isOpen=areasDiv.classList.contains('open');
+        // Close all other open areas first
+        document.querySelectorAll('.lp-areas.open').forEach(function(a){a.classList.remove('open');});
+        document.querySelectorAll('.lp-tog.open').forEach(function(t){t.classList.remove('open');});
+        if(!isOpen&&Object.keys(cat.areas).length>0){
+          areasDiv.classList.add('open');
+          var tog=catDivEl.querySelector('.lp-tog');if(tog)tog.classList.add('open');
+        }
+        // Pop pins for this category
+        highlightCategoryPins(catKey);
       }
-      lbl.addEventListener('click',handleClick);
-      dot.addEventListener('click',handleClick);
-    })(ck);
+      lblEl.addEventListener('click', handleRowClick);
+    })(ck, dot, lbl, areasDiv, catDiv);
     if(hasAreas){
       var tog=document.createElement('span');tog.className='lp-tog';tog.textContent='›';
       tog.addEventListener('click',function(e){
@@ -1298,7 +1364,7 @@ function buildLeftPanel() {
   });
 }
 
-function lpToggleAll(){catPinColors={};savePinColors();buildLeftPanel();refreshPins();}
+function lpToggleAll(){setPinColors({});}
 function makeToggler(a,b){return function(e){e.stopPropagation();var o=a.classList.toggle('open');b.classList.toggle('open',o);};}
 
 function makeToggler(arDiv, tog) {
@@ -1321,8 +1387,25 @@ function lpToggleAll(val) {
 function showColorPicker(ck, x, y, onPick) {
   var ex=document.getElementById('cat-color-picker'); if(ex)ex.remove();
   var p=document.createElement('div'); p.id='cat-color-picker';
+
   var t=document.createElement('div'); t.className='ccp-title';
-  t.textContent=(ck.replace(/-/g,' '))+' — pick a color'; p.appendChild(t);
+  t.textContent=ck.replace(/-/g,' '); p.appendChild(t);
+
+  // Big color wheel input at top
+  var wheelRow=document.createElement('div');
+  wheelRow.style.cssText='display:flex;align-items:center;gap:10px;margin-bottom:10px';
+  var wheel=document.createElement('input'); wheel.type='color';
+  wheel.value=catPinColors[ck]||CAT_PALETTE[0];
+  wheel.style.cssText='width:48px;height:48px;border:none;background:none;cursor:pointer;padding:0;border-radius:8px';
+  var wheelLbl=document.createElement('div');
+  wheelLbl.style.cssText='font-size:9px;font-family:DM Mono,monospace;color:var(--text3);line-height:1.5';
+  wheelLbl.innerHTML='color wheel<br><span style="color:var(--text2)" id="ccp-hex">'+(catPinColors[ck]||CAT_PALETTE[0])+'</span>';
+  wheel.addEventListener('input',function(){wheelLbl.querySelector('#ccp-hex').textContent=this.value;});
+  wheel.addEventListener('change',function(){p.remove();if(onPick)onPick(this.value);});
+  wheelRow.appendChild(wheel); wheelRow.appendChild(wheelLbl);
+  p.appendChild(wheelRow);
+
+  // Palette swatches
   var g=document.createElement('div'); g.className='ccp-grid';
   CAT_PALETTE.forEach(function(col){
     var sw=document.createElement('div'); sw.className='ccp-swatch'; sw.style.background=col;
@@ -1331,16 +1414,17 @@ function showColorPicker(ck, x, y, onPick) {
     g.appendChild(sw);
   });
   p.appendChild(g);
-  var cr=document.createElement('div'); cr.className='ccp-custom';
-  var ci=document.createElement('input'); ci.type='color'; ci.value=catPinColors[ck]||'#4a9edd';
-  ci.addEventListener('change',function(){p.remove();if(onPick)onPick(this.value);});
-  var cl=document.createElement('span'); cl.textContent='custom';
-  cr.appendChild(ci); cr.appendChild(cl); p.appendChild(cr);
-  p.style.left=Math.min(x,window.innerWidth-220)+'px';
-  p.style.top=Math.min(y,window.innerHeight-320)+'px';
+
+  // Position smart
+  var px=Math.min(x, window.innerWidth-220);
+  var py=Math.min(y, window.innerHeight-340);
+  if(py<60)py=60;
+  p.style.left=px+'px'; p.style.top=py+'px';
   document.body.appendChild(p);
   setTimeout(function(){
-    document.addEventListener('click',function cls(){p.remove();document.removeEventListener('click',cls);});
+    document.addEventListener('click',function cls(e){
+      if(!p.contains(e.target)){p.remove();document.removeEventListener('click',cls);}
+    });
   },10);
 }
 
@@ -1512,6 +1596,16 @@ document.addEventListener('keydown', function(e) {
   var lbOpen    = document.getElementById('lightbox').classList.contains('open');
   var panelOpen = document.getElementById('detail-panel').classList.contains('open');
   var libActive = document.getElementById('library-page').classList.contains('active');
+
+  // Undo / Redo pin color changes
+  if ((e.metaKey||e.ctrlKey) && e.key==='z') {
+    e.preventDefault();
+    if (e.shiftKey) redoPinColors(); else undoPinColors();
+    return;
+  }
+  if ((e.metaKey||e.ctrlKey) && (e.key==='y'||e.key==='Z')) {
+    e.preventDefault(); redoPinColors(); return;
+  }
 
   if (e.key === 'Escape') {
     if (lbOpen) { closeLightbox(); return; }
