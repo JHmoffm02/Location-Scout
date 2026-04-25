@@ -44,6 +44,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
   padding:0 28px;height:44px;font-size:10px;font-family:'DM Mono',monospace;
   letter-spacing:.12em;color:var(--text3);background:transparent;border:none;
   border-bottom:2px solid transparent;cursor:pointer;transition:color .15s;text-transform:uppercase;
+  display:inline-flex;align-items:center;justify-content:center;
+  vertical-align:top;line-height:1;
 }
 .nav-btn:hover{color:var(--text2)}
 .nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -423,8 +425,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 <div id="shell">
   <div id="header"><h1>Jordan B. Hoffman &nbsp;·&nbsp; Locations</h1></div>
   <div id="nav">
-    <!-- SmugMug button lives in nav left -->
-    <div id="nav-sm" style="position:absolute;left:10px;display:flex;align-items:center;gap:6px">
+    <button class="nav-btn active" onclick="showPage('home',this)">Map</button>
+    <button class="nav-btn" onclick="showPage('library',this)">Library</button>
+    <!-- SmugMug status + buttons on RIGHT side -->
+    <div style="position:absolute;right:10px;display:flex;align-items:center;gap:8px">
+      <div id="nav-status" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap"></div>
       <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px;font-size:9px;border-radius:20px">
         <span id="dock-sm-label">smugmug</span>
       </button>
@@ -436,9 +441,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
         <button class="dock-btn" id="dock-signout-btn" onclick="signOutSmugMug()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;border-color:var(--red);color:var(--red)">sign out</button>
       </div>
     </div>
-    <button class="nav-btn active" onclick="showPage('home',this)">Home</button>
-    <button class="nav-btn" onclick="showPage('library',this)">Library</button>
-    <div id="nav-status" style="position:absolute;right:12px"></div>
   </div>
   <div id="pages">
 
@@ -897,7 +899,7 @@ function buildAllowedAlbumKeys() {
 }
 
 function getFiltered() {
-  var zoneOnly = zoneFilterActive() || zoneOn;
+  var zoneOnly = zoneFilterActive(); // only checkbox controls pin/library filtering
   var allowed = buildAllowedAlbumKeys();
   return locations.filter(function(l) {
     if (!hasCoords(l)) return false;
@@ -911,7 +913,10 @@ function getFiltered() {
 function applyFilters() {
   saveFilterSettings();
   if (gmap) refreshPins();
-  if (document.getElementById('library-page').classList.contains('active')) { libLoaded = false; libInit(); }
+  // In library: re-render at current position, don't reset to root
+  if (document.getElementById('library-page').classList.contains('active')) {
+    libRender();
+  }
 }
 
 // ── Pins ──
@@ -1174,7 +1179,7 @@ function toggleZone() {
   zoneOn = !zoneOn;
   document.getElementById('zone-btn').classList.toggle('on', zoneOn);
   if (zoneOn) drawZone(); else if (zoneCircle) { zoneCircle.setMap(null); zoneCircle = null; }
-  if (gmap) refreshPins(); // map only — library not affected by red ring
+  // Red button only shows/hides the visual circle — does NOT affect pins or library
 }
 function drawZone() {
   if (!gmap) return;
@@ -1185,9 +1190,10 @@ function drawZone() {
 // ── SmugMug Dock ──
 function toggleDock() {
   dockOpen = !dockOpen;
-  document.getElementById('dock-actions').classList.toggle('open', dockOpen);
+  var da = document.getElementById('dock-actions');
+  da.style.display = dockOpen ? 'flex' : 'none';
 }
-function closeDock() { dockOpen = false; document.getElementById('dock-actions').classList.remove('open'); }
+function closeDock() { dockOpen = false; document.getElementById('dock-actions').style.display='none'; }
 
 function signOutSmugMug() {
   if (!confirm('Sign out of SmugMug? You can reconnect anytime to re-sync.')) return;
@@ -1831,7 +1837,9 @@ document.addEventListener('keydown', function(e) {
 });
 
 document.addEventListener('click', function(e) {
-  if (dockOpen && !document.getElementById('sm-dock').contains(e.target)) closeDock();
+  var smBtn = document.getElementById('dock-sm-btn');
+  var smAct = document.getElementById('dock-actions');
+  if (dockOpen && smBtn && !smBtn.contains(e.target) && smAct && !smAct.contains(e.target)) closeDock();
 });
 
 // ── Init ──
