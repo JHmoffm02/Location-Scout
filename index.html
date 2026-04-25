@@ -428,8 +428,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     <button class="nav-btn active" onclick="showPage('home',this)">Map</button>
     <button class="nav-btn" onclick="showPage('library',this)">Library</button>
     <!-- SmugMug status + buttons on RIGHT side -->
+    <div id="nav-status" style="position:absolute;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;right:0;top:0;height:44px;display:flex;align-items:center;pointer-events:none"></div>
     <div id="nav-right" style="position:absolute;right:10px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:nowrap">
-      <div id="nav-status" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px"></div>
       <div id="dock-actions" style="display:none;align-items:center;gap:6px">
         <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">authorize ↗</button>
         <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">
@@ -498,17 +498,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
               <input type="checkbox" id="f-zone" onchange="applyFilters()">
               <label for="f-zone" style="color:var(--text2)">zone</label>
             </div>
-            <div class="zone-tog" id="zone-btn" onclick="toggleZone()">
+            <div class="zone-tog" id="zone-btn" onclick="toggleZone()" style="gap:5px">
               <div class="zdot"></div>
+              <span style="font-size:9px;font-family:'DM Mono',monospace;color:var(--red);letter-spacing:.06em">Zone</span>
             </div>
-          </div>
-          <div style="margin-left:auto">
-            <button id="sat-btn" onclick="toggleSatellite()" style="
-              height:28px;padding:0 12px;border-radius:20px;
-              border:1px solid var(--border2);background:rgba(0,0,0,.5);
-              font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
-              color:var(--text2);cursor:pointer;transition:all .15s;
-            ">satellite</button>
+            <button id="sat-btn" onclick="toggleSatellite()" style="height:28px;padding:0 12px;border-radius:20px;border:1px solid var(--border2);background:rgba(0,0,0,.5);font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;color:var(--text2);cursor:pointer;transition:all .15s">satellite</button>
           </div>
         </div>
       </div>
@@ -1219,9 +1213,16 @@ function toggleDock() {
   dockOpen = !dockOpen;
   var da = document.getElementById('dock-actions');
   da.style.display = dockOpen ? 'flex' : 'none';
-  // Shrink status text width when dock expanded to prevent overlap
+  posNavStatus();
+}
+function posNavStatus() {
+  var nr = document.getElementById('nav-right');
   var ns = document.getElementById('nav-status');
-  if (ns) ns.style.maxWidth = dockOpen ? '80px' : '200px';
+  if (!nr || !ns) return;
+  var nrRect = nr.getBoundingClientRect();
+  // Status ends 12px before left edge of nav-right
+  ns.style.right = (window.innerWidth - nrRect.left + 12) + 'px';
+  ns.style.maxWidth = Math.max(60, nrRect.left - 220) + 'px';
 }
 function closeDock() { dockOpen = false; document.getElementById('dock-actions').style.display='none'; }
 
@@ -1271,6 +1272,7 @@ async function checkSyncStatus() {
       if (ns) ns.textContent = 'synced ' + d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' · ' + (r[0].images_count||0) + ' photos';
     }
   } catch(e) {}
+  setTimeout(posNavStatus, 50);
 }
 
 async function doAuth() {
@@ -1551,21 +1553,9 @@ function buildLeftPanel() {
 function lpToggleAll(){catPinColors={};highlightedCat=null;selectedAreas=new Set();savePinColors();buildLeftPanel();refreshPins();}
 function makeToggler(a,b){return function(e){e.stopPropagation();var o=a.classList.toggle('open');b.classList.toggle('open',o);};}
 
-function makeToggler(arDiv, tog) {
-  return function(e) { e.stopPropagation(); var open=arDiv.classList.toggle('open'); tog.classList.toggle('open',open); };
-}
 
-function lpToggleAll(val) {
-  document.querySelectorAll('#lp-body input[type=checkbox]').forEach(function(cb){ cb.checked=val; });
-  filterState = {};
-  if (!val) {
-    document.querySelectorAll('#lp-body input[type=checkbox]').forEach(function(cb){
-      filterState[cb.id.replace('lp-cb-','cat:').replace(/-/g,'/')] = false;
-    });
-  }
-  saveFilterSettings();
-  applyFilters();
-}
+
+
 
 // ── Color Picker ──
 function showColorPicker(ck, x, y, onPick) {
@@ -1885,6 +1875,7 @@ document.addEventListener('click', function(e) {
   await loadLocations();
   loadMapScript();
   await checkAutoSync();
+  setTimeout(posNavStatus, 100);
 })();
 </script>
 </body>
