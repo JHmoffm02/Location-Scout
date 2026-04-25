@@ -428,18 +428,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     <button class="nav-btn active" onclick="showPage('home',this)">Map</button>
     <button class="nav-btn" onclick="showPage('library',this)">Library</button>
     <!-- SmugMug status + buttons on RIGHT side -->
-    <div style="position:absolute;right:10px;display:flex;align-items:center;gap:8px">
-      <div id="nav-status" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap"></div>
-      <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px;font-size:9px;border-radius:20px">
-        <span id="dock-sm-label">smugmug</span>
-      </button>
-      <div id="dock-actions" style="display:none;align-items:center;gap:6px">
-        <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px">authorize ↗</button>
-        <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px">
+    <div style="position:absolute;right:10px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:nowrap;max-width:70%">
+      <div id="nav-status" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:1;min-width:0;max-width:240px"></div>
+      <div id="dock-actions" style="display:none;align-items:center;gap:6px;flex-shrink:0">
+        <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">authorize ↗</button>
+        <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">
           <span id="dock-sync-label">⟳ sync</span>
         </button>
-        <button class="dock-btn" id="dock-signout-btn" onclick="signOutSmugMug()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;border-color:var(--red);color:var(--red)">sign out</button>
+        <button class="dock-btn" id="dock-signout-btn" onclick="signOutSmugMug()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;border-color:var(--red);color:var(--red);white-space:nowrap">sign out</button>
       </div>
+      <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px;font-size:9px;border-radius:20px;flex-shrink:0;white-space:nowrap">
+        <span id="dock-sm-label">smugmug</span>
+      </button>
     </div>
   </div>
   <div id="pages">
@@ -657,7 +657,7 @@ function glowStyleForAlbum(webUrl) {
   var cat = getCatKeyFromUrl(webUrl);
   var col = catPinColors[cat] || savedCatColors[cat] || null;
   if (!col) return '';
-  return '0 0 80px 12px ' + hexToRgba(col, 0.75);
+  return '0 0 6px 2px ' + hexToRgba(col, 0.55);
 }
 
 function getCatForLoc(loc) {
@@ -695,11 +695,19 @@ function updatePinHighlights() {
     }
     if (hasSelection && isSelected) {
       m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:col,fillOpacity:1,strokeColor:'#fff',strokeWeight:2.5});
+      m.setVisible(true);
       m.setZIndex(999);
     } else if (hasSelection) {
-      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:7,fillColor:col,fillOpacity:.4,strokeColor:'rgba(0,0,0,.3)',strokeWeight:1});
-      m.setZIndex(1);
+      // Hide pins not in selection — only keep visible if they have a color AND are enabled
+      var otherCat = getCatForLoc(m._loc);
+      var otherEnabled = !!catPinColors[otherCat];
+      m.setVisible(otherEnabled);
+      if (otherEnabled) {
+        m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:col,fillOpacity:.9,strokeColor:'rgba(0,0,0,.5)',strokeWeight:1.5});
+        m.setZIndex(1);
+      }
     } else {
+      m.setVisible(true);
       m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:col,fillOpacity:.9,strokeColor:'rgba(0,0,0,.5)',strokeWeight:1.5});
       m.setZIndex(1);
     }
