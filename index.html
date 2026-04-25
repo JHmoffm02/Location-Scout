@@ -428,16 +428,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
     <button class="nav-btn active" onclick="showPage('home',this)">Map</button>
     <button class="nav-btn" onclick="showPage('library',this)">Library</button>
     <!-- SmugMug status + buttons on RIGHT side -->
-    <div style="position:absolute;right:10px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:nowrap;max-width:70%">
-      <div id="nav-status" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:1;min-width:0;max-width:240px"></div>
-      <div id="dock-actions" style="display:none;align-items:center;gap:6px;flex-shrink:0">
+    <div id="nav-right" style="position:absolute;right:10px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:nowrap">
+      <div id="nav-status" style="font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px"></div>
+      <div id="dock-actions" style="display:none;align-items:center;gap:6px">
         <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">authorize ↗</button>
         <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">
           <span id="dock-sync-label">⟳ sync</span>
         </button>
         <button class="dock-btn" id="dock-signout-btn" onclick="signOutSmugMug()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;border-color:var(--red);color:var(--red);white-space:nowrap">sign out</button>
       </div>
-      <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px;font-size:9px;border-radius:20px;flex-shrink:0;white-space:nowrap">
+      <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">
         <span id="dock-sm-label">smugmug</span>
       </button>
     </div>
@@ -502,9 +502,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
               <div class="zdot"></div>
             </div>
           </div>
-          <div class="fc" style="margin-left:auto">
-            <div class="fl" id="pin-count-label">pins</div>
-            <div style="font-size:20px;font-family:'DM Mono',monospace;color:var(--text2);line-height:1" id="pin-count">—</div>
+          <div style="margin-left:auto">
+            <button id="sat-btn" onclick="toggleSatellite()" style="
+              height:28px;padding:0 12px;border-radius:20px;
+              border:1px solid var(--border2);background:rgba(0,0,0,.5);
+              font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
+              color:var(--text2);cursor:pointer;transition:all .15s;
+            ">satellite</button>
           </div>
         </div>
       </div>
@@ -834,8 +838,7 @@ window.initMap = async function() {
   gmap = new google.maps.Map(document.getElementById('the-map'), {
     zoom: 11, center: {lat: 40.73, lng: -73.97},
     backgroundColor: '#08090b',
-    disableDefaultUI: false, zoomControl: true,
-    streetViewControl: false, mapTypeControl: false, fullscreenControl: false,
+    disableDefaultUI: true,
     gestureHandling: 'greedy',
     styles: [
       {elementType:'geometry',stylers:[{color:'#0a0a0d'}]},
@@ -1189,6 +1192,22 @@ function toggleZone() {
   if (zoneOn) drawZone(); else if (zoneCircle) { zoneCircle.setMap(null); zoneCircle = null; }
   // Red button only shows/hides the visual circle — does NOT affect pins or library
 }
+var satOn = false;
+function toggleSatellite() {
+  satOn = !satOn;
+  var btn = document.getElementById('sat-btn');
+  if (satOn) {
+    gmap.setMapTypeId('hybrid');
+    btn.style.borderColor = 'var(--accent2)';
+    btn.style.color = 'var(--accent)';
+    btn.style.background = 'var(--accentd)';
+  } else {
+    gmap.setMapTypeId('roadmap');
+    btn.style.borderColor = 'var(--border2)';
+    btn.style.color = 'var(--text2)';
+    btn.style.background = 'rgba(0,0,0,.5)';
+  }
+}
 function drawZone() {
   if (!gmap) return;
   if (zoneCircle) zoneCircle.setMap(null);
@@ -1200,6 +1219,9 @@ function toggleDock() {
   dockOpen = !dockOpen;
   var da = document.getElementById('dock-actions');
   da.style.display = dockOpen ? 'flex' : 'none';
+  // Shrink status text width when dock expanded to prevent overlap
+  var ns = document.getElementById('nav-status');
+  if (ns) ns.style.maxWidth = dockOpen ? '80px' : '200px';
 }
 function closeDock() { dockOpen = false; document.getElementById('dock-actions').style.display='none'; }
 
