@@ -1311,8 +1311,9 @@ function formatNotes(raw, loc) {
   raw = raw.replace(/\[([^\]]+)\]\(mailto:([^)]+)\)/g, '$2');
 
   // 2. Expand collapsed text — inject newlines before section markers
-  // Handle case like "284 Mulberry St(Btw..." or "NY 10012C: Name"
   raw = raw.replace(/(\w)\(Btw /g, '$1\n(Btw ');
+  raw = raw.replace(/(\w)\(Entrance/g, '$1\n(Entrance');
+  raw = raw.replace(/\)(\w)/g, ')\n$1');   // split after closing paren
   raw = raw.replace(/(\d{5})(C\d*:)/g, '$1\n$2');
   raw = raw.replace(/ (C\d*:) /g, '\n$1 ');
   raw = raw.replace(/(Notes:)/g, '\n$1\n');
@@ -1343,21 +1344,38 @@ function formatNotes(raw, loc) {
     var l = lines[i];
     if (!l) continue;
 
-    // Skip title line: matches "something - town" pattern at start, or matches loc name
+    // Skip title line: matches loc name, or "Business Name - Town" (not a street address)
     if (!addrDone && !inNotes && !currentContact) {
       var stripped = l.replace(/^\*+|\*+$/g, '').trim();
       var lLow = stripped.toLowerCase();
-      // Title pattern: "Name - Town" style (location name)
-      if (lLow === locName || (/ - /.test(stripped) && stripped.length < 100 &&
-          !/^\d/.test(stripped) && !/^C\d*:/i.test(stripped) &&
-          !/^\(/.test(stripped))) {
-        titleLines.push(l);
-        continue;
+      // Exact match with location name
+      if (lLow === locName) { titleLines.push(l); continue; }
+      // "X - Town" pattern — only skip if the part before " - " is NOT a street address
+      // Street addresses start with a number followed by spaces then street name
+      // Title lines: "Bourbon Street - Bayside" (no leading number)
+      // NOT title: "350 140th St - The Bronx" (IS a street address — has number + street)
+      // NOT title: "40-12 Bell Blvd - Queens" (IS a street address — hyphenated number)
+      if (/ - /.test(stripped) && stripped.length < 120 &&
+          !/^C\d*:/i.test(stripped) && !/^\(/.test(stripped)) {
+        var beforeDash = stripped.split(' - ')[0].trim();
+        // It's a title (not address) if: doesn't start with digit, OR
+        // starts with a digit but the loc.name matches it
+        var looksLikeStreet = /^\d/.test(beforeDash) || /^\d+-\d+/.test(beforeDash);
+        if (!looksLikeStreet) { titleLines.push(l); continue; }
+        // Street-number address with city: "305 E 140th St - The Bronx" 
+        // Skip if the part after " - " is a borough/city name
+        var afterDash = stripped.split(' - ').slice(1).join(' - ').trim().toLowerCase();
+        var knownCities = ['manhattan','brooklyn','queens','bronx','the bronx','staten island',
+          'jersey city','hoboken','newark','yonkers','nyc','new york','nj','ny'];
+        var isKnownCity = knownCities.some(function(c){ return afterDash === c || afterDash.indexOf(c) === 0; });
+        if (isKnownCity) { titleLines.push(l); continue; }
+        // Also skip if it matches loc.name exactly (even if it starts with number)
+        if (lLow === locName) { titleLines.push(l); continue; }
       }
     }
 
-    // Italic context line: *some note*
-    if (/^\*[^*]+\*$/.test(l) && !inNotes) {
+    // Italic context line: *some note* — check before anything else
+    if (/^\*[^*]+\*$/.test(l)) {
       italicLines.push(l.replace(/^\*|\*$/g, ''));
       continue;
     }
@@ -1405,8 +1423,11 @@ function formatNotes(raw, loc) {
       // Skip if this line duplicates loc.address or loc.city exactly
       var lLow2 = l.toLowerCase();
       var isDupAddr = locAddr && lLow2 === locAddr;
-      var isDupCity = locCity && lLow2.indexOf(locCity) === 0 && addrLines.length > 0;
-      if (!isDupAddr) {
+      // Skip city/state line if it starts with loc.city (e.g. "The Bronx, NY 10454")
+      // Skip city/state line: "The Bronx, NY 10454" when locCity="the bronx"
+      var cityPart = lLow2.split(',')[0].trim();
+      var isDupCity = locCity && cityPart === locCity && addrLines.length > 0;
+      if (!isDupAddr && !isDupCity) {
         addrLines.push(l);
       }
     }
@@ -1440,9 +1461,8 @@ function formatNotes(raw, loc) {
 
   // Address block — only show if we have address lines beyond what's in structured fields
   var extraAddrLines = addrLines.filter(function(l) {
-    var ll = l.toLowerCase();
-    // Keep if it's NOT just the city/state line (that's in the header already)
-    return !(locCity && ll.indexOf(locCity) === 0);
+    var cityPart2 = l.toLowerCase().split(',')[0].trim();
+    return !(locCity && cityPart2 === locCity);
   });
   if (extraAddrLines.length || crossLine) {
     html += '<div style="'+s.addr+'">';
