@@ -22,6 +22,22 @@ const SL = {
   rejected:   { bg: 'rgba(194,96,96,.18)', c: '#c26060' }
 };
 
+// Display labels — decoupled from DB enum values
+const SL_LABEL = {
+  identified: 'thoughts',
+  scouted:    'thoughts',
+  pending:    'pending',
+  approved:   'clears',
+  rejected:   'rejected'
+};
+
+// Filter chip → DB statuses it matches
+const STATUS_FILTERS = {
+  thoughts: ['identified', 'scouted'],
+  pending:  ['pending'],
+  clears:   ['approved']
+};
+
 const CAT_PALETTE = [
   '#4a9edd', '#3dbb7a', '#e8832a', '#9060d0', '#e04545',
   '#20b8c0', '#d4b800', '#e060a8', '#68bb28', '#3060d8',
@@ -59,7 +75,12 @@ const S = {
   smTokens: null, dockOpen: false,
   editingLoc: null,
   navHistory: [], navFuture: [],
-  migrationRan: true   // set false if locations query falls back to legacy schema
+  migrationRan: true,
+  // Organize tab
+  orgUploads: [],         // raw album list from /Master-Library/Uploads/
+  orgLoaded: false,
+  orgClassifications: {}, // {sm_key: {path, confidence, status, ...}}
+  orgClassifying: false
 };
 window.S = S;  // expose for HTML inline handlers
 
@@ -232,14 +253,35 @@ function pinColorForLoc(loc) {
 // ══════════════════════════════════════════════════════════════════════════
 // FILTERS
 // ══════════════════════════════════════════════════════════════════════════
-function getActiveStates()   { return ['ny','nj','ct','pa'].filter(s => $('f-' + s)?.checked).map(s => s.toUpperCase()); }
-function getActiveStatuses() { return ['approved','scouted','pending','identified'].filter(s => $('f-' + s)?.checked); }
-function zoneFilterActive()  { return $('f-zone')?.checked; }
+function getActiveStates() {
+  return ['ny','nj','other'].filter(s => $('f-' + s)?.checked);
+}
+function getActiveStatusKeys() {
+  return Object.keys(STATUS_FILTERS).filter(k => $('f-' + k)?.checked);
+}
+function zoneFilterActive() { return $('f-zone')?.checked; }
 
 function locPassesGlobalFilter(l) {
-  const states = getActiveStates(), statuses = getActiveStatuses();
-  if (states.length && l.state_code && states.indexOf((l.state_code||'').toUpperCase()) < 0) return false;
-  if (statuses.length && statuses.indexOf(l.status) < 0) return false;
+  // State filter
+  const states = getActiveStates();
+  if (states.length) {
+    const sc = (l.state_code || '').toUpperCase();
+    const isNy = sc === 'NY';
+    const isNj = sc === 'NJ';
+    const isOther = !isNy && !isNj;
+    const ok = (states.includes('ny') && isNy) ||
+               (states.includes('nj') && isNj) ||
+               (states.includes('other') && isOther);
+    if (!ok) return false;
+  }
+  // Status filter — chip groups statuses
+  const statusKeys = getActiveStatusKeys();
+  if (statusKeys.length) {
+    let allowed = [];
+    statusKeys.forEach(k => allowed = allowed.concat(STATUS_FILTERS[k]));
+    if (allowed.indexOf(l.status) < 0) return false;
+  }
+  // Zone filter
   if (zoneFilterActive() && hasCoords(l) && miles(l.lat, l.lng) > 30) return false;
   return true;
 }
@@ -260,7 +302,7 @@ window.applyFilters = function () {
 
 function saveFilterSettings() {
   const s = {};
-  ['ny','nj','ct','pa','approved','scouted','pending','identified'].forEach(id => {
+  ['ny','nj','other','thoughts','pending','clears','zone'].forEach(id => {
     const el = $('f-' + id); if (el) s['f-'+id] = el.checked;
   });
   try { localStorage.setItem('mapFilters', JSON.stringify(s)); } catch (e) {}
@@ -269,7 +311,7 @@ function saveFilterSettings() {
 function loadFilterSettings() {
   try {
     const s = JSON.parse(localStorage.getItem('mapFilters') || '{}');
-    ['ny','nj','ct','pa','approved','scouted','pending','identified'].forEach(id => {
+    ['ny','nj','other','thoughts','pending','clears','zone'].forEach(id => {
       const el = $('f-' + id);
       if (el && s.hasOwnProperty('f-'+id)) el.checked = s['f-'+id];
     });
@@ -592,7 +634,7 @@ function showHcard(loc, ev) {
   $('hcard-cat').textContent = cat ? cat.replace(/-/g, ' ') : '';
   $('hcard-addr').textContent = [loc.city, loc.state_code].filter(Boolean).join(', ') || '';
   const sl = SL[loc.status] || SL.identified;
-  $('hcard-status').innerHTML = `<span style="color:${sl.c}">${E(loc.status)}</span>`;
+  $('hcard-status').innerHTML = `<span style="color:${sl.c}">${E(SL_LABEL[loc.status] || loc.status)}</span>`;
   const hm = $('hcard-media');
   if (loc.cover_photo_url) {
     const hi = document.createElement('img');
@@ -641,8 +683,8 @@ window.openDetail = function (loc) {
   if (cat) {
     headerHtml += `<span class="dp-cat-pill" style="background:${col}22;color:${col}">${E(cat.replace(/-/g,' '))}</span>`;
   }
-  if (loc.status && loc.status !== 'identified') {
-    headerHtml += `<span class="dp-status-pill" style="background:${sl.bg};color:${sl.c}">${E(loc.status)}</span>`;
+  if (loc.status && loc.status !== 'identified' && loc.status !== 'scouted') {
+    headerHtml += `<span class="dp-status-pill" style="background:${sl.bg};color:${sl.c}">${E(SL_LABEL[loc.status] || loc.status)}</span>`;
   }
   if (inZone) {
     headerHtml += `<span class="dp-zone-pill">in zone</span>`;
@@ -689,30 +731,30 @@ window.openDetail = function (loc) {
       ? `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${loc.lat},${loc.lng}`
       : null;
 
-    html += '<div class="dp-section"><div class="dp-label">Address</div>';
+    html += '<div class="dp-section"><div class="dp-label">Address <span class="dp-regeo" onclick="regeocodeCurrent()" title="Re-geocode this address">↻ pin location</span></div>';
     html += '<div class="dp-addr-wrap">';
     html += '<div class="dp-addr-text">';
     html += `<a href="${mapsUrl}" target="_blank" rel="noopener" class="dp-addr-link">`;
     if (addrPart) html += `<div class="dp-addr-l1">${E(addrPart)}</div>`;
     if (line2)    html += `<div class="dp-addr-l2">${E(line2)}</div>`;
     html += '</a>';
-    // Additional info (cross-street + any extras between original address lines)
     if (crossPart) html += `<div class="dp-addr-extra">${E(crossPart)}</div>`;
     filteredExtras.forEach(x => {
-      const cls = x.kind === 'italic' ? 'dp-addr-extra' : 'dp-addr-extra';
-      html += `<div class="${cls}">${E(x.text)}</div>`;
+      html += `<div class="dp-addr-extra">${E(x.text)}</div>`;
     });
     html += '</div>';
+    // Right column: SV thumb + business info (populated async)
+    html += '<div class="dp-addr-side">';
     if (svUrl) {
       html += `<a href="${svClick}" target="_blank" rel="noopener" class="dp-sv-thumb" title="Open Street View" aria-label="Open Street View">`;
       html += `<img src="${E(svUrl)}" alt="Street View" loading="lazy" onerror="this.parentNode.style.display='none'">`;
       html += `<span class="dp-sv-icon">↗</span>`;
       html += '</a>';
     }
-    html += '</div>';
-    // Slot for Google Places info (phone, hours, website) — populated async
     html += '<div id="dp-place-slot"></div>';
-    html += '</div>';
+    html += '</div>';  // /dp-addr-side
+    html += '</div>';  // /dp-addr-wrap
+    html += '</div>';  // /dp-section
   }
 
   // Notes (rendered via shared parser)
@@ -795,6 +837,42 @@ async function loadDetailGallery(loc) {
   } catch (e) { console.error('gallery:', e); }
 }
 
+window.regeocodeCurrent = async function () {
+  const loc = S.currentDetailLoc;
+  if (!loc) return;
+  const query = [loc.address, loc.city, loc.state_code, loc.zip].filter(Boolean).join(', ');
+  if (!query) { toast('No address to geocode', 'err'); return; }
+  toast('Re-geocoding…', 'inf');
+  try {
+    const stateParam = loc.state_code ? '&state=' + loc.state_code : '';
+    const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
+    const d = await r.json();
+    if (!d.ok || !d.lat) { toast('Geocode failed: ' + (d.status || 'no result'), 'err'); return; }
+    const updates = { lat: d.lat, lng: d.lng };
+    await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json', Prefer: 'return=minimal'
+      },
+      body: JSON.stringify(updates)
+    });
+    Object.assign(loc, updates);
+    try {
+      const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+      if (cached && cached.data) {
+        const li = cached.data.findIndex(l => l.id === loc.id);
+        if (li >= 0) Object.assign(cached.data[li], updates);
+        localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+      }
+    } catch (e) {}
+    rebuildLookups();
+    if (S.gmap) refreshPins();
+    openDetail(loc);
+    toast('Pin moved', 'ok');
+  } catch (e) { toast('Geocode error: ' + e.message, 'err'); }
+};
+
 // ══════════════════════════════════════════════════════════════════════════
 // GOOGLE PLACES (business phone, hours, website, rating)
 // ══════════════════════════════════════════════════════════════════════════
@@ -842,8 +920,8 @@ function fetchPlaceInfo(loc) {
       const placeId = results[0].place_id;
       svc.getDetails({
         placeId,
-        fields: ['formatted_phone_number', 'international_phone_number', 'website',
-                 'opening_hours', 'rating', 'user_ratings_total', 'url']
+        fields: ['name', 'formatted_phone_number', 'international_phone_number',
+                 'website', 'opening_hours']
       }, (place, status2) => {
         if (status2 !== 'OK' || !place) {
           cache[key] = { ts: Date.now(), data: null };
@@ -851,14 +929,10 @@ function fetchPlaceInfo(loc) {
           return resolve(null);
         }
         const data = {
+          name: place.name || '',
           phone: place.formatted_phone_number || place.international_phone_number || '',
           website: place.website || '',
-          rating: place.rating || null,
-          ratingCount: place.user_ratings_total || 0,
-          hours: (place.opening_hours && place.opening_hours.weekday_text) || [],
-          openNow: place.opening_hours && typeof place.opening_hours.isOpen === 'function'
-                     ? place.opening_hours.isOpen() : null,
-          mapsUrl: place.url || ''
+          hours: (place.opening_hours && place.opening_hours.weekday_text) || []
         };
         cache[key] = { ts: Date.now(), data };
         savePlaceCache(cache);
@@ -870,23 +944,18 @@ function fetchPlaceInfo(loc) {
 
 function renderPlaceInfoHtml(p) {
   if (!p) return '';
+  const hasContent = p.name || p.phone || p.website || (p.hours && p.hours.length);
+  if (!hasContent) return '';
   const parts = ['<div class="dp-place-info">'];
+  if (p.name) parts.push(`<div class="dp-place-name">${E(p.name)}</div>`);
   if (p.phone) {
-    parts.push(`<div class="dp-place-row"><span class="dp-place-icon">☎</span><a href="tel:${E(p.phone.replace(/\s/g,''))}">${E(p.phone)}</a></div>`);
+    const tel = p.phone.replace(/[^\d+]/g, '');
+    parts.push(`<div class="dp-place-row"><span class="dp-place-icon">☎</span><a href="tel:${E(tel)}">${E(p.phone)}</a></div>`);
   }
   if (p.website) {
     let host = p.website;
     try { host = new URL(p.website).hostname.replace(/^www\./, ''); } catch (e) {}
     parts.push(`<div class="dp-place-row"><span class="dp-place-icon">↗</span><a href="${E(p.website)}" target="_blank" rel="noopener">${E(host)}</a></div>`);
-  }
-  if (p.rating) {
-    parts.push(`<div class="dp-place-row"><span class="dp-place-icon">★</span><span>${p.rating.toFixed(1)} (${p.ratingCount})</span></div>`);
-  }
-  if (p.openNow != null) {
-    const status = p.openNow
-      ? '<span style="color:var(--green)">Open now</span>'
-      : '<span style="color:var(--text3)">Closed</span>';
-    parts.push(`<div class="dp-place-row"><span class="dp-place-icon">⏱</span>${status}</div>`);
   }
   if (p.hours && p.hours.length) {
     parts.push('<details class="dp-place-hours"><summary>Hours</summary>');
@@ -1299,7 +1368,7 @@ function libRender() {
     cards += '<div class="gcard-ph">◻</div>';
     cards += `<div class="gcard-overlay">${E(a.name)}</div></div>`;
     cards += '<div class="gcard-meta">';
-    if (sl) cards += `<span style="color:${sl.c}">${E(loc.status)}</span>`;
+    if (sl) cards += `<span style="color:${sl.c}">${E(SL_LABEL[loc.status] || loc.status)}</span>`;
     cards += `<span style="color:var(--text3)">${a.image_count || 0} photos</span>`;
     cards += '</div></div>';
   });
@@ -1322,11 +1391,12 @@ window.libFolderClick = function (el) {
 
 window.libSearch = function () {
   const q = $('lib-q').value.toLowerCase();
-  const status = $('lib-status-sel').value;
-  if (!q && !status) { libRender(); return; }
+  const statusKey = $('lib-status-sel').value;
+  if (!q && !statusKey) { libRender(); return; }
   const grid = $('lib-grid'), bc = $('lib-bc');
+  const allowed = statusKey ? STATUS_FILTERS[statusKey] : null;
   const f = S.locations.filter(l => {
-    if (status && l.status !== status) return false;
+    if (allowed && allowed.indexOf(l.status) < 0) return false;
     if (q) {
       const h = [l.name, l.address, l.city, l.notes].concat(l.tags || []).join(' ').toLowerCase();
       if (h.indexOf(q) < 0) return false;
@@ -1343,7 +1413,7 @@ window.libSearch = function () {
     return `<div class="gcard" data-locid="${E(l.id)}" onclick="libCardClick(this)">
       <div class="gcard-tw">${l.cover_photo_url ? `<img class="gcard-img" src="${E(smMedium(l.cover_photo_url))}" loading="lazy" onerror="hideOnError(this)">` : ''}
       <div class="gcard-ph">◻</div><div class="gcard-overlay">${E(l.name)}</div></div>
-      <div class="gcard-meta"><span style="color:${sl.c}">${E(l.status)}</span><span style="color:var(--text3)">${E([l.city, l.state_code].filter(Boolean).join(', ') || '—')}</span></div></div>`;
+      <div class="gcard-meta"><span style="color:${sl.c}">${E(SL_LABEL[l.status] || l.status)}</span><span style="color:var(--text3)">${E([l.city, l.state_code].filter(Boolean).join(', ') || '—')}</span></div></div>`;
   }).join('');
 };
 
@@ -1795,18 +1865,433 @@ window.showPage = function (page, btn) {
   $(page + '-page').classList.add('active');
   btn.classList.add('active');
   closeDock();
-  const zb = $('zone-btn');
-  if (zb) zb.style.display = page === 'home' ? 'flex' : 'none';
   if (page === 'home') {
     if (!S.mapReady) loadMapScript();
     else if (S.gmap) setTimeout(() => google.maps.event.trigger(S.gmap, 'resize'), 50);
   }
   if (page === 'library') libInit();
+  if (page === 'organize') orgInit();
 };
 
 // ══════════════════════════════════════════════════════════════════════════
-// KEYBOARD
+// ORGANIZE TAB
 // ══════════════════════════════════════════════════════════════════════════
+const ORG_CONFIDENCE_HIGH = 0.85;
+const ORG_CONFIDENCE_MED  = 0.70;
+const ORG_BATCH_SIZE      = 6;    // albums per /api/classify call (each does 2 LLM calls)
+
+async function orgInit() {
+  renderTaxonomyTree();
+  if (!S.orgLoaded) await orgLoadUploads();
+  else orgRender();
+}
+
+// Build the existing taxonomy from smugmug_folders
+function buildTaxonomyPaths() {
+  // Convert folder paths like "Master-Library/restaurants/diners" → "restaurants/diners"
+  const paths = new Set();
+  (S.libFolders.length ? S.libFolders : S.mapFolders).forEach(f => {
+    if (!f.path) return;
+    const parts = f.path.split('/').filter(Boolean);
+    if (parts[0] !== 'Master-Library') return;
+    if (parts.length < 2) return;
+    // Skip the Uploads/Orphans housekeeping folders
+    if (/^uploads(-\d+)?$/i.test(parts[1]) || parts[1] === 'Orphans') return;
+    paths.add(parts.slice(1).join('/'));
+  });
+  return Array.from(paths).sort();
+}
+
+function renderTaxonomyTree() {
+  const cur = $('org-tax-current');
+  if (!cur) return;
+  const paths = buildTaxonomyPaths();
+  if (!paths.length) {
+    cur.innerHTML = '<div class="empty">No taxonomy yet — sync the library first</div>';
+    return;
+  }
+  // Render as a hierarchical list
+  cur.innerHTML = paths.map(p => {
+    const depth = Math.min(p.split('/').length - 1, 2);
+    const lastSeg = p.split('/').pop().replace(/-/g, ' ');
+    return `<div class="org-tax-node depth-${depth}">${depth > 0 ? '· ' : ''}${E(lastSeg)}</div>`;
+  }).join('');
+}
+
+function renderSuggestedPaths() {
+  const newCol = $('org-tax-new');
+  if (!newCol) return;
+  const existing = new Set(buildTaxonomyPaths());
+  const tally = {};
+  Object.values(S.orgClassifications).forEach(c => {
+    if (!c || !c.path || existing.has(c.path)) return;
+    tally[c.path] = (tally[c.path] || 0) + 1;
+  });
+  const entries = Object.entries(tally).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    newCol.innerHTML = '<div class="empty">— run a classify pass to see new paths Claude suggests —</div>';
+    return;
+  }
+  newCol.innerHTML = entries.map(([p, n]) =>
+    `<div class="org-tax-new-item">+ ${E(p)} <span class="org-tax-new-count">(${n})</span></div>`
+  ).join('');
+}
+
+// ── Load albums from /Master-Library/Uploads/ ──
+async function orgLoadUploads() {
+  $('org-list').innerHTML = '<div class="empty"><div class="spin"></div><span>loading uploads...</span></div>';
+  try {
+    // Pull all albums with path matching Master-Library/Uploads*
+    const albums = await db('smugmug_albums?select=sm_key,name,path,web_url,description,image_count,highlight_url&order=name.asc');
+    // Need libFolders too if not loaded
+    if (!S.libFolders.length) {
+      S.libFolders = await db('smugmug_folders?select=name,path&order=path.asc');
+    }
+    if (!S.libAlbums.length) S.libAlbums = albums;
+
+    S.orgUploads = albums.filter(a => {
+      if (!a.web_url) return false;
+      const parts = a.web_url.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
+      // Match Master-Library/Uploads/ or Uploads-2/ etc as the parent
+      return parts[0] === 'Master-Library' && /^uploads(-\d+)?$/i.test(parts[1] || '');
+    });
+    S.orgLoaded = true;
+    renderTaxonomyTree();
+    orgRender();
+  } catch (e) {
+    $('org-list').innerHTML = `<div class="empty">Error loading: ${E(e.message || 'unknown')}</div>`;
+  }
+}
+
+// ── Render album list ──
+function orgRender() {
+  const list = $('org-list');
+  const count = S.orgUploads.length;
+  $('org-count').textContent = count ? `· ${count} albums` : '';
+
+  if (!count) {
+    list.innerHTML = '<div class="empty">No albums in Uploads. Use the Python script to upload first.</div>';
+    $('org-classify-btn').disabled = true;
+    $('org-apply-btn').disabled = true;
+    return;
+  }
+
+  $('org-classify-btn').disabled = S.orgClassifying;
+  const queued = Object.values(S.orgClassifications).filter(c => c && c.status === 'queued').length;
+  $('org-apply-btn').disabled = queued === 0;
+  $('org-apply-btn').textContent = queued ? `Apply ${queued} move${queued !== 1 ? 's' : ''}` : 'Apply moves';
+
+  list.innerHTML = S.orgUploads.map(a => orgRenderCard(a)).join('');
+  renderSuggestedPaths();
+}
+
+function orgRenderCard(album) {
+  const c = S.orgClassifications[album.sm_key] || {};
+  const thumb = album.highlight_url ? smMedium(album.highlight_url) : '';
+  const desc = (album.description || '').slice(0, 200);
+  const status = c.status || '';
+  const cls = ['org-card'];
+  if (status === 'skipped') cls.push('skipped');
+  if (status === 'applied') cls.push('applied');
+  if (status === 'classifying') cls.push('classifying');
+  if (status === 'error') cls.push('error');
+
+  let suggestHtml = '';
+  if (c.classified) {
+    const conf = Number(c.confidence || 0);
+    const confCls = conf >= ORG_CONFIDENCE_HIGH ? 'high' : conf >= ORG_CONFIDENCE_MED ? 'med' : 'low';
+    const confPct = Math.round(conf * 100);
+    suggestHtml = `<div class="org-card-suggest">
+      <div><span class="sg-path">${E(c.path || '?')}</span><span class="sg-conf ${confCls}">${confPct}%</span></div>
+      ${c.reasoning ? `<div class="sg-reason">${E(c.reasoning)}</div>` : ''}
+      ${c.tags && c.tags.length ? `<div class="sg-tags-label">${c.tags.length} keywords (saved to album on accept):</div><div class="sg-tags">${c.tags.map(t => `<span class="sg-tag">${E(t)}</span>`).join('')}</div>` : ''}
+      <div class="sg-model">${E(c.model || '')}${c.imagesUsed ? ` · ${c.imagesUsed} img${c.curation === 'haiku' ? ' (curated)' : ''}` : ''}${c.curationReasoning && c.curation === 'haiku' ? ` · ${E(c.curationReasoning)}` : ''}</div>
+    </div>`;
+  } else if (status === 'classifying') {
+    suggestHtml = `<div class="org-card-suggest"><div class="spin" style="margin-right:6px"></div>classifying…</div>`;
+  } else if (status === 'error') {
+    suggestHtml = `<div class="org-card-suggest" style="border-color:var(--red);color:var(--red)">${E(c.error || 'Error')}</div>`;
+  }
+
+  let actionsHtml = '';
+  if (status === 'applied') {
+    actionsHtml = `<div class="org-card-status applied">✓ moved</div>`;
+  } else if (status === 'queued') {
+    actionsHtml = `<div class="org-card-status queued">→ ${E(c.targetPath || c.path)}</div>
+      <button class="org-btn" onclick="orgUnqueue('${E(album.sm_key)}')">undo</button>`;
+  } else if (status === 'skipped') {
+    actionsHtml = `<button class="org-btn" onclick="orgUnskip('${E(album.sm_key)}')">unskip</button>`;
+  } else if (c.classified) {
+    actionsHtml = `
+      <button class="org-btn accept" onclick="orgAccept('${E(album.sm_key)}')">✓ accept</button>
+      <button class="org-btn" onclick="orgEdit('${E(album.sm_key)}')">✏ edit</button>
+      <button class="org-btn" onclick="orgSkip('${E(album.sm_key)}')">skip</button>`;
+  } else if (status === 'classifying') {
+    actionsHtml = `<div class="org-card-status queued">working...</div>`;
+  } else {
+    actionsHtml = `<button class="org-btn" onclick="orgClassifyOne('${E(album.sm_key)}')">⚡ classify</button>
+      <button class="org-btn" onclick="orgSkip('${E(album.sm_key)}')">skip</button>`;
+  }
+
+  return `<div class="${cls.join(' ')}" data-key="${E(album.sm_key)}">
+    <div class="org-card-thumb">${thumb ? `<img src="${E(thumb)}" loading="lazy" onerror="this.style.display='none'">` : ''}</div>
+    <div class="org-card-body">
+      <div class="org-card-name">${E(album.name)}</div>
+      <div class="org-card-meta">${album.image_count || 0} photos</div>
+      ${desc ? `<div class="org-card-notes">${E(desc)}</div>` : ''}
+      ${suggestHtml}
+    </div>
+    <div class="org-card-actions">${actionsHtml}</div>
+  </div>`;
+}
+
+// ── Classification ──
+async function orgFetchAlbumImages(sm_key) {
+  // Pull thumbnails. Pass 1 (Haiku) caps at 100; we fetch a bit more so it has full coverage.
+  try {
+    const imgs = await db(`smugmug_images?album_key=eq.${sm_key}&select=thumb_url&limit=150`);
+    return imgs.map(i => i.thumb_url).filter(Boolean);
+  } catch (e) { return []; }
+}
+
+async function orgClassifyBatch(albums) {
+  if (!albums.length) return;
+  const taxonomy = buildTaxonomyPaths();
+
+  // Fetch images for each album in parallel
+  const albumsWithImages = await Promise.all(albums.map(async a => {
+    const images = await orgFetchAlbumImages(a.sm_key);
+    return {
+      key: a.sm_key,
+      name: a.name,
+      notes: a.description || '',
+      address: '',
+      city: '',
+      state: '',
+      image_urls: images.length ? images : (a.highlight_url ? [a.highlight_url] : [])
+    };
+  }));
+
+  // Mark classifying
+  albums.forEach(a => {
+    S.orgClassifications[a.sm_key] = { ...(S.orgClassifications[a.sm_key]||{}), status: 'classifying' };
+  });
+  orgRender();
+
+  try {
+    const r = await fetch(`${SM_BASE}/api/classify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ albums: albumsWithImages, taxonomy })
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'classify failed');
+    (data.results || []).forEach(res => {
+      if (!res || !res.key) return;
+      if (res.error) {
+        S.orgClassifications[res.key] = { status: 'error', error: res.error };
+      } else {
+        S.orgClassifications[res.key] = {
+          classified: true,
+          status: '',
+          path: res.path,
+          confidence: res.confidence,
+          reasoning: res.reasoning,
+          tags: res.tags || [],
+          model: res.model || '',
+          alternatives: res.alternative_paths || [],
+          imagesUsed: res._images_used || 0,
+          curation: res._curation || '',
+          curationReasoning: res._curation_reasoning || '',
+          curatedIndices: res._curated_indices || []
+        };
+      }
+    });
+  } catch (e) {
+    albums.forEach(a => {
+      S.orgClassifications[a.sm_key] = { status: 'error', error: e.message || 'classify failed' };
+    });
+    toast('Classify error: ' + (e.message || 'unknown'), 'err');
+  }
+  orgRender();
+}
+
+window.orgClassifyAll = async function () {
+  // Classify any not yet classified, in batches
+  const todo = S.orgUploads.filter(a => {
+    const c = S.orgClassifications[a.sm_key];
+    return !c || (!c.classified && c.status !== 'applied' && c.status !== 'skipped' && c.status !== 'queued');
+  });
+  if (!todo.length) { toast('All albums already classified', 'inf'); return; }
+  if (!confirm(`Classify ${todo.length} album${todo.length !== 1 ? 's' : ''}?\n\nFlow: Haiku curates 8 best photos, then Sonnet does rich classification + tagging.\nApprox cost: ~$${(todo.length * 0.04).toFixed(2)} (~4¢/album).`)) return;
+
+  S.orgClassifying = true;
+  $('org-classify-btn').disabled = true;
+  $('org-classify-btn').textContent = '⚡ classifying...';
+
+  try {
+    for (let i = 0; i < todo.length; i += ORG_BATCH_SIZE) {
+      const batch = todo.slice(i, i + ORG_BATCH_SIZE);
+      $('org-classify-btn').textContent = `⚡ ${i + batch.length}/${todo.length}...`;
+      await orgClassifyBatch(batch);
+    }
+    toast('Classification done', 'ok');
+  } finally {
+    S.orgClassifying = false;
+    $('org-classify-btn').disabled = false;
+    $('org-classify-btn').textContent = '⚡ Classify all';
+    orgRender();
+  }
+};
+
+window.orgClassifyOne = async function (sm_key) {
+  const album = S.orgUploads.find(a => a.sm_key === sm_key);
+  if (!album) return;
+  await orgClassifyBatch([album]);
+};
+
+window.orgAccept = function (sm_key) {
+  const c = S.orgClassifications[sm_key];
+  if (!c || !c.classified) return;
+  S.orgClassifications[sm_key] = { ...c, status: 'queued', targetPath: c.path };
+  orgRender();
+};
+
+window.orgUnqueue = function (sm_key) {
+  const c = S.orgClassifications[sm_key];
+  if (!c) return;
+  S.orgClassifications[sm_key] = { ...c, status: '' };
+  orgRender();
+};
+
+window.orgSkip = function (sm_key) {
+  const c = S.orgClassifications[sm_key] || {};
+  S.orgClassifications[sm_key] = { ...c, status: 'skipped' };
+  orgRender();
+};
+
+window.orgUnskip = function (sm_key) {
+  const c = S.orgClassifications[sm_key] || {};
+  S.orgClassifications[sm_key] = { ...c, status: c.classified ? '' : '' };
+  orgRender();
+};
+
+window.orgEdit = function (sm_key) {
+  const c = S.orgClassifications[sm_key];
+  if (!c) return;
+  const card = document.querySelector(`.org-card[data-key="${sm_key}"] .org-card-actions`);
+  if (!card) return;
+  card.innerHTML = `
+    <input class="org-edit-input" id="org-edit-${E(sm_key)}" value="${E(c.path || '')}" placeholder="category/subcategory" autofocus>
+    <button class="org-btn accept" onclick="orgEditSave('${E(sm_key)}')">✓ save</button>
+    <button class="org-btn" onclick="orgRender()">cancel</button>`;
+  setTimeout(() => { const el = $('org-edit-' + sm_key); if (el) { el.focus(); el.select(); } }, 50);
+};
+
+window.orgEditSave = function (sm_key) {
+  const el = $('org-edit-' + sm_key);
+  if (!el) return;
+  const newPath = el.value.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (!newPath) { toast('Enter a path', 'err'); return; }
+  const c = S.orgClassifications[sm_key] || {};
+  S.orgClassifications[sm_key] = { ...c, classified: true, path: newPath, status: 'queued', targetPath: newPath };
+  orgRender();
+};
+
+// ── Apply moves ──
+window.orgApplyMoves = async function () {
+  if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
+  const queued = S.orgUploads.filter(a => {
+    const c = S.orgClassifications[a.sm_key];
+    return c && c.status === 'queued';
+  });
+  if (!queued.length) return;
+  if (!confirm(`Move ${queued.length} album${queued.length !== 1 ? 's' : ''} in SmugMug?\n\nThis is reversible (you can move them back), but will reorganize folders.`)) return;
+
+  $('org-apply-btn').disabled = true;
+  $('org-apply-btn').textContent = `Moving 0/${queued.length}...`;
+  const tb = btoa(JSON.stringify(S.smTokens));
+  let done = 0, failed = 0;
+
+  for (const album of queued) {
+    const c = S.orgClassifications[album.sm_key];
+    const destPath = 'Master-Library/' + c.targetPath;
+    $('org-apply-btn').textContent = `Moving ${done + 1}/${queued.length}...`;
+
+    try {
+      const r = await fetch(`${SM_BASE}/api/smugmug?action=move_album`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + tb, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          albumKey: album.sm_key,
+          destPath,
+          tags: c.tags || []
+        })
+      });
+      const data = await r.json();
+      if (data.ok) {
+        // Update local DB so the library reflects the new path AND keywords
+        try {
+          await fetch(`${SB_URL}/rest/v1/smugmug_albums?sm_key=eq.${album.sm_key}`, {
+            method: 'PATCH',
+            headers: {
+              apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+              'Content-Type': 'application/json', Prefer: 'return=minimal'
+            },
+            body: JSON.stringify({
+              path: c.targetPath,
+              web_url: data.newWebUri || album.web_url,
+              keywords: data.keywords || ''
+            })
+          });
+        } catch (e) {}
+        // Also update tags on any linked location (so they're searchable in the detail panel)
+        if (c.tags && c.tags.length) {
+          try {
+            const locs = await db(`locations?smugmug_album_key=eq.${album.sm_key}&select=id,tags`);
+            if (locs && locs[0]) {
+              const existing = Array.isArray(locs[0].tags) ? locs[0].tags : [];
+              const seen = new Set(existing.map(t => String(t).toLowerCase()));
+              const merged = existing.concat(c.tags.filter(t => !seen.has(String(t).toLowerCase())));
+              await fetch(`${SB_URL}/rest/v1/locations?id=eq.${locs[0].id}`, {
+                method: 'PATCH',
+                headers: {
+                  apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+                  'Content-Type': 'application/json', Prefer: 'return=minimal'
+                },
+                body: JSON.stringify({ tags: merged })
+              });
+            }
+          } catch (e) {}
+        }
+        S.orgClassifications[album.sm_key] = { ...c, status: 'applied' };
+        done++;
+      } else {
+        S.orgClassifications[album.sm_key] = { ...c, status: 'error', error: data.error || 'move failed' };
+        failed++;
+      }
+    } catch (e) {
+      S.orgClassifications[album.sm_key] = { ...c, status: 'error', error: e.message || 'network error' };
+      failed++;
+    }
+    orgRender();
+    $('org-apply-btn').disabled = true;
+    $('org-apply-btn').textContent = `Moving ${done + 1}/${queued.length}...`;
+  }
+
+  $('org-apply-btn').disabled = false;
+  toast(`Moved ${done} album${done !== 1 ? 's' : ''}${failed ? ` · ${failed} failed` : ''}`, failed ? 'err' : 'ok');
+
+  // Trigger a sync so libraries refresh
+  S.libLoaded = false;
+  // Soft refresh of folders for the taxonomy display
+  setTimeout(async () => {
+    try { S.libFolders = await db('smugmug_folders?select=name,path&order=path.asc'); } catch (e) {}
+    renderTaxonomyTree();
+  }, 500);
+};
+
+
 document.addEventListener('keydown', function (e) {
   const tag = e.target.tagName;
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
