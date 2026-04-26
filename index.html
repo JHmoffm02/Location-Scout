@@ -491,7 +491,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
               <div class="fi"><input type="checkbox" id="f-approved" checked onchange="applyFilters()"><label for="f-approved">Approved</label></div>
               <div class="fi"><input type="checkbox" id="f-scouted" checked onchange="applyFilters()"><label for="f-scouted">Scouted</label></div>
               <div class="fi"><input type="checkbox" id="f-pending" checked onchange="applyFilters()"><label for="f-pending">Pending</label></div>
-              <div class="fi"><input type="checkbox" id="f-identified" checked onchange="applyFilters()"><label for="f-identified">Identified</label></div>
+
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -555,6 +555,51 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
       <div class="dp-hint" id="dp-hint" style="display:none">space · lightbox &nbsp; enter · switch view</div>
     </div>
     <div class="dp-body" id="dp-body"></div>
+  </div>
+</div>
+
+<!-- Edit Panel -->
+<div id="edit-panel" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(560px,90vw);max-height:85vh;overflow-y:auto;padding:24px;position:relative">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div style="font-size:13px;font-weight:500;color:var(--text)">Edit Location</div>
+      <button onclick="closeEditPanel()" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px">×</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div>
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Location Name</div>
+        <input id="edit-name" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
+      </div>
+      <div style="display:flex;gap:10px">
+        <div style="flex:2">
+          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Street Address</div>
+          <input id="edit-address" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
+        </div>
+        <div style="flex:1">
+          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">City</div>
+          <input id="edit-city" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
+        </div>
+      </div>
+      <div>
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Notes <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(editing saves as truth — sync won't overwrite)</span></div>
+        <textarea id="edit-notes" rows="10" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;outline:none;resize:vertical;line-height:1.6"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:4px;border-top:1px solid var(--border)">
+        <button onclick="closeEditPanel()" style="background:transparent;border:1px solid var(--border2);color:var(--text2);padding:7px 16px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace">Cancel</button>
+        <button onclick="saveEdit()" id="edit-save-btn" style="background:var(--accent);border:none;color:var(--bg);padding:7px 16px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace;font-weight:500">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Raw Notes Modal -->
+<div id="raw-notes-modal" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(560px,90vw);max-height:80vh;overflow-y:auto;padding:24px;position:relative">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text3)">Raw SmugMug Notes</div>
+      <button onclick="document.getElementById('raw-notes-modal').style.display='none'" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px">×</button>
+    </div>
+    <pre id="raw-notes-content" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text2);white-space:pre-wrap;line-height:1.7"></pre>
   </div>
 </div>
 
@@ -1220,16 +1265,20 @@ function openDetail(loc) {
   html += '</div>';
   var mapsUrl = '';
   if (loc.address || loc.city) {
-    var mapsQ = encodeURIComponent([loc.address,loc.city,loc.state_code].filter(Boolean).join(', '));
+    var mapsQ = encodeURIComponent([loc.address,loc.city,loc.state_code].filter(Boolean).join(' '));
     mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + mapsQ;
     html += '<div class="dp-section">';
     html += '<div class="dp-label">Address</div>';
     html += '<div class="dp-val" style="line-height:1.8">';
     html += '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none;border-bottom:1px solid var(--border2)">';
     if (loc.address) html += loc.address;
-    if (loc.address && loc.city) html += '<br>';
     var cityState = [loc.city, loc.state_code].filter(Boolean).join(', ');
+    if (loc.address && cityState) html += '<br>';
     if (cityState) html += cityState;
+    if (!cityState && loc.address) {
+      // No city — try to get zip from notes parser result
+      html += '';
+    }
     html += '</a></div></div>';
   }
   var notesHtml = formatNotes(loc.notes, loc, mapsUrl);
@@ -1247,6 +1296,8 @@ function openDetail(loc) {
     html += '<div class="dp-val">'+(loc.scout_name||'')+(loc.scout_date?' · '+loc.scout_date:'')+'</div></div>';
   }
   html += '<div class="dp-actions">';
+  html += '<button class="dp-btn" onclick="openEditPanel(currentDetailLoc)">✏ Edit</button>';
+  if (loc.notes) html += '<button class="dp-btn" onclick="showRawNotes(currentDetailLoc)">raw notes</button>';
   html += '</div>';
   document.getElementById('dp-body').innerHTML = html;
 
@@ -1297,7 +1348,7 @@ async function loadDetailGallery(loc) {
   if (!loc.smugmug_album_key) return;
   var savedLoc = loc;
   try {
-    var imgs = await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url&limit=40');
+    var imgs = await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url,position&order=position.asc');
     // Only update if this loc is still current
     if (currentDetailLoc !== savedLoc) return;
     if (!imgs || !imgs.length) return;
@@ -1540,14 +1591,25 @@ function formatNotes(raw, loc, mapsUrl) {
     html += '</div>';
   }
 
-  // Notes
+  // Notes — detect update blocks (second date line = update section)
   if (result.noteLines.length) {
     html += '<div style="'+S.sec+'">';
     html += '<div style="'+S.lbl+'">Notes</div>';
+    var inUpdate = false;
     result.noteLines.forEach(function(l){
       if (!l) return;
-      if (/^[-•]\s*/.test(l))
-        html += '<div style="'+S.bullet+'">&bull; '+l.replace(/^[-•]\s*/,'')+'</div>';
+      if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}/.test(l) || /^update[:\s]/i.test(l)) {
+        var updDate = l.replace(/^update[:\s]*/i,'').trim();
+        html += '<div style="margin-top:10px;margin-bottom:4px;display:flex;align-items:center;gap:8px">';
+        html += '<span style="font-size:9px;letter-spacing:.1em;color:var(--amber);font-family:\'DM Mono\',monospace;text-transform:uppercase;border:1px solid var(--amber);padding:1px 7px;border-radius:3px">UPDATE</span>';
+        if (updDate) html += '<span style="font-size:10px;color:var(--text3);font-family:\'DM Mono\',monospace">'+updDate+'</span>';
+        html += '</div>';
+        inUpdate = true;
+        return;
+      }
+      if (/^[-\u2022]\s*/.test(l))
+        html += '<div style="'+S.bullet+(inUpdate?';color:var(--amber)':'')+'">&bull; '+l.replace(/^[-\u2022]\s*/,'')+
+'</div>';
       else
         html += '<div style="'+S.prose+'">'+l+'</div>';
     });
@@ -1566,6 +1628,69 @@ function formatNotes(raw, loc, mapsUrl) {
   return html || ('<div style="font-size:12px;color:var(--text2)">'+raw+'</div>');
 }
 
+
+// ── Edit Panel ──
+var editingLoc = null;
+
+function openEditPanel(loc) {
+  if (!loc) return;
+  editingLoc = loc;
+  document.getElementById('edit-name').value = loc.name || '';
+  document.getElementById('edit-address').value = loc.address || '';
+  document.getElementById('edit-city').value = loc.city || '';
+  document.getElementById('edit-notes').value = loc.notes || '';
+  document.getElementById('edit-panel').style.display = 'flex';
+}
+
+function closeEditPanel() {
+  document.getElementById('edit-panel').style.display = 'none';
+  editingLoc = null;
+}
+
+async function saveEdit() {
+  if (!editingLoc) return;
+  var btn = document.getElementById('edit-save-btn');
+  btn.textContent = 'Saving...'; btn.disabled = true;
+  var updates = {
+    name:           document.getElementById('edit-name').value.trim(),
+    address:        document.getElementById('edit-address').value.trim(),
+    city:           document.getElementById('edit-city').value.trim(),
+    notes:          document.getElementById('edit-notes').value,
+    notes_override: true  // protect from future sync overwrites
+  };
+  try {
+    await fetch(SB_URL+'/rest/v1/locations?id=eq.'+editingLoc.id, {
+      method: 'PATCH',
+      headers: {apikey:SB_KEY, Authorization:'Bearer '+SB_KEY,
+                'Content-Type':'application/json', Prefer:'return=minimal'},
+      body: JSON.stringify(updates)
+    });
+    // Update local cache
+    Object.assign(editingLoc, updates);
+    // Update localStorage cache
+    try {
+      var cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY)||'null');
+      if (cached && cached.data) {
+        var li = cached.data.findIndex(function(l){return l.id===editingLoc.id;});
+        if (li>=0) Object.assign(cached.data[li], updates);
+        localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+      }
+    } catch(e) {}
+    closeEditPanel();
+    // Re-render detail panel with updated data
+    openDetail(editingLoc);
+    toast('Saved', 'ok');
+  } catch(e) {
+    toast('Save failed: '+e.message, 'err');
+  }
+  btn.textContent = 'Save'; btn.disabled = false;
+}
+
+function showRawNotes(loc) {
+  if (!loc) return;
+  document.getElementById('raw-notes-content').textContent = loc.notes || '(no notes)';
+  document.getElementById('raw-notes-modal').style.display = 'flex';
+}
 
 // ── Lightbox ──
 function openLightbox(url) {
@@ -1735,10 +1860,20 @@ async function startFullSync() {
     var missing = allAlbums.filter(function(a){return !syncedKeys.has(a.sm_key);});
     if (ns) ns.textContent = missing.length + ' albums need images...';
 
+    // Load checkpoint from localStorage
+    var ckptKey = 'sync_checkpoint';
+    var ckpt = {};
+    try { ckpt = JSON.parse(localStorage.getItem(ckptKey)||'{}'); } catch(e) {}
+    // Skip already completed albums from previous interrupted sync
+    var remaining = missing.filter(function(a){ return !ckpt[a.sm_key]; });
+    if (remaining.length < missing.length) {
+      toast((missing.length - remaining.length) + ' albums resumed from checkpoint', 'inf');
+    }
+
     var imgDone = 0;
-    for (var j = 0; j < missing.length; j++) {
-      var alb = missing[j];
-      if (ns) ns.textContent = 'images ' + (j+1) + '/' + missing.length + ' — ' + alb.name;
+    for (var j = 0; j < remaining.length; j++) {
+      var alb = remaining[j];
+      if (ns) ns.textContent = 'images ' + (j+1) + '/' + remaining.length + ' — ' + alb.name;
       try {
         var imgs = (await (await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+alb.sm_key,{headers:{Authorization:'Bearer '+tb}})).json()).images || [];
         if (imgs.length) {
@@ -1750,12 +1885,22 @@ async function startFullSync() {
               await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({cover_photo_url:firstThumb})});
               loc.cover_photo_url = firstThumb;
             }
+            // Sync notes from SmugMug description — only if not overridden by user edit
+            if (loc && !loc.notes_override && imgs[0] && imgs[0].album_description) {
+              await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({notes:imgs[0].album_description})});
+              loc.notes = imgs[0].album_description;
+            }
           }
           imgDone++;
         }
+        // Save checkpoint so sync can resume if interrupted
+        ckpt[alb.sm_key] = true;
+        try { localStorage.setItem(ckptKey, JSON.stringify(ckpt)); } catch(e) {}
       } catch(e) { console.error('img:', e.message); }
       await new Promise(function(r){setTimeout(r,150);});
     }
+    // Clear checkpoint on successful completion
+    try { localStorage.removeItem(ckptKey); } catch(e) {}
 
     await loadLocations(true); // force fresh after sync
     if (gmap) refreshPins();
