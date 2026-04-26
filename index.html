@@ -420,6 +420,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
   #left-panel{display:none}
 }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-marker-clusterer/1.0.0/markerclusterer.min.js"></script>
 </head>
 <body tabindex="-1" style="outline:none">
 <div id="shell">
@@ -603,7 +604,7 @@ var navFuture=[];  // redo stack
 
 // ── State ──
 var locations=[], gmap=null, mapReady=false;
-var markers=[], markerPool=new Map(), zoneCircle=null, zoneOn=false;
+var markers=[], markerPool=new Map(), zoneCircle=null, zoneOn=false, clusterer=null;
 var selectedMarker=null;
 var currentHoverLoc=null, currentDetailLoc=null;
 var smTokens=null, dockOpen=false;
@@ -886,33 +887,7 @@ window.initMap = async function() {
     if (currentDetailLoc) closeDetail();
   });
 
-  // Reduce zoom lag: batch pin scale updates on zoom_changed using idle
-  var zoomPending = false;
-  gmap.addListener('zoom_changed', function() {
-    zoomPending = true;
-  });
-  gmap.addListener('idle', function() {
-    if (zoomPending) {
-      zoomPending = false;
-      var zoom = gmap.getZoom();
-      var scale = zoom >= 14 ? 9 : zoom >= 12 ? 7 : 5;
-      var strokeW = zoom >= 14 ? 1.5 : 1;
-      markerPool.forEach(function(m) {
-        if (!m.getVisible()) return;
-        var icon = m.getIcon();
-        if (icon && icon.scale !== scale) {
-          m.setIcon({
-            path: google.maps.SymbolPath.CIRCLE,
-            scale: scale,
-            fillColor: m._col,
-            fillOpacity: .9,
-            strokeColor: 'rgba(0,0,0,.5)',
-            strokeWeight: strokeW
-          });
-        }
-      });
-    }
-  });
+  // Zoom handled by MarkerClusterer
   await loadLocations();
   // Load map albums in parallel with left panel build
   await Promise.all([
@@ -994,28 +969,29 @@ function refreshPins() {
   var filtered = getFiltered();
   var filteredIds = new Set(filtered.map(function(l){return l.id;}));
 
+  // Remove clusterer while we update markers
+  if (clusterer) { clusterer.clearMarkers(); }
+
   // Hide markers not in filtered set
   markerPool.forEach(function(m, locId) {
-    if (!filteredIds.has(locId)) { m.setVisible(false); }
+    if (!filteredIds.has(locId)) { m.setMap(null); }
   });
 
   filtered.forEach(function(loc) {
     var col = pinColorForLoc(loc);
     var visible = col !== null;
     if (markerPool.has(loc.id)) {
-      // Update existing marker
       var m = markerPool.get(loc.id);
       m._col = col || '#888680';
       m.setIcon(makeIcon(m._col));
-      m.setVisible(visible);
+      m.setMap(visible ? null : null); // managed by clusterer
     } else {
-      // Create new marker
       var finalCol = col || '#888680';
       var m = new google.maps.Marker({
         position: {lat:Number(loc.lat), lng:Number(loc.lng)},
-        map: gmap, title: loc.name,
+        title: loc.name,
         icon: makeIcon(finalCol),
-        visible: visible, zIndex: 1
+        zIndex: 1
       });
       m._loc = loc; m._col = finalCol;
       (function(location) {
@@ -1028,7 +1004,33 @@ function refreshPins() {
     }
   });
 
-  markers = []; markerPool.forEach(function(m){ if(m.getVisible())markers.push(m); });
+  // Collect visible markers for clusterer
+  markers = [];
+  filtered.forEach(function(loc) {
+    var m = markerPool.get(loc.id);
+    if (m && pinColorForLoc(loc) !== null) markers.push(m);
+  });
+
+  // Create/update clusterer
+  if (clusterer) {
+    clusterer.addMarkers(markers);
+  } else {
+    clusterer = new MarkerClusterer(gmap, markers, {
+      gridSize: 48,
+      maxZoom: 13,
+      minimumClusterSize: 4,
+      styles: [{
+        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36">' +
+          '<circle cx="18" cy="18" r="16" fill="#1c1e22" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>' +
+          '<text x="18" y="23" text-anchor="middle" font-family="DM Mono,monospace" font-size="11" fill="#e6e4de">%s</text>' +
+          '</svg>'),
+        width: 36, height: 36, textSize: 0,
+        anchorText: [0, 0], anchorIcon: [18, 18]
+      }]
+    });
+  }
+
   var pc = document.getElementById('pin-count'); if (pc) pc.textContent = markers.length;
   if (zoneOn) drawZone();
 }
@@ -1040,13 +1042,14 @@ function highlightPin(loc) {
     selectedMarker = null;
   }
   if (!loc) return;
-  for (var i = 0; i < markers.length; i++) {
-    if (markers[i]._loc && markers[i]._loc.id === loc.id) {
-      selectedMarker = markers[i];
-      selectedMarker.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:selectedMarker._col,fillOpacity:1,strokeColor:'#fff',strokeWeight:2.5});
-      selectedMarker.setZIndex(999);
-      break;
-    }
+  var m = markerPool.get(loc.id);
+  if (m) {
+    selectedMarker = m;
+    // Pull out of clusterer temporarily so it renders on top
+    if (clusterer) clusterer.removeMarker(m);
+    m.setMap(gmap);
+    m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:m._col,fillOpacity:1,strokeColor:'#fff',strokeWeight:2.5});
+    m.setZIndex(999);
   }
 }
 
