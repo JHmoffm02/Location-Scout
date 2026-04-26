@@ -139,55 +139,41 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .dp-btn.pri:hover{opacity:.88}
 
-/* ── Address verification widget ── */
-.addr-verify{
-  margin:-2px -2px 16px -2px;border:1px solid var(--amber);
-  background:linear-gradient(135deg,rgba(212,148,58,.08),rgba(212,148,58,.02));
-  border-radius:8px;overflow:hidden;
+/* ── Address layout (detail panel) ── */
+.dp-addr-wrap{
+  display:flex;gap:12px;align-items:flex-start;
 }
-.av-header{
-  padding:8px 12px;border-bottom:1px solid rgba(212,148,58,.3);
-  display:flex;align-items:center;gap:8px;
-  font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.08em;
-  color:var(--amber);text-transform:uppercase;font-weight:500;
+.dp-addr-text{flex:1;min-width:0;line-height:1.6}
+.dp-addr-link{
+  color:var(--text);text-decoration:none;display:block;
+  border-bottom:1px solid transparent;transition:border-color .15s;
+  width:fit-content;
 }
-.av-icon{font-size:13px}
-.av-body{display:grid;grid-template-columns:1fr 140px;gap:10px;padding:12px;align-items:start}
-@media (max-width: 600px){.av-body{grid-template-columns:1fr}}
-.av-suggest{display:flex;flex-direction:column;gap:3px}
-.av-row{font-size:12px;color:var(--text);line-height:1.4}
-.av-street{font-weight:500}
-.av-cross{font-size:10px;color:var(--text3);font-style:italic;margin-top:1px}
-.av-city{color:var(--text2)}
-.av-map{
-  width:100%;aspect-ratio:1/1;background:var(--bg4);border-radius:6px;
-  overflow:hidden;border:1px solid var(--border2);
+.dp-addr-link:hover{border-bottom-color:var(--border2)}
+.dp-addr-l1{font-size:13px;color:var(--text)}
+.dp-addr-l2{font-size:12px;color:var(--text2);margin-top:2px}
+.dp-addr-extra{
+  font-size:11px;color:var(--text3);font-style:italic;
+  margin-top:4px;line-height:1.5;
 }
-.av-map-placeholder{
-  width:100%;height:100%;display:flex;align-items:center;justify-content:center;
-  font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);
-  letter-spacing:.06em;text-align:center;padding:8px;
+.dp-sv-thumb{
+  width:80px;height:80px;flex-shrink:0;
+  border-radius:6px;overflow:hidden;
+  border:1px solid var(--border2);
+  background:var(--bg4);
+  position:relative;display:block;cursor:pointer;
+  transition:border-color .15s,transform .15s;
 }
-.av-actions{
-  padding:8px 12px;border-top:1px solid rgba(212,148,58,.2);
-  display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;
+.dp-sv-thumb:hover{border-color:var(--accent2);transform:scale(1.03)}
+.dp-sv-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.dp-sv-icon{
+  position:absolute;top:4px;right:4px;
+  width:16px;height:16px;border-radius:3px;
+  background:rgba(0,0,0,.65);color:#fff;
+  font-size:9px;font-family:'DM Mono',monospace;
+  display:flex;align-items:center;justify-content:center;
+  pointer-events:none;
 }
-.av-btn{
-  padding:6px 12px;font-size:10px;font-family:'DM Mono',monospace;
-  border-radius:4px;cursor:pointer;border:1px solid var(--border2);
-  background:transparent;color:var(--text2);transition:all .12s;letter-spacing:.04em;
-}
-.av-btn:hover{border-color:var(--text2);color:var(--text)}
-.av-btn.av-primary{background:var(--amber);color:var(--bg);border-color:var(--amber);font-weight:500}
-.av-btn.av-primary:hover{opacity:.88;color:var(--bg)}
-.av-edit-row{display:flex;margin-bottom:6px}
-.av-edit-row input{
-  width:100%;background:var(--bg3);border:1px solid var(--border2);
-  border-radius:4px;padding:6px 8px;color:var(--text);
-  font-size:12px;font-family:'DM Sans',sans-serif;outline:none;
-}
-.av-edit-row input:focus{border-color:var(--amber)}
-.av-edit-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:8px}
 
 /* ── Library ── */
 #library-page{background:var(--bg2);overflow:hidden}
@@ -381,15 +367,27 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
         <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-name">Location Name</label></div>
         <input id="edit-name" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
       </div>
-      <div style="display:flex;gap:10px">
+      <div>
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-address">Street Address</label></div>
+        <input id="edit-address" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
+      </div>
+      <div style="display:flex;gap:8px">
         <div style="flex:2">
-          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-address">Street Address</label></div>
-          <input id="edit-address" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
-        </div>
-        <div style="flex:1">
           <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-city">City</label></div>
           <input id="edit-city" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
         </div>
+        <div style="flex:0 0 70px">
+          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-state">State</label></div>
+          <input id="edit-state" type="text" maxlength="2" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none;text-transform:uppercase">
+        </div>
+        <div style="flex:0 0 90px">
+          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-zip">Zip</label></div>
+          <input id="edit-zip" type="text" maxlength="10" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
+        </div>
+      </div>
+      <div>
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-cross">Cross Street / Other Info <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(optional)</span></label></div>
+        <input id="edit-cross" type="text" placeholder="e.g. (@ 44th Ave)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
       </div>
       <div>
         <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-notes">Notes <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(editing saves as truth — sync won't overwrite)</span></label></div>
