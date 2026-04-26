@@ -13,7 +13,7 @@
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU = 'claude-haiku-4-5';
 const SONNET = 'claude-sonnet-4-6';
-const TARGET_COUNT = 8;          // images to curate for Pass 2
+const TARGET_COUNT = 15;         // images selected for the deep classification
 const MAX_THUMBS_PER_PASS1 = 100; // hard cap on Pass 1 input size
 const PARALLEL = 3;              // concurrent classifications
 
@@ -166,7 +166,7 @@ CONFIDENCE RUBRIC:
 - 0.70 = strong textual evidence only
 - <0.70 = ambiguous
 
-TAG GUIDELINES — extract 8-18 concrete descriptive tags FROM THE IMAGES that would help a scout search this location later. Cover as many of these dimensions as apply:
+TAG GUIDELINES — extract 8-18 album-level descriptive tags FROM THE IMAGES that summarize the location overall. These should help a scout search for this whole place. Cover as many of these dimensions as apply:
 
   ARCHITECTURE / STYLE: victorian, art-deco, mid-century-modern, brutalist, neoclassical, industrial, tudor, colonial, gothic, beaux-arts, federal, craftsman, ranch, contemporary, postmodern
   PERIOD / ERA FEEL: pre-war, 1920s, 1950s, 70s-era, modern, period-accurate, anachronistic, timeless, historical
@@ -178,15 +178,23 @@ TAG GUIDELINES — extract 8-18 concrete descriptive tags FROM THE IMAGES that w
   DISTINCTIVE FEATURES: spiral-staircase, rooftop-access, courtyard, fireplace, exposed-pipes, exposed-beams, columns, arches, balcony, terrace, basement, attic, kitchen-island
   COLOR PALETTE: white-walls, dark-wood, jewel-tones, pastel, monochrome, colorful, neutral, black-and-white
   CINEMATIC NOTES: shootable-360, hard-to-light, single-window-room, multiple-rooms, open-plan, character-rich, blank-canvas
+  ROOM TYPES (use as tags too): kitchen, bathroom, bedroom, living-room, dining-room, foyer, hallway, basement, attic, exterior, backyard, rooftop
 
-Pick whichever genuinely apply based on what you see in the photos. Prefer specific over generic. Multi-word tags use hyphens. Do NOT include the location name or generic words like "interior" / "exterior" / "building".
+PER-IMAGE TAGS — ALSO provide tags for EACH individual image. These are MORE specific than the album tags — they describe what's actually visible in that one shot. A bedroom shot might tag "bedroom, four-poster-bed, hardwood, warm-lighting"; an exterior shot might tag "exterior, tudor, weathered, lots-of-trees". Different rooms typically have different feels — capture that.
+
+Pick whichever genuinely apply based on what you see. Prefer specific over generic. Multi-word tags use hyphens. Do NOT include the location name or generic words like "interior"/"building".
 
 OUTPUT: Return ONLY a JSON object, no prose, no markdown fences. Schema:
 {
   "path": "category/subcategory",
   "confidence": 0.0-1.0,
   "reasoning": "one short sentence describing what you see",
-  "tags": ["tag1", "tag2", ...],
+  "tags": ["album-level tag1", "tag2", ...],
+  "per_image_tags": {
+    "0": ["specific tags for image 0"],
+    "1": ["specific tags for image 1"],
+    ...
+  },
   "alternative_paths": [{"path": "...", "confidence": 0.6}]
 }`;
 }
@@ -247,7 +255,7 @@ async function callClaude(model, systemPrompt, userContent, apiKey, maxTokens) {
       },
       body: JSON.stringify({
         model,
-        max_tokens: maxTokens || 900,
+        max_tokens: maxTokens || 1800,
         system: [
           { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }
         ],
@@ -324,14 +332,15 @@ async function classifyWithImages(album, taxonomy, corrections, imageSources, mo
 // ── Top-level: classify a single album ────────────────────────────────────
 async function classifyOne(album, taxonomy, corrections, apiKey) {
   const allImages = (album.image_urls || []).filter(Boolean);
+  const allKeys = album.image_keys || [];  // parallel array; may be empty
 
   if (allImages.length === 0) {
     // Text-only fallback
     const sys = buildClassifySystemPrompt(taxonomy, corrections);
     const userParts = buildAlbumMessage(album, []);
-    const r = await callClaude(HAIKU, sys, userParts, apiKey, 1000);
+    const r = await callClaude(HAIKU, sys, userParts, apiKey, 1200);
     const result = parseJSON(r.text);
-    return { ...result, key: album.key, model: HAIKU, _images_used: 0, _curation: 'none' };
+    return { ...result, key: album.key, model: HAIKU, _images_used: 0, _curation: 'none', selected_image_keys: [], per_image_tags_by_key: {} };
   }
 
   // Pass 1: curate
@@ -340,26 +349,49 @@ async function classifyOne(album, taxonomy, corrections, apiKey) {
   // Pass 2: fetch large versions of the curated set, then run Sonnet
   const curatedLargeUrls = indices.map(i => smLarge(allImages[i]));
   const largeSources = await fetchImagesAsBase64(curatedLargeUrls, 10000);
-  const validLarge = largeSources.filter(Boolean);
 
-  if (validLarge.length === 0) {
+  // Track which indices succeeded (large fetch worked)
+  const validPairs = largeSources
+    .map((src, i) => src ? { src, originalIdx: indices[i], orderIdx: i } : null)
+    .filter(Boolean);
+
+  if (validPairs.length === 0) {
     const sys = buildClassifySystemPrompt(taxonomy, corrections);
     const userParts = buildAlbumMessage(album, []);
-    const r = await callClaude(HAIKU, sys, userParts, apiKey, 1000);
+    const r = await callClaude(HAIKU, sys, userParts, apiKey, 1200);
     const result = parseJSON(r.text);
-    return { ...result, key: album.key, model: HAIKU, _images_used: 0, _curation: 'failed-large-fetch' };
+    return {
+      ...result, key: album.key, model: HAIKU, _images_used: 0,
+      _curation: 'failed-large-fetch', selected_image_keys: [], per_image_tags_by_key: {}
+    };
   }
 
-  const result = await classifyWithImages(album, taxonomy, corrections, largeSources, SONNET, apiKey);
+  // Build the message with valid sources only; their order index in the AI's view = position in validPairs
+  const validSources = validPairs.map(p => p.src);
+  const result = await classifyWithImages(album, taxonomy, corrections, validSources, SONNET, apiKey);
+
+  // Map per_image_tags from positional index → image_key
+  const perImageByKey = {};
+  const selectedKeys = [];
+  validPairs.forEach((p, viewIdx) => {
+    const imgKey = allKeys[p.originalIdx] || null;
+    if (imgKey) {
+      selectedKeys.push(imgKey);
+      const tagsForThis = (result.per_image_tags && result.per_image_tags[String(viewIdx)]) || [];
+      perImageByKey[imgKey] = tagsForThis;
+    }
+  });
 
   return {
     ...result,
     key: album.key,
     model: SONNET,
-    _images_used: validLarge.length,
+    _images_used: validSources.length,
     _curation: usedCuration ? 'haiku' : 'all',
     _curation_reasoning: curationReasoning,
-    _curated_indices: indices
+    selected_image_keys: selectedKeys,
+    selected_image_indices: validPairs.map(p => p.originalIdx),
+    per_image_tags_by_key: perImageByKey
   };
 }
 
