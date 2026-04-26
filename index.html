@@ -1307,144 +1307,192 @@ async function loadDetailGallery(loc) {
 function formatNotes(raw, loc) {
   if (!raw) return '';
 
-  // Strip markdown email links [text](mailto:addr) -> addr
+  // 1. Strip markdown links but keep email address
   raw = raw.replace(/\[([^\]]+)\]\(mailto:([^)]+)\)/g, '$2');
 
-  // Expand collapsed format: inject newlines before known section markers
-  // Handles case where everything is on one line with no line breaks
+  // 2. Expand collapsed text — inject newlines before section markers
+  // Handle case like "284 Mulberry St(Btw..." or "NY 10012C: Name"
+  raw = raw.replace(/(\w)\(Btw /g, '$1\n(Btw ');
+  raw = raw.replace(/(\d{5})(C\d*:)/g, '$1\n$2');
   raw = raw.replace(/ (C\d*:) /g, '\n$1 ');
-  raw = raw.replace(/ (Notes:) /g, '\n$1 ');
-  raw = raw.replace(/ (\(\w)/g, '\n($2');  // open paren = cross street
+  raw = raw.replace(/(Notes:)/g, '\n$1\n');
 
-  // Collapse runs of 3+ newlines to 2
+  // 3. Collapse excess blank lines
   raw = raw.replace(/\n{3,}/g, '\n\n');
 
-  // Split into lines, trim each
+  // 4. Split and trim lines
   var lines = raw.split('\n').map(function(l) { return l.trim(); });
 
-  // Remove leading filename-style line: "address - town" or "*address - town"
-  // Also remove if it matches the location name
-  var locName = loc && loc.name ? loc.name.toLowerCase() : '';
-  while (lines.length > 0) {
-    var first = lines[0].replace(/^\*+/, '').trim();
-    var firstLow = first.toLowerCase();
-    // Skip if: matches loc name, or is "address - town" pattern, or is duplicate of next line
-    if (firstLow === locName ||
-        (/ - /.test(first) && !/^C\d*:/i.test(first) && first.length < 80)) {
-      lines.shift();
-    } else {
-      break;
-    }
-  }
-
-  // Also strip leading * from any line
-  lines = lines.map(function(l) { return l.replace(/^\*+\s*/, ''); });
-
-  // Remove footer lines: "J. Hoffman" style and dates
-  lines = lines.filter(function(l) {
-    if (!l) return true; // keep blank lines for spacing
-    if (/^J\.?\s+Hoffman/i.test(l)) return false;
-    if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}$/.test(l)) return false;
-    return true;
-  });
-
-  // Now parse sections
-  var addressLines = [];
+  // 5. Parse sections
+  var titleLines = [];   // filename-style title lines to skip
+  var addrLines = [];    // street address lines
+  var crossLine = '';    // (Btw X & Y) line
   var contacts = [];
   var noteLines = [];
+  var italicLines = [];  // *note* context lines
+  var dateStr = '';
   var inNotes = false;
   var currentContact = null;
+  var addrDone = false;
+
+  var locName = loc && loc.name ? loc.name.toLowerCase().trim() : '';
+  var locAddr = loc && loc.address ? loc.address.toLowerCase().trim() : '';
+  var locCity = loc && loc.city ? loc.city.toLowerCase().trim() : '';
 
   for (var i = 0; i < lines.length; i++) {
     var l = lines[i];
     if (!l) continue;
 
-    // Notes section header
-    if (/^notes?\s*:?$/i.test(l)) { inNotes = true; continue; }
+    // Skip title line: matches "something - town" pattern at start, or matches loc name
+    if (!addrDone && !inNotes && !currentContact) {
+      var stripped = l.replace(/^\*+|\*+$/g, '').trim();
+      var lLow = stripped.toLowerCase();
+      // Title pattern: "Name - Town" style (location name)
+      if (lLow === locName || (/ - /.test(stripped) && stripped.length < 100 &&
+          !/^\d/.test(stripped) && !/^C\d*:/i.test(stripped) &&
+          !/^\(/.test(stripped))) {
+        titleLines.push(l);
+        continue;
+      }
+    }
+
+    // Italic context line: *some note*
+    if (/^\*[^*]+\*$/.test(l) && !inNotes) {
+      italicLines.push(l.replace(/^\*|\*$/g, ''));
+      continue;
+    }
+
+    // Date line: J. Hoffman / date
+    if (/^J\.?\s+Hoffman/i.test(l)) { continue; }
+    if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}$/.test(l)) {
+      // Reformat date nicely
+      var parts = l.split(/[-\/]/);
+      dateStr = parts[0] + '/' + parts[1] + '/' + parts[2];
+      continue;
+    }
+
+    // Notes section
+    if (/^notes?\s*:?\s*$/i.test(l)) { inNotes = true; addrDone = true; continue; }
     if (inNotes) { noteLines.push(l); continue; }
 
-    // Contact line: C: / C2: / C3: etc
+    // Contact line
     if (/^C\d*\s*:/i.test(l)) {
+      addrDone = true;
       if (currentContact) contacts.push(currentContact);
       var cText = l.replace(/^C\d*\s*:\s*/i, '');
       currentContact = { name: cText, phones: [], emails: [] };
       continue;
     }
 
+    // Inside contact block
     if (currentContact) {
-      // Phone number line
-      if (/[\d]{3}[-.]?[\d]{3}[-.]?[\d]{4}/.test(l)) {
+      if (/@/.test(l)) {
+        currentContact.emails.push(l.trim());
+      } else if (/[\d]{3}[\s.-]?[\d]{3}[\s.-]?[\d]{4}/.test(l)) {
         currentContact.phones.push(l);
-      // Email line
-      } else if (/@/.test(l)) {
-        currentContact.emails.push(l.replace(/^[^@\w]*/, '').trim());
-      // Additional name/title line before phone
       } else if (currentContact.phones.length === 0 && currentContact.emails.length === 0) {
-        currentContact.name += ' ' + l;
+        currentContact.name += '\n' + l;
+      } else {
+        noteLines.push(l);
       }
       continue;
     }
 
-    // Address lines (before any contact)
-    // Skip if this line is already captured in loc.address or loc.city fields
-    var locAddr = loc && loc.address ? loc.address.toLowerCase() : '';
-    var locCity = loc && loc.city ? loc.city.toLowerCase() : '';
-    var lLow = l.toLowerCase();
-    var alreadyInFields = locAddr && (lLow.indexOf(locAddr.split(',')[0]) >= 0);
-    if (!alreadyInFields) addressLines.push(l);
+    // Address lines
+    if (/^\(/.test(l)) {
+      crossLine = l; // cross-street
+    } else {
+      // Skip if this line duplicates loc.address or loc.city exactly
+      var lLow2 = l.toLowerCase();
+      var isDupAddr = locAddr && lLow2 === locAddr;
+      var isDupCity = locCity && lLow2.indexOf(locCity) === 0 && addrLines.length > 0;
+      if (!isDupAddr) {
+        addrLines.push(l);
+      }
+    }
   }
   if (currentContact) contacts.push(currentContact);
 
   // Build HTML
+  var s = {
+    addr: 'margin-bottom:10px',
+    addrLine: 'display:block;font-size:13px;color:var(--text)',
+    cross: 'display:block;font-size:11px;color:var(--text3);font-style:italic;margin-top:2px',
+    italic: 'display:block;font-size:11px;color:var(--accent);font-style:italic;margin-bottom:6px',
+    section: 'border-top:1px solid var(--border);padding-top:8px;margin-top:8px',
+    label: 'font-size:8px;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px',
+    cName: 'font-size:12px;font-weight:500;color:var(--text);white-space:pre-line',
+    cDetail: 'font-size:11px;color:var(--text2)',
+    cEmail: 'font-size:11px;color:var(--accent);text-decoration:none',
+    note: 'font-size:12px;color:var(--text2);padding-left:10px;margin-bottom:2px',
+    noteP: 'font-size:12px;color:var(--text2);margin-bottom:2px',
+    date: 'font-size:10px;color:var(--text3);font-family:\'DM Mono\',monospace;margin-top:8px'
+  };
+
   var html = '';
 
-  // Address block
-  if (addressLines.length) {
-    html += '<div style="margin-bottom:10px">';
-    addressLines.forEach(function(l) {
-      // Cross street line: (Btw X & Y) — style differently
-      if (/^\(.*\)$/.test(l)) {
-        html += '<div style="font-size:11px;color:var(--text3);font-style:italic">' + l + '</div>';
-      } else {
-        html += '<div>' + l + '</div>';
-      }
+  // Italic context lines (top)
+  if (italicLines.length) {
+    italicLines.forEach(function(l) {
+      html += '<span style="'+s.italic+'">'+l+'</span>';
     });
+  }
+
+  // Address block — only show if we have address lines beyond what's in structured fields
+  var extraAddrLines = addrLines.filter(function(l) {
+    var ll = l.toLowerCase();
+    // Keep if it's NOT just the city/state line (that's in the header already)
+    return !(locCity && ll.indexOf(locCity) === 0);
+  });
+  if (extraAddrLines.length || crossLine) {
+    html += '<div style="'+s.addr+'">';
+    extraAddrLines.forEach(function(l) {
+      html += '<span style="'+s.addrLine+'">'+l+'</span>';
+    });
+    if (crossLine) html += '<span style="'+s.cross+'">'+crossLine+'</span>';
     html += '</div>';
   }
 
   // Contacts
   if (contacts.length) {
-    html += '<div style="margin-bottom:10px;border-top:1px solid var(--border);padding-top:8px">';
-    contacts.forEach(function(c) {
-      html += '<div style="margin-bottom:6px">';
-      html += '<div style="font-size:11px;font-weight:500;color:var(--text)">' + c.name + '</div>';
+    html += '<div style="'+s.section+'">';
+    html += '<div style="'+s.label+'">Contact</div>';
+    contacts.forEach(function(c, ci) {
+      if (ci > 0) html += '<div style="height:6px"></div>';
+      html += '<div style="'+s.cName+'">'+c.name+'</div>';
       c.phones.forEach(function(p) {
-        html += '<div style="font-size:11px;color:var(--text2)">' + p + '</div>';
+        html += '<div style="'+s.cDetail+'">'+p+'</div>';
       });
       c.emails.forEach(function(e) {
-        html += '<div style="font-size:11px"><a href="mailto:' + e + '" style="color:var(--accent);text-decoration:none">' + e + '</a></div>';
+        html += '<a href="mailto:'+e+'" style="'+s.cEmail+'">'+e+'</a>';
       });
-      html += '</div>';
     });
     html += '</div>';
   }
 
   // Notes
   if (noteLines.length) {
-    html += '<div style="border-top:1px solid var(--border);padding-top:8px">';
-    html += '<div style="font-size:9px;letter-spacing:.1em;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Notes</div>';
+    html += '<div style="'+s.section+'">';
+    html += '<div style="'+s.label+'">Notes</div>';
     noteLines.forEach(function(l) {
+      if (!l) return;
       if (/^[-•]\s*/.test(l)) {
-        html += '<div style="font-size:12px;color:var(--text2);padding-left:10px;margin-bottom:2px">&bull; ' + l.replace(/^[-•]\s*/,'') + '</div>';
-      } else if (l) {
-        html += '<div style="font-size:12px;color:var(--text2);margin-bottom:2px">' + l + '</div>';
+        html += '<div style="'+s.note+'">&bull; '+l.replace(/^[-•]\s*/,'')+'</div>';
+      } else {
+        html += '<div style="'+s.noteP+'">'+l+'</div>';
       }
     });
     html += '</div>';
   }
 
-  return html || raw;
+  // Date
+  if (dateStr) {
+    html += '<div style="'+s.date+'">'+dateStr+'</div>';
+  }
+
+  return html || '<div style="font-size:12px;color:var(--text2)">'+raw+'</div>';
 }
+
 
 // ── Lightbox ──
 function openLightbox(url) {
