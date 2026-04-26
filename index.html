@@ -1218,20 +1218,16 @@ function openDetail(loc) {
   var html = '<div class="dp-status-row">';
   html += '<span class="dp-badge" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span>';
   html += '</div>';
+  // Address section handled by formatNotes — just store maps URL for later use
+  var mapsUrl = '';
   if (loc.address || loc.city) {
     var mapsQ = encodeURIComponent([loc.address,loc.city,loc.state_code].filter(Boolean).join(', '));
-    var mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + mapsQ;
-    html += '<div class="dp-section"><div class="dp-label">Address</div>';
-    html += '<div class="dp-val" style="line-height:1.7">';
-    html += '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none;border-bottom:1px solid var(--border2)">';
-    if (loc.address) html += loc.address + '<br>';
-    var cityState = [loc.city, loc.state_code].filter(Boolean).join(', ');
-    if (cityState) html += cityState;
-    html += '</a></div></div>';
+    mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + mapsQ;
   }
-  if (loc.notes) {
+  var notesHtml = formatNotes(loc.notes, loc, mapsUrl);
+  if (notesHtml) {
     html += '<div class="dp-section">';
-    html += '<div class="dp-notes">'+formatNotes(loc.notes, loc)+'</div></div>';
+    html += '<div class="dp-notes">'+notesHtml+'</div></div>';
   }
   if (loc.tags && loc.tags.length) {
     html += '<div class="dp-section"><div class="dp-label">Tags</div><div class="dp-tags">';
@@ -1306,7 +1302,7 @@ async function loadDetailGallery(loc) {
   } catch(e) { console.error('gallery:', e); }
 }
 
-function formatNotes(raw, loc) {
+function formatNotes(raw, loc, mapsUrl) {
   if (!raw) return '';
 
   // Decode HTML entities
@@ -1471,6 +1467,16 @@ function formatNotes(raw, loc) {
       } else {
         result.addrLines.push(clean); // other non-address text
       }
+    } else if (isPhone(clean) && state === 'addr' && !result.contacts.length) {
+      // Orphaned phone in address section = likely a contact with no C: prefix
+      // Check if previous addr line looks like a name (no digits, not a street)
+      if (result.addrLines.length && !/\d/.test(result.addrLines[result.addrLines.length-1])) {
+        var nameCandidate = result.addrLines.pop();
+        currentContact = {name: nameCandidate, phones: [clean], emails: []};
+        state = 'contact';
+      } else {
+        result.addrLines.push(clean);
+      }
     } else {
       result.addrLines.push(clean);
     }
@@ -1503,8 +1509,12 @@ function formatNotes(raw, loc) {
   // Address block
   if (result.addrLines.length || result.crossLines.length) {
     html += '<div style="margin-bottom:8px">';
+    var addrOpen = mapsUrl
+      ? '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none">'
+      : '';
+    var addrClose = mapsUrl ? '</a>' : '';
     result.addrLines.forEach(function(l){
-      html += '<span style="'+S.addr+'">'+l+'</span>';
+      html += addrOpen+'<span style="'+S.addr+'">'+l+'</span>'+addrClose;
     });
     result.crossLines.forEach(function(l){
       html += '<span style="'+S.cross+'">'+l+'</span>';
