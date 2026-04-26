@@ -874,6 +874,7 @@ window.initMap = async function() {
     backgroundColor: '#08090b',
     disableDefaultUI: true,
     gestureHandling: 'greedy',
+    isFractionalZoomEnabled: true,
     styles: [
       {elementType:'geometry',stylers:[{color:'#0a0a0d'}]},
       {elementType:'labels.text.stroke',stylers:[{color:'#0a0a0d'}]},
@@ -1118,14 +1119,31 @@ function highlightPin(loc) {
 
 function panToVisible(loc) {
   if (!gmap || !hasCoords(loc)) return;
-  gmap.setZoom(14);
-  gmap.panTo({lat: Number(loc.lat), lng: Number(loc.lng)});
-  setTimeout(function() {
-    var dp = document.getElementById('detail-panel');
-    if (dp && dp.classList.contains('open')) {
-      gmap.panBy(dp.offsetWidth / 2, 0);
+  var lat = Number(loc.lat), lng = Number(loc.lng);
+  var dp = document.getElementById('detail-panel');
+  var panelW = (dp && dp.classList.contains('open')) ? dp.offsetWidth : 0;
+
+  // Calculate the offset center so the pin lands in the visible area
+  // (left of the detail panel), not at the true map center
+  var currentZoom = gmap.getZoom();
+  var targetZoom = Math.max(currentZoom, 14);
+
+  if (panelW > 0) {
+    // Compute pixel offset: shift center left by half the panel width
+    // so the pin appears centered in the remaining visible map area
+    var projection = gmap.getProjection();
+    if (projection) {
+      var targetPoint = projection.fromLatLngToPoint(new google.maps.LatLng(lat, lng));
+      var scale = Math.pow(2, targetZoom);
+      var offsetX = panelW / 2 / scale;
+      var adjustedLng = lng - (offsetX * 360 / 256);
+      gmap.setZoom(targetZoom);
+      gmap.panTo({lat: lat, lng: adjustedLng});
+      return;
     }
-  }, 80);
+  }
+  gmap.setZoom(targetZoom);
+  gmap.panTo({lat: lat, lng: lng});
 }
 
 // ── Hover card ──
@@ -1223,8 +1241,10 @@ function openDetail(loc) {
   document.getElementById('detail-panel').classList.add('open');
   document.getElementById('dp-scroll').scrollTop = 0;
   if (document.getElementById('home-page').classList.contains('active')) {
-    panToVisible(loc);
     highlightPin(loc);
+    // Wait for detail panel CSS transition (280ms) before panning
+    // so we know the panel width and can offset correctly
+    setTimeout(function() { panToVisible(loc); }, 300);
   }
   loadDetailGallery(loc);
 }
