@@ -15,7 +15,8 @@ const HAIKU = 'claude-haiku-4-5';
 const SONNET = 'claude-sonnet-4-6';
 const TARGET_COUNT = 15;         // images selected for the deep classification
 const MAX_THUMBS_PER_PASS1 = 100; // hard cap on Pass 1 input size
-const PARALLEL = 3;              // concurrent classifications
+const PARALLEL = 2;              // concurrent classifications (was 3 — Sonnet rate-limit at Tier 1 is 30K tok/min)
+const MAX_429_RETRIES = 4;
 
 const ALLOWED_ORIGINS = new Set([
   'https://location-scout-sand.vercel.app',
@@ -243,37 +244,75 @@ function buildSelectionMessage(imageSources, targetCount) {
 
 // ── Anthropic API call ─────────────────────────────────────────────────────
 async function callClaude(model, systemPrompt, userContent, apiKey, maxTokens) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 90000);
-  try {
-    const res = await fetch(ANTHROPIC_URL, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens || 2400,
-        system: [
-          { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }
-        ],
-        messages: [{ role: 'user', content: userContent }]
-      }),
-      signal: ctrl.signal
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Anthropic ${res.status}: ${errText.slice(0, 300)}`);
+  let lastErr;
+  for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 90000);
+    try {
+      const res = await fetch(ANTHROPIC_URL, {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens || 2400,
+          system: [
+            { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }
+          ],
+          messages: [{ role: 'user', content: userContent }]
+        }),
+        signal: ctrl.signal
+      });
+
+      // Rate limit — wait the recommended duration and retry
+      if (res.status === 429) {
+        clearTimeout(timer);
+        if (attempt >= MAX_429_RETRIES) {
+          const txt = await res.text();
+          throw new Error(`Anthropic 429 after ${MAX_429_RETRIES} retries: ${txt.slice(0, 200)}`);
+        }
+        // Anthropic uses 'retry-after' (seconds) and 'anthropic-ratelimit-input-tokens-reset' (ISO ts)
+        let waitSec = parseFloat(res.headers.get('retry-after') || '');
+        if (!Number.isFinite(waitSec) || waitSec <= 0) {
+          // Fall back to ratelimit-reset header (an ISO timestamp)
+          const resetIso = res.headers.get('anthropic-ratelimit-input-tokens-reset');
+          if (resetIso) {
+            const ms = new Date(resetIso).getTime() - Date.now();
+            if (ms > 0) waitSec = ms / 1000;
+          }
+        }
+        if (!Number.isFinite(waitSec) || waitSec <= 0) waitSec = 15 * (attempt + 1);
+        // Cap at 60s per wait so we don't blow the Vercel function timeout
+        const sleepMs = Math.min(waitSec * 1000, 60000);
+        console.log(`[classify] 429 rate-limited, waiting ${Math.round(sleepMs/1000)}s before retry ${attempt+1}/${MAX_429_RETRIES}`);
+        await new Promise(r => setTimeout(r, sleepMs));
+        continue;
+      }
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Anthropic ${res.status}: ${errText.slice(0, 300)}`);
+      }
+      const data = await res.json();
+      const textBlock = (data.content || []).find(b => b.type === 'text');
+      if (!textBlock) throw new Error('No text in response');
+      return { text: textBlock.text, usage: data.usage || {} };
+    } catch (e) {
+      lastErr = e;
+      if (attempt >= MAX_429_RETRIES || (e.name === 'AbortError' && !/abort/i.test(e.message || ''))) throw e;
+      // Network error etc — small backoff and retry
+      if (e.message && !/Anthropic 429/.test(e.message)) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+    } finally {
+      clearTimeout(timer);
     }
-    const data = await res.json();
-    const textBlock = (data.content || []).find(b => b.type === 'text');
-    if (!textBlock) throw new Error('No text in response');
-    return { text: textBlock.text, usage: data.usage || {} };
-  } finally {
-    clearTimeout(timer);
   }
+  throw lastErr || new Error('Failed after retries');
 }
 
 function parseJSON(text) {
@@ -434,12 +473,13 @@ async function classifyOne(album, taxonomy, corrections, apiKey) {
   // Pass 1: curate
   const { indices, curationReasoning, usedCuration } = await curateImages(allImages, apiKey);
 
-  // Pass 2: fetch large versions of the curated set, then run Sonnet
-  const curatedLargeUrls = indices.map(i => smLarge(allImages[i]));
-  const largeSources = await fetchImagesAsBase64(curatedLargeUrls, 10000);
+  // Pass 2: fetch medium versions of the curated set, then run Sonnet
+  // (medium @ ~600px is plenty for classification and uses ~60% fewer tokens than large)
+  const curatedMediumUrls = indices.map(i => smMedium(allImages[i]));
+  const mediumSources = await fetchImagesAsBase64(curatedMediumUrls, 10000);
 
-  // Track which indices succeeded (large fetch worked)
-  const validPairs = largeSources
+  // Track which indices succeeded (medium fetch worked)
+  const validPairs = mediumSources
     .map((src, i) => src ? { src, originalIdx: indices[i], orderIdx: i } : null)
     .filter(Boolean);
 
@@ -450,7 +490,7 @@ async function classifyOne(album, taxonomy, corrections, apiKey) {
     const result = parseJSON(r.text);
     return {
       ...result, key: album.key, model: HAIKU, _images_used: 0,
-      _curation: 'failed-large-fetch', selected_image_keys: [], per_image_tags_by_key: {}
+      _curation: 'failed-medium-fetch', selected_image_keys: [], per_image_tags_by_key: {}
     };
   }
 
