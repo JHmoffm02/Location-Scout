@@ -329,7 +329,7 @@ function loadMapScript() {
   c.src = 'https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js';
   c.onload = () => {
     const s = document.createElement('script'); s.id = 'gms'; s.async = true;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${GM_KEY}&callback=initMap&loading=async`;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${GM_KEY}&libraries=places&callback=initMap&loading=async`;
     document.head.appendChild(s);
   };
   document.head.appendChild(c);
@@ -633,16 +633,24 @@ window.openDetail = function (loc) {
   $('dp-name').textContent = displayName;
   const cat = getCatForLoc(loc);
   const col = cat ? catColorByKey(cat) : '';
-  const pill = $('dp-cat-pill');
+  const sl = SL[loc.status] || SL.identified;
+  const inZone = hasCoords(loc) && miles(loc.lat, loc.lng) <= 30;
+
+  // Build header bar: cat pill + status pill (skip if 'identified') + zone pill + edit/raw buttons
+  let headerHtml = '';
   if (cat) {
-    pill.textContent = cat.replace(/-/g, ' ');
-    pill.style.background = col + '22';
-    pill.style.color = col;
-    pill.style.display = '';
-  } else { pill.style.display = 'none'; }
-  const zb = $('dp-zone-badge');
-  zb.textContent = hasCoords(loc) && miles(loc.lat, loc.lng) <= 30 ? '· in zone' : '';
-  zb.style.color = 'var(--green)';
+    headerHtml += `<span class="dp-cat-pill" style="background:${col}22;color:${col}">${E(cat.replace(/-/g,' '))}</span>`;
+  }
+  if (loc.status && loc.status !== 'identified') {
+    headerHtml += `<span class="dp-status-pill" style="background:${sl.bg};color:${sl.c}">${E(loc.status)}</span>`;
+  }
+  if (inZone) {
+    headerHtml += `<span class="dp-zone-pill">in zone</span>`;
+  }
+  headerHtml += '<span class="dp-hbtn-sep"></span>';
+  headerHtml += '<button class="dp-hbtn" onclick="openEditPanel(S.currentDetailLoc)" aria-label="Edit location">✏ edit</button>';
+  headerHtml += '<button class="dp-hbtn" onclick="showRawNotes(S.currentDetailLoc)" aria-label="Show raw notes">raw notes</button>';
+  $('dp-header-bar').innerHTML = headerHtml;
 
   // Images
   S.dpImages = loc.cover_photo_url ? [loc.cover_photo_url] : [];
@@ -650,26 +658,24 @@ window.openDetail = function (loc) {
   dpUpdateViewer();
 
   // Body
-  const sl = SL[loc.status] || SL.identified;
   const parsed = window.NotesParser ? NotesParser.parse(loc.notes, { locName: loc.name }) : null;
 
   let html = '';
 
-  // Status badge
-  html += `<div class="dp-status-row"><span class="dp-badge" style="background:${sl.bg};color:${sl.c}">${E(loc.status)}</span></div>`;
-
   // ── Address section: 2-line address + extras + Street View thumbnail ──
-  const addrPart = (loc.address || '').trim();
-  const cityPart = (loc.city || '').trim();
-  const statePart = (loc.state_code || '').trim();
-  const zipPart = (loc.zip || '').trim();
-  const crossPart = (loc.address_cross || '').trim();
+  // Fallback to parser values when DB columns are empty (e.g., post-migration before sync runs)
+  const pAddr = (parsed && parsed.address) || null;
+  const addrPart  = (loc.address     || (pAddr && pAddr.street) || '').trim();
+  const cityPart  = (loc.city        || (pAddr && pAddr.city)   || '').trim();
+  const statePart = (loc.state_code  || (pAddr && pAddr.state)  || '').trim();
+  const zipPart   = (loc.zip         || (pAddr && pAddr.zip)    || '').trim();
+  const crossPart = (loc.address_cross || (pAddr && pAddr.cross) || '').trim();
   // Drop city if it's already inside the street string (avoid duplicates)
   const cleanCity = cityPart && addrPart.toLowerCase().indexOf(cityPart.toLowerCase()) >= 0 ? '' : cityPart;
   const line2 = [cleanCity, statePart].filter(Boolean).join(', ') + (zipPart ? ' ' + zipPart : '');
 
   // Extras = parser-detected stuff that lived between street and city in the notes
-  const extras = (parsed && parsed.address && parsed.address.extras) ? parsed.address.extras : [];
+  const extras = (pAddr && pAddr.extras) || [];
   // Filter: don't repeat the cross-street if it's already shown via address_cross
   const filteredExtras = extras.filter(x => !(x.kind === 'cross' && crossPart && x.text === crossPart));
 
@@ -703,7 +709,10 @@ window.openDetail = function (loc) {
       html += `<span class="dp-sv-icon">↗</span>`;
       html += '</a>';
     }
-    html += '</div></div>';
+    html += '</div>';
+    // Slot for Google Places info (phone, hours, website) — populated async
+    html += '<div id="dp-place-slot"></div>';
+    html += '</div>';
   }
 
   // Notes (rendered via shared parser)
@@ -727,13 +736,6 @@ window.openDetail = function (loc) {
     html += `<div class="dp-section"><div class="dp-label">Scouted by</div><div class="dp-val">${E(loc.scout_name || '')}${loc.scout_date ? ' · ' + E(loc.scout_date) : ''}</div></div>`;
   }
 
-  // Actions
-  html += '<div class="dp-actions">';
-  html += '<button class="dp-btn" onclick="openEditPanel(S.currentDetailLoc)" aria-label="Edit location">✏ Edit</button>';
-  if (loc.notes) html += '<button class="dp-btn" onclick="showRawNotes(S.currentDetailLoc)" aria-label="Show raw notes">raw notes</button>';
-  if (loc.smugmug_gallery_url) html += `<button class="dp-btn" onclick="window.open('${E(loc.smugmug_gallery_url)}','_blank')" aria-label="Open in SmugMug">gallery ↗</button>`;
-  html += '</div>';
-
   $('dp-body').innerHTML = html;
 
   $('detail-panel').classList.add('open');
@@ -744,6 +746,7 @@ window.openDetail = function (loc) {
     setTimeout(() => panToVisible(loc), 300);
   }
   loadDetailGallery(loc);
+  loadPlaceInfo(loc);
 };
 
 window.closeDetail = function () {
@@ -793,18 +796,234 @@ async function loadDetailGallery(loc) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// GOOGLE PLACES (business phone, hours, website, rating)
+// ══════════════════════════════════════════════════════════════════════════
+const PLACE_CACHE_KEY = 'place_cache_v1';
+const PLACE_TTL = 30 * 24 * 60 * 60 * 1000;  // 30 days
+
+function getPlaceCache() {
+  try { return JSON.parse(localStorage.getItem(PLACE_CACHE_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+function savePlaceCache(c) {
+  try { localStorage.setItem(PLACE_CACHE_KEY, JSON.stringify(c)); } catch (e) {}
+}
+function placeCacheKey(loc) {
+  if (!loc.lat || !loc.lng) return null;
+  return `${(+loc.lat).toFixed(4)},${(+loc.lng).toFixed(4)}`;
+}
+
+function fetchPlaceInfo(loc) {
+  return new Promise(resolve => {
+    if (!hasCoords(loc) || !window.google || !google.maps || !google.maps.places || !S.gmap) {
+      return resolve(null);
+    }
+    const key = placeCacheKey(loc);
+    const cache = getPlaceCache();
+    const hit = cache[key];
+    if (hit && hit.ts > Date.now() - PLACE_TTL) {
+      return resolve(hit.data || null);
+    }
+
+    const svc = new google.maps.places.PlacesService(S.gmap);
+    const query = (loc.name || '').replace(/\*pending\*/gi, '').trim();
+    svc.findPlaceFromQuery({
+      query: query + ' ' + (loc.address || loc.city || ''),
+      fields: ['place_id', 'name', 'geometry'],
+      locationBias: new google.maps.Circle({
+        center: { lat: Number(loc.lat), lng: Number(loc.lng) }, radius: 200
+      })
+    }, (results, status) => {
+      if (status !== 'OK' || !results || !results[0]) {
+        cache[key] = { ts: Date.now(), data: null };
+        savePlaceCache(cache);
+        return resolve(null);
+      }
+      const placeId = results[0].place_id;
+      svc.getDetails({
+        placeId,
+        fields: ['formatted_phone_number', 'international_phone_number', 'website',
+                 'opening_hours', 'rating', 'user_ratings_total', 'url']
+      }, (place, status2) => {
+        if (status2 !== 'OK' || !place) {
+          cache[key] = { ts: Date.now(), data: null };
+          savePlaceCache(cache);
+          return resolve(null);
+        }
+        const data = {
+          phone: place.formatted_phone_number || place.international_phone_number || '',
+          website: place.website || '',
+          rating: place.rating || null,
+          ratingCount: place.user_ratings_total || 0,
+          hours: (place.opening_hours && place.opening_hours.weekday_text) || [],
+          openNow: place.opening_hours && typeof place.opening_hours.isOpen === 'function'
+                     ? place.opening_hours.isOpen() : null,
+          mapsUrl: place.url || ''
+        };
+        cache[key] = { ts: Date.now(), data };
+        savePlaceCache(cache);
+        resolve(data);
+      });
+    });
+  });
+}
+
+function renderPlaceInfoHtml(p) {
+  if (!p) return '';
+  const parts = ['<div class="dp-place-info">'];
+  if (p.phone) {
+    parts.push(`<div class="dp-place-row"><span class="dp-place-icon">☎</span><a href="tel:${E(p.phone.replace(/\s/g,''))}">${E(p.phone)}</a></div>`);
+  }
+  if (p.website) {
+    let host = p.website;
+    try { host = new URL(p.website).hostname.replace(/^www\./, ''); } catch (e) {}
+    parts.push(`<div class="dp-place-row"><span class="dp-place-icon">↗</span><a href="${E(p.website)}" target="_blank" rel="noopener">${E(host)}</a></div>`);
+  }
+  if (p.rating) {
+    parts.push(`<div class="dp-place-row"><span class="dp-place-icon">★</span><span>${p.rating.toFixed(1)} (${p.ratingCount})</span></div>`);
+  }
+  if (p.openNow != null) {
+    const status = p.openNow
+      ? '<span style="color:var(--green)">Open now</span>'
+      : '<span style="color:var(--text3)">Closed</span>';
+    parts.push(`<div class="dp-place-row"><span class="dp-place-icon">⏱</span>${status}</div>`);
+  }
+  if (p.hours && p.hours.length) {
+    parts.push('<details class="dp-place-hours"><summary>Hours</summary>');
+    p.hours.forEach(line => parts.push(`<div>${E(line)}</div>`));
+    parts.push('</details>');
+  }
+  parts.push('</div>');
+  return parts.join('');
+}
+
+async function loadPlaceInfo(loc) {
+  if (!hasCoords(loc)) return;
+  const myToken = S.dpRequestToken;  // race-condition guard
+  const place = await fetchPlaceInfo(loc);
+  if (myToken !== S.dpRequestToken) return;
+  if (!place) return;
+  const target = $('dp-place-slot');
+  if (target) target.innerHTML = renderPlaceInfoHtml(place);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // EDIT PANEL
 // ══════════════════════════════════════════════════════════════════════════
+// Build a multi-line address string for the edit panel
+function formatAddressForEdit(parsedAddr, loc) {
+  const street = (loc && loc.address) || (parsedAddr && parsedAddr.street) || '';
+  const cross  = (loc && loc.address_cross) || (parsedAddr && parsedAddr.cross) || '';
+  const city   = (loc && loc.city) || (parsedAddr && parsedAddr.city) || '';
+  const state  = (loc && loc.state_code) || (parsedAddr && parsedAddr.state) || '';
+  const zip    = (loc && loc.zip) || (parsedAddr && parsedAddr.zip) || '';
+  const lines = [];
+  if (street) lines.push(street);
+  if (cross)  lines.push(cross);
+  const cityLine = [city, state].filter(Boolean).join(', ') + (zip ? ' ' + zip : '');
+  if (cityLine.trim()) lines.push(cityLine);
+  return lines.join('\n');
+}
+
+// Format contacts for edit panel — newline-separated
+function formatContactsForEdit(parsed) {
+  if (!parsed || !parsed.contacts || !parsed.contacts.length) return '';
+  return parsed.contacts.map(c => {
+    const out = [];
+    if (c.name) out.push(c.name);
+    c.phones.forEach(p => out.push(p));
+    c.emails.forEach(e => out.push(e));
+    return out.join('\n');
+  }).join('\n\n');  // blank line between contacts
+}
+
+// Format notes section for edit panel
+function formatNotesForEdit(parsed) {
+  if (!parsed || !parsed.notes || !parsed.notes.length) return '';
+  return parsed.notes.map(n => {
+    if (n.kind === 'bullet') return '- ' + n.text;
+    if (n.kind === 'update') return (n.date ? n.date + ' ' : '') + n.text;
+    return n.text;
+  }).join('\n');
+}
+
+// Parse an address textarea (multi-line) back into structured fields
+function parseAddressInput(text) {
+  const result = { street: '', cross: '', city: '', state: '', zip: '' };
+  const lines = String(text || '').split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return result;
+  // Find city/state/zip line (last one matching the pattern)
+  const cityRe = /^([A-Za-z][A-Za-z\s.'\-]+),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*$/;
+  let cityIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(cityRe);
+    if (m) {
+      result.city = m[1].trim();
+      result.state = m[2];
+      result.zip = m[3] || '';
+      cityIdx = i;
+      break;
+    }
+  }
+  // Find cross-street line (parenthesized)
+  const crossRe = /^\(.*\)?$/;
+  const remainingLines = lines.filter((_, i) => i !== cityIdx);
+  const crossIdx = remainingLines.findIndex(l => crossRe.test(l));
+  if (crossIdx >= 0) {
+    result.cross = remainingLines[crossIdx];
+    remainingLines.splice(crossIdx, 1);
+  }
+  // Anything left is street
+  result.street = remainingLines.join(' ').trim();
+  return result;
+}
+
+// Reassemble a canonical notes string from structured fields (parser-friendly)
+function rebuildCanonicalNotes(fields) {
+  const parts = [];
+  if (fields.name) parts.push(fields.name);
+  if (fields.street) parts.push(fields.street);
+  if (fields.cross)  parts.push(fields.cross);
+  const cityLine = [fields.city, fields.state].filter(Boolean).join(', ') + (fields.zip ? ' ' + fields.zip : '');
+  if (cityLine.trim()) parts.push(cityLine);
+
+  if (fields.contact && fields.contact.trim()) {
+    parts.push('');  // blank line separator
+    const contactBlocks = fields.contact.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
+    contactBlocks.forEach((block, i) => {
+      if (i > 0) parts.push('');
+      // Prefix first line with C: if it doesn't already have a contact header
+      const blockLines = block.split('\n');
+      if (!/^(C\d*|Contact|Owner|Manager|Mgr|GM|Chef|Booker|Booking|Agent|Producer|Director|Realtor|Broker|Host)\s*:/i.test(blockLines[0])) {
+        blockLines[0] = (i === 0 ? 'C: ' : `C${i+1}: `) + blockLines[0];
+      }
+      parts.push(blockLines.join('\n'));
+    });
+  }
+
+  if (fields.notes && fields.notes.trim()) {
+    parts.push('');
+    parts.push('Notes:');
+    parts.push(fields.notes.trim());
+  }
+
+  if (fields.signature || fields.date) {
+    parts.push('');
+    if (fields.signature) parts.push(fields.signature);
+    if (fields.date)      parts.push(fields.date);
+  }
+
+  return parts.join('\n');
+}
+
 window.openEditPanel = function (loc) {
   if (!loc) return;
   S.editingLoc = loc;
+  const parsed = window.NotesParser ? NotesParser.parse(loc.notes, { locName: loc.name }) : null;
   $('edit-name').value    = loc.name || '';
-  $('edit-address').value = loc.address || '';
-  $('edit-city').value    = loc.city || '';
-  $('edit-state').value   = loc.state_code || '';
-  $('edit-zip').value     = loc.zip || '';
-  $('edit-cross').value   = loc.address_cross || '';
-  $('edit-notes').value   = loc.notes || '';
+  $('edit-addr').value    = formatAddressForEdit(parsed && parsed.address, loc);
+  $('edit-contact').value = formatContactsForEdit(parsed);
+  $('edit-notes').value   = formatNotesForEdit(parsed);
   $('edit-panel').style.display = 'flex';
   $('edit-name').focus();
 };
@@ -817,29 +1036,48 @@ window.saveEdit = async function () {
   if (!S.editingLoc) return;
   const btn = $('edit-save-btn');
   btn.textContent = 'Saving...'; btn.disabled = true;
+
+  const titleVal   = $('edit-name').value.trim();
+  const addrText   = $('edit-addr').value;
+  const contactVal = $('edit-contact').value;
+  const notesVal   = $('edit-notes').value;
+
+  const addrParts = parseAddressInput(addrText);
+
+  // Preserve signature/date from existing parse if present
+  const oldParsed = window.NotesParser ? NotesParser.parse(S.editingLoc.notes, { locName: S.editingLoc.name }) : null;
+  const sig  = (oldParsed && oldParsed.signature) || '';
+  const date = (oldParsed && oldParsed.date) || '';
+
+  const canonicalNotes = rebuildCanonicalNotes({
+    name: titleVal,
+    street: addrParts.street, cross: addrParts.cross,
+    city: addrParts.city, state: addrParts.state, zip: addrParts.zip,
+    contact: contactVal, notes: notesVal,
+    signature: sig, date: date
+  });
+
   const updates = {
-    name:           $('edit-name').value.trim(),
-    address:        $('edit-address').value.trim() || null,
-    city:           $('edit-city').value.trim() || null,
-    state_code:     $('edit-state').value.trim().toUpperCase() || null,
-    notes:          $('edit-notes').value,
+    name: titleVal,
+    address: addrParts.street || null,
+    city: addrParts.city || null,
+    state_code: addrParts.state || null,
+    notes: canonicalNotes,
     notes_override: true
   };
-  // Optional fields (only write if migration ran — field exists)
   if (S.migrationRan) {
-    updates.zip           = $('edit-zip').value.trim() || null;
-    updates.address_cross = $('edit-cross').value.trim() || null;
+    updates.zip = addrParts.zip || null;
+    updates.address_cross = addrParts.cross || null;
   }
 
-  // Re-geocode if address changed and we have coords-able input
-  const addrChanged = updates.address !== (S.editingLoc.address || null) ||
-                      updates.city !== (S.editingLoc.city || null) ||
-                      updates.state_code !== (S.editingLoc.state_code || null);
-  if (addrChanged && (updates.address || updates.city)) {
+  // Re-geocode if address-affecting fields changed
+  const oldAddr = (S.editingLoc.address || '') + '|' + (S.editingLoc.city || '') + '|' + (S.editingLoc.state_code || '');
+  const newAddr = addrParts.street + '|' + addrParts.city + '|' + addrParts.state;
+  if (oldAddr !== newAddr && (addrParts.street || addrParts.city)) {
     btn.textContent = 'Geocoding...';
     try {
-      const query = [updates.address, updates.city, updates.state_code, updates.zip].filter(Boolean).join(', ');
-      const stateParam = updates.state_code ? '&state=' + updates.state_code : '';
+      const query = [addrParts.street, addrParts.city, addrParts.state, addrParts.zip].filter(Boolean).join(', ');
+      const stateParam = addrParts.state ? '&state=' + addrParts.state : '';
       const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
       const d = await r.json();
       if (d.ok && d.lat) { updates.lat = d.lat; updates.lng = d.lng; }
@@ -876,8 +1114,54 @@ window.saveEdit = async function () {
 
 window.showRawNotes = function (loc) {
   if (!loc) return;
-  $('raw-notes-content').textContent = loc.notes || '(no notes)';
+  S.editingLoc = loc;
+  const ta = $('raw-notes-content');
+  const hint = $('raw-notes-hint');
+  if (loc.notes && loc.notes.trim()) {
+    ta.value = loc.notes;
+    hint.textContent = 'Edit and save to override sync — or paste new content';
+  } else {
+    ta.value = '';
+    ta.placeholder = 'Paste raw notes here…';
+    hint.textContent = 'No notes yet — paste raw content from SmugMug or wherever';
+  }
   $('raw-notes-modal').style.display = 'flex';
+  ta.focus();
+};
+
+window.closeRawNotes = function () {
+  $('raw-notes-modal').style.display = 'none';
+};
+
+window.saveRawNotes = async function () {
+  if (!S.editingLoc) return;
+  const btn = $('raw-save-btn');
+  btn.textContent = 'Saving...'; btn.disabled = true;
+  const newNotes = $('raw-notes-content').value;
+  const updates = { notes: newNotes, notes_override: true };
+  try {
+    await fetch(`${SB_URL}/rest/v1/locations?id=eq.${S.editingLoc.id}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json', Prefer: 'return=minimal'
+      },
+      body: JSON.stringify(updates)
+    });
+    Object.assign(S.editingLoc, updates);
+    try {
+      const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+      if (cached && cached.data) {
+        const li = cached.data.findIndex(l => l.id === S.editingLoc.id);
+        if (li >= 0) Object.assign(cached.data[li], updates);
+        localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+      }
+    } catch (e) {}
+    closeRawNotes();
+    openDetail(S.editingLoc);
+    toast('Notes saved', 'ok');
+  } catch (e) { toast('Save failed: ' + e.message, 'err'); }
+  btn.textContent = 'Save'; btn.disabled = false;
 };
 
 window.openLightbox = function (url) {
