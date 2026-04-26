@@ -80,7 +80,11 @@ const S = {
   orgUploads: [],         // raw album list from /Master-Library/Uploads/
   orgLoaded: false,
   orgClassifications: {}, // {sm_key: {path, confidence, status, ...}}
-  orgClassifying: false
+  orgClassifying: false,
+  orgApplying: false,
+  orgCancelClassify: false,
+  orgCancelApply: false,
+  orgClassifyController: null  // AbortController for in-flight fetch
 };
 window.S = S;  // expose for HTML inline handlers
 
@@ -2202,7 +2206,7 @@ window.showPage = function (page, btn) {
 // ══════════════════════════════════════════════════════════════════════════
 const ORG_CONFIDENCE_HIGH = 0.85;
 const ORG_CONFIDENCE_MED  = 0.70;
-const ORG_BATCH_SIZE      = 4;     // each album = 2 LLM calls; keep batches small
+const ORG_BATCH_SIZE      = 3;     // smaller — server handles 2 in parallel, retries handle rate limits
 const BLUR_THRESHOLD      = 30;    // Laplacian variance below this = treated as blurry
 
 // In-memory mirror of Supabase org_corrections (loaded on Organize tab open)
@@ -2465,10 +2469,21 @@ function orgRender() {
     return;
   }
 
-  $('org-classify-btn').disabled = S.orgClassifying;
+  // Don't override button states while a long-running operation is in flight
+  if (!S.orgClassifying) {
+    $('org-classify-btn').disabled = false;
+  }
   const queued = Object.values(S.orgClassifications).filter(c => c && c.status === 'queued').length;
-  $('org-apply-btn').disabled = queued === 0;
-  $('org-apply-btn').textContent = queued ? `Apply ${queued} move${queued !== 1 ? 's' : ''}` : 'Apply moves';
+  if (!S.orgApplying) {
+    $('org-apply-btn').disabled = queued === 0;
+    $('org-apply-btn').textContent = queued ? `Apply ${queued} move${queued !== 1 ? 's' : ''}` : 'Apply moves';
+  }
+  // Approve all is enabled if any classified card isn't queued/applied/skipped
+  const approvable = Object.values(S.orgClassifications).filter(c =>
+    c && c.classified && c.status !== 'queued' && c.status !== 'applied' && c.status !== 'skipped'
+  ).length;
+  const apBtn = $('org-approve-btn');
+  if (apBtn) apBtn.disabled = approvable === 0;
 
   list.innerHTML = S.orgUploads.map(a => orgRenderCard(a)).join('');
   renderSuggestedPaths();
@@ -2644,7 +2659,8 @@ async function orgClassifyBatch(albums) {
     const r = await fetch(`${SM_BASE}/api/classify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ albums: apiAlbums, taxonomy, corrections })
+      body: JSON.stringify({ albums: apiAlbums, taxonomy, corrections }),
+      signal: S.orgClassifyController ? S.orgClassifyController.signal : undefined
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'classify failed');
@@ -2698,31 +2714,70 @@ async function orgClassifyBatch(albums) {
 }
 
 window.orgClassifyAll = async function () {
-  // Classify any not yet classified, in batches
+  // If already running, this acts as cancel
+  if (S.orgClassifying) {
+    S.orgCancelClassify = true;
+    if (S.orgClassifyController) S.orgClassifyController.abort();
+    toast('Cancelling… (will stop after current request)', 'inf');
+    return;
+  }
   const todo = S.orgUploads.filter(a => {
     const c = S.orgClassifications[a.sm_key];
     return !c || (!c.classified && c.status !== 'applied' && c.status !== 'skipped' && c.status !== 'queued');
   });
   if (!todo.length) { toast('All albums already classified', 'inf'); return; }
-  if (!confirm(`Classify ${todo.length} album${todo.length !== 1 ? 's' : ''}?\n\nFlow per album:\n  1. Blur detection (free, client-side)\n  2. Cheap pass (Haiku) on every-other sharp photo → picks top 15\n  3. Deep pass (Sonnet) on those 15 with per-image tagging\n\nApprox cost: ~$${(todo.length * 0.07).toFixed(2)} (~7¢/album).`)) return;
+  if (!confirm(`Classify ${todo.length} album${todo.length !== 1 ? 's' : ''}?\n\nFlow per album:\n  1. Blur detection (free, client-side)\n  2. Cheap pass (Haiku) on every-other sharp photo → picks top 15\n  3. Deep pass (Sonnet) on those 15 with per-image tagging\n\nApprox cost: ~$${(todo.length * 0.05).toFixed(2)} (~5¢/album with medium-size images).\nYou can cancel mid-run.`)) return;
 
   S.orgClassifying = true;
-  $('org-classify-btn').disabled = true;
-  $('org-classify-btn').textContent = '⚡ classifying...';
+  S.orgCancelClassify = false;
+  $('org-classify-btn').textContent = '✖ Cancel';
+  $('org-classify-btn').classList.add('org-btn-cancel');
 
   try {
     for (let i = 0; i < todo.length; i += ORG_BATCH_SIZE) {
+      if (S.orgCancelClassify) {
+        toast('Classification cancelled', 'inf');
+        break;
+      }
       const batch = todo.slice(i, i + ORG_BATCH_SIZE);
-      $('org-classify-btn').textContent = `⚡ ${i + batch.length}/${todo.length}...`;
-      await orgClassifyBatch(batch);
+      $('org-classify-btn').textContent = `✖ Cancel (${i + batch.length}/${todo.length})`;
+      // Set up an AbortController so the in-flight fetch can be cancelled
+      S.orgClassifyController = new AbortController();
+      try {
+        await orgClassifyBatch(batch);
+      } catch (e) {
+        if (e && e.name === 'AbortError') break;
+      }
     }
-    toast('Classification done', 'ok');
+    if (!S.orgCancelClassify) toast('Classification done', 'ok');
   } finally {
     S.orgClassifying = false;
-    $('org-classify-btn').disabled = false;
+    S.orgCancelClassify = false;
+    S.orgClassifyController = null;
     $('org-classify-btn').textContent = '⚡ Classify all';
+    $('org-classify-btn').classList.remove('org-btn-cancel');
     orgRender();
   }
+};
+
+window.orgApproveAll = function () {
+  let count = 0;
+  let lowConfCount = 0;
+  S.orgUploads.forEach(a => {
+    const c = S.orgClassifications[a.sm_key];
+    if (!c || !c.classified) return;
+    if (c.status === 'queued' || c.status === 'applied' || c.status === 'skipped') return;
+    if ((c.confidence || 0) < ORG_CONFIDENCE_MED) {
+      lowConfCount++;
+      return;
+    }
+    S.orgClassifications[a.sm_key] = { ...c, status: 'queued', targetPath: c.path };
+    count++;
+  });
+  orgRender();
+  let msg = count ? `Queued ${count} for move` : 'Nothing to approve';
+  if (lowConfCount) msg += ` · ${lowConfCount} low-confidence skipped (review manually)`;
+  toast(msg, count ? 'ok' : 'inf');
 };
 
 window.orgClassifyOne = async function (sm_key) {
@@ -2797,23 +2852,36 @@ window.orgEditSave = function (sm_key) {
 
 // ── Apply moves ──
 window.orgApplyMoves = async function () {
+  // If already running, this acts as cancel
+  if (S.orgApplying) {
+    S.orgCancelApply = true;
+    toast('Cancelling… (will stop after current move)', 'inf');
+    return;
+  }
   if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
   const queued = S.orgUploads.filter(a => {
     const c = S.orgClassifications[a.sm_key];
     return c && c.status === 'queued';
   });
   if (!queued.length) return;
-  if (!confirm(`Move ${queued.length} album${queued.length !== 1 ? 's' : ''} in SmugMug?\n\nThis is reversible (you can move them back), but will reorganize folders.`)) return;
+  if (!confirm(`Move ${queued.length} album${queued.length !== 1 ? 's' : ''} in SmugMug?\n\nThis is reversible (you can move them back), but will reorganize folders.\nYou can cancel mid-run.`)) return;
 
-  $('org-apply-btn').disabled = true;
-  $('org-apply-btn').textContent = `Moving 0/${queued.length}...`;
+  S.orgApplying = true;
+  S.orgCancelApply = false;
+  $('org-apply-btn').textContent = '✖ Cancel';
+  $('org-apply-btn').classList.add('org-btn-cancel');
+
   const tb = btoa(JSON.stringify(S.smTokens));
   let done = 0, failed = 0;
 
   for (const album of queued) {
+    if (S.orgCancelApply) {
+      toast(`Cancelled — ${done}/${queued.length} moved`, 'inf');
+      break;
+    }
     const c = S.orgClassifications[album.sm_key];
     const destPath = 'Master-Library/' + c.targetPath;
-    $('org-apply-btn').textContent = `Moving ${done + 1}/${queued.length}...`;
+    $('org-apply-btn').textContent = `✖ Cancel (${done + 1}/${queued.length})`;
 
     try {
       const r = await fetch(`${SM_BASE}/api/smugmug?action=move_album`, {
@@ -2900,10 +2968,13 @@ window.orgApplyMoves = async function () {
       failed++;
     }
     orgRender();
-    $('org-apply-btn').disabled = true;
-    $('org-apply-btn').textContent = `Moving ${done + 1}/${queued.length}...`;
+    $('org-apply-btn').classList.add('org-btn-cancel');
+    $('org-apply-btn').textContent = `✖ Cancel (${done + 1}/${queued.length})`;
   }
 
+  S.orgApplying = false;
+  S.orgCancelApply = false;
+  $('org-apply-btn').classList.remove('org-btn-cancel');
   $('org-apply-btn').disabled = false;
   toast(`Moved ${done} album${done !== 1 ? 's' : ''}${failed ? ` · ${failed} failed` : ''}`, failed ? 'err' : 'ok');
   updateFeedbackBadge();
