@@ -1009,11 +1009,11 @@ function refreshPins() {
     }
   });
 
-  // Collect visible markers for clusterer
+  // Collect visible markers for clusterer — exclude currently selected pin
   markers = [];
   filtered.forEach(function(loc) {
     var m = markerPool.get(loc.id);
-    if (m && pinColorForLoc(loc) !== null) markers.push(m);
+    if (m && pinColorForLoc(loc) !== null && !m._selected) markers.push(m);
   });
 
   // Use MarkerClusterer if available, else direct
@@ -1076,59 +1076,52 @@ function refreshPins() {
 
   var pc = document.getElementById('pin-count'); if (pc) pc.textContent = markers.length;
   if (zoneOn) drawZone();
-  // Re-apply selection highlight after rebuild
-  if (currentDetailLoc) {
-    var m = markerPool.get(currentDetailLoc.id);
-    if (m) {
-      m._selected = true;
-      selectedMarker = m;
-      if (clusterer) clusterer.removeMarker(m, true);
-      m.setMap(gmap);
-      m.setIcon({
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 14,
-        fillColor: m._col,
-        fillOpacity: 1,
-        strokeColor: '#fff',
-        strokeWeight: 3
-      });
-      m.setZIndex(1000);
-    }
+  // Ensure selected pin stays highlighted and on map after rebuild
+  if (currentDetailLoc && selectedMarker) {
+    selectedMarker.setMap(gmap);
+    selectedMarker.setIcon({
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 14,
+      fillColor: selectedMarker._col,
+      fillOpacity: 1,
+      strokeColor: '#fff',
+      strokeWeight: 3
+    });
+    selectedMarker.setZIndex(1000);
   }
 }
 
 function highlightPin(loc) {
-  // Restore previous selected marker back to clusterer
+  // Restore previous selected marker
   if (selectedMarker) {
     selectedMarker._selected = false;
     selectedMarker.setIcon(makeIcon(selectedMarker._col));
     selectedMarker.setZIndex(1);
-    // Re-add to clusterer
     if (clusterer) {
+      selectedMarker.setMap(null);
       clusterer.addMarker(selectedMarker);
-    } else {
-      selectedMarker.setMap(gmap);
     }
     selectedMarker = null;
   }
   if (!loc) return;
   var m = markerPool.get(loc.id);
-  if (m) {
-    m._selected = true;
-    selectedMarker = m;
-    // Pull out of clusterer so it stays visible on top
-    if (clusterer) clusterer.removeMarker(m, true);
+  if (!m) return;
+  m._selected = true;
+  selectedMarker = m;
+  // Remove from clusterer, pin directly on map
+  if (clusterer) {
+    clusterer.removeMarker(m, true); // true = no redraw
     m.setMap(gmap);
-    m.setIcon({
-      path: google.maps.SymbolPath.CIRCLE,
-      scale: 14,
-      fillColor: m._col,
-      fillOpacity: 1,
-      strokeColor: '#fff',
-      strokeWeight: 3
-    });
-    m.setZIndex(1000);
   }
+  m.setIcon({
+    path: google.maps.SymbolPath.CIRCLE,
+    scale: 14,
+    fillColor: m._col,
+    fillOpacity: 1,
+    strokeColor: '#fff',
+    strokeWeight: 3
+  });
+  m.setZIndex(1000);
 }
 
 function panToVisible(loc) {
@@ -1271,6 +1264,7 @@ function dpNav(dir) {
 
 function closeDetail() {
   document.getElementById('detail-panel').classList.remove('open');
+  currentDetailLoc = null;
   if (gmap) highlightPin(null);
 }
 
