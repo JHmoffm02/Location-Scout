@@ -1267,20 +1267,24 @@ function openDetail(loc) {
   html += '</div>';
   var mapsUrl = '';
   if (loc.address || loc.city) {
-    var mapsQ = encodeURIComponent([loc.address,loc.city,loc.state_code].filter(Boolean).join(' '));
+    // Build clean address parts — avoid duplication if city is embedded in address
+    var addrPart = (loc.address || '').trim();
+    var cityPart = (loc.city || '').trim();
+    var statePart = (loc.state_code || '').trim();
+    // Don't repeat city if already in address
+    var cityLower = cityPart.toLowerCase();
+    var addrLower = addrPart.toLowerCase();
+    if (cityPart && addrLower.indexOf(cityLower) >= 0) cityPart = '';
+    var mapsQ = encodeURIComponent([addrPart, cityPart, statePart].filter(Boolean).join(' '));
     mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + mapsQ;
     html += '<div class="dp-section">';
     html += '<div class="dp-label">Address</div>';
     html += '<div class="dp-val" style="line-height:1.8">';
     html += '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none;border-bottom:1px solid var(--border2)">';
-    if (loc.address) html += loc.address;
-    var cityState = [loc.city, loc.state_code].filter(Boolean).join(', ');
-    if (loc.address && cityState) html += '<br>';
+    if (addrPart) html += addrPart;
+    var cityState = [loc.city, statePart].filter(Boolean).join(', ');
+    if (addrPart && cityState) html += '<br>';
     if (cityState) html += cityState;
-    if (!cityState && loc.address) {
-      // No city — try to get zip from notes parser result
-      html += '';
-    }
     html += '</a></div></div>';
   }
   var notesHtml = formatNotes(loc.notes, loc, mapsUrl);
