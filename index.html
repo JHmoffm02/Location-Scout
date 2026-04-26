@@ -970,7 +970,7 @@ function refreshPins() {
   });
 
   markers = []; markerPool.forEach(function(m){ if(m.getVisible())markers.push(m); });
-  document.getElementById('pin-count').textContent = markers.length;
+  var pc = document.getElementById('pin-count'); if (pc) pc.textContent = markers.length;
   if (zoneOn) drawZone();
 }
 
