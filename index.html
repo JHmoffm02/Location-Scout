@@ -605,6 +605,7 @@ var navFuture=[];  // redo stack
 // ── State ──
 var locations=[], gmap=null, mapReady=false;
 var markers=[], markerPool=new Map(), zoneCircle=null, zoneOn=false, clusterer=null;
+var  selectionOverlay=null;
 var selectedMarker=null;
 var currentHoverLoc=null, currentDetailLoc=null;
 var smTokens=null, dockOpen=false;
@@ -1009,11 +1010,11 @@ function refreshPins() {
     }
   });
 
-  // Collect visible markers for clusterer — exclude currently selected pin
+  // Collect visible markers for clusterer
   markers = [];
   filtered.forEach(function(loc) {
     var m = markerPool.get(loc.id);
-    if (m && pinColorForLoc(loc) !== null && !m._selected) markers.push(m);
+    if (m && pinColorForLoc(loc) !== null) markers.push(m);
   });
 
   // Use MarkerClusterer if available, else direct
@@ -1066,13 +1067,7 @@ function refreshPins() {
               },
               zIndex: 900 + count
             });
-            // After cluster renders, re-assert selected pin visibility
-            setTimeout(function() {
-              if (selectedMarker && selectedMarker._selected) {
-                selectedMarker.setMap(gmap);
-                selectedMarker.setZIndex(1000);
-              }
-            }, 20);
+
             return cm;
           }
         }
@@ -1084,68 +1079,42 @@ function refreshPins() {
 
   var pc = document.getElementById('pin-count'); if (pc) pc.textContent = markers.length;
   if (zoneOn) drawZone();
-  // Ensure selected pin stays highlighted and on map after rebuild
-  if (currentDetailLoc && selectedMarker) {
-    selectedMarker.setMap(gmap);
-    selectedMarker.setIcon({
-      path: google.maps.SymbolPath.CIRCLE,
-      scale: 14,
-      fillColor: selectedMarker._col,
-      fillOpacity: 1,
-      strokeColor: '#fff',
-      strokeWeight: 3
-    });
-    selectedMarker.setZIndex(1000);
-  }
+
 }
 
 function highlightPin(loc) {
-  // Restore previous selected marker
-  if (selectedMarker) {
-    selectedMarker._selected = false;
-    selectedMarker.setIcon(makeIcon(selectedMarker._col));
-    selectedMarker.setZIndex(1);
-    if (clusterer) {
-      selectedMarker.setMap(null);
-      clusterer.addMarker(selectedMarker);
-    }
-    selectedMarker = null;
-  }
+  // Remove selection overlay
+  if (selectionOverlay) { selectionOverlay.setMap(null); selectionOverlay = null; }
+  if (selectedMarker) { selectedMarker._selected = false; selectedMarker = null; }
   if (!loc) return;
+
   var m = markerPool.get(loc.id);
   if (!m) return;
   m._selected = true;
   selectedMarker = m;
-  var selectedIcon = {
-    path: google.maps.SymbolPath.CIRCLE,
-    scale: 14,
-    fillColor: m._col,
-    fillOpacity: 1,
-    strokeColor: '#fff',
-    strokeWeight: 3
-  };
-  // Remove from clusterer first
-  if (clusterer) clusterer.removeMarker(m, true);
-  // Set map and icon immediately
-  m.setMap(gmap);
-  m.setIcon(selectedIcon);
-  m.setZIndex(1000);
-  // Re-assert after clusterer settles (it may call setMap on its next render)
-  setTimeout(function() {
-    if (m._selected) {
-      m.setMap(gmap);
-      m.setIcon(selectedIcon);
-      m.setZIndex(1000);
-    }
-  }, 50);
-  setTimeout(function() {
-    if (m._selected) {
-      m.setMap(gmap);
-      m.setIcon(selectedIcon);
-      m.setZIndex(1000);
-    }
-  }, 300);
+
+  // Create a separate marker as the selection indicator — never touches the clusterer
+  selectionOverlay = new google.maps.Marker({
+    position: m.getPosition(),
+    map: gmap,
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 15,
+      fillColor: m._col,
+      fillOpacity: 1,
+      strokeColor: '#ffffff',
+      strokeWeight: 3
+    },
+    zIndex: 1000,
+    clickable: true,
+    title: loc.name
+  });
+  // Clicking overlay opens detail (or closes if already open)
+  selectionOverlay.addListener('click', function() {
+    openDetail(loc);
+  });
 }
+
 
 function panToVisible(loc) {
   if (!gmap || !hasCoords(loc)) return;
@@ -1288,7 +1257,8 @@ function dpNav(dir) {
 function closeDetail() {
   document.getElementById('detail-panel').classList.remove('open');
   currentDetailLoc = null;
-  if (gmap) highlightPin(null);
+  if (selectionOverlay) { selectionOverlay.setMap(null); selectionOverlay = null; }
+  if (selectedMarker) { selectedMarker._selected = false; selectedMarker = null; }
 }
 
 async function loadDetailGallery(loc) {
