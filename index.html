@@ -108,8 +108,28 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 #detail-panel.open{transform:translateX(0)}
 .dp-header{padding:14px 16px 12px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .dp-name{font-size:17px;font-weight:500;line-height:1.3;flex:1}
-.dp-header-meta{display:flex;align-items:center;gap:6px;margin-top:4px}
-.dp-cat-pill{font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.08em;padding:2px 8px;border-radius:10px;opacity:.85}
+.dp-header-bar{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;
+}
+.dp-header-bar .dp-cat-pill,
+.dp-header-bar .dp-status-pill,
+.dp-header-bar .dp-zone-pill{
+  font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.08em;
+  padding:2px 8px;border-radius:10px;text-transform:uppercase;line-height:1.6;
+  white-space:nowrap;
+}
+.dp-zone-pill{color:var(--green);border:1px solid rgba(76,175,130,.35)}
+.dp-header-bar .dp-hbtn{
+  font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
+  padding:3px 9px;border-radius:10px;cursor:pointer;
+  background:transparent;color:var(--text3);
+  border:1px solid var(--border2);transition:all .12s;
+  margin-left:2px;
+}
+.dp-header-bar .dp-hbtn:hover{border-color:var(--accent2);color:var(--accent)}
+.dp-header-bar .dp-hbtn-sep{
+  width:1px;height:14px;background:var(--border);margin:0 2px;
+}
 .dp-close{background:none;border:1px solid var(--border2);color:var(--text3);font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0;width:28px;height:28px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;transition:all .12s}
 .dp-close:hover{border-color:var(--border3);color:var(--text)}
 .dp-scroll{flex:1;overflow-y:auto}
@@ -139,7 +159,33 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .dp-btn.pri:hover{opacity:.88}
 
-/* ── Address layout (detail panel) ── */
+.dp-place-info{
+  margin-top:12px;padding-top:10px;
+  border-top:1px solid var(--border);
+  display:flex;flex-direction:column;gap:4px;
+}
+.dp-place-row{
+  display:flex;align-items:center;gap:8px;
+  font-size:11px;color:var(--text2);line-height:1.6;
+}
+.dp-place-row a{color:var(--accent);text-decoration:none}
+.dp-place-row a:hover{text-decoration:underline}
+.dp-place-icon{
+  display:inline-block;width:14px;text-align:center;
+  color:var(--text3);font-size:10px;flex-shrink:0;
+}
+.dp-place-hours{
+  margin-top:4px;font-size:10px;color:var(--text3);
+  font-family:'DM Mono',monospace;line-height:1.7;
+}
+.dp-place-hours summary{
+  cursor:pointer;color:var(--text2);font-size:11px;
+  padding:2px 0;list-style:none;
+}
+.dp-place-hours summary::-webkit-details-marker{display:none}
+.dp-place-hours summary::before{content:'▸ ';display:inline-block;transition:transform .15s}
+.dp-place-hours[open] summary::before{transform:rotate(90deg)}
+.dp-place-hours div{padding-left:14px;padding-top:1px}
 .dp-addr-wrap{
   display:flex;gap:12px;align-items:flex-start;
 }
@@ -283,7 +329,6 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
               <span class="hcard-status" id="hcard-status"></span>
               <div class="hcard-btns">
                 <button class="hcard-btn pri" onclick="openDetail(S.currentHoverLoc)">open</button>
-                <button class="hcard-btn" onclick="if(S.currentHoverLoc)window.open(S.currentHoverLoc.smugmug_gallery_url||'https://jordanhoffman.smugmug.com','_blank')">gallery ↗</button>
               </div>
             </div>
           </div>
@@ -333,12 +378,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <!-- Detail panel -->
 <div id="detail-panel">
   <div class="dp-header">
-    <div>
+    <div style="flex:1;min-width:0">
       <div class="dp-name" id="dp-name"></div>
-      <div class="dp-header-meta">
-        <span class="dp-cat-pill" id="dp-cat-pill"></span>
-        <span id="dp-zone-badge"></span>
-      </div>
+      <div class="dp-header-bar" id="dp-header-bar"></div>
     </div>
     <button class="dp-close" onclick="closeDetail()" aria-label="Close detail panel">×</button>
   </div>
@@ -364,34 +406,20 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
     </div>
     <div style="display:flex;flex-direction:column;gap:14px">
       <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-name">Location Name</label></div>
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-name">Title</label></div>
         <input id="edit-name" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
       </div>
       <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-address">Street Address</label></div>
-        <input id="edit-address" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
-      </div>
-      <div style="display:flex;gap:8px">
-        <div style="flex:2">
-          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-city">City</label></div>
-          <input id="edit-city" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
-        </div>
-        <div style="flex:0 0 70px">
-          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-state">State</label></div>
-          <input id="edit-state" type="text" maxlength="2" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none;text-transform:uppercase">
-        </div>
-        <div style="flex:0 0 90px">
-          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-zip">Zip</label></div>
-          <input id="edit-zip" type="text" maxlength="10" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
-        </div>
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-addr">Address</label></div>
+        <textarea id="edit-addr" rows="3" placeholder="123 Main St&#10;(@ Cross St)&#10;Brooklyn, NY 11211" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none;resize:vertical;line-height:1.5"></textarea>
       </div>
       <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-cross">Cross Street / Other Info <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(optional)</span></label></div>
-        <input id="edit-cross" type="text" placeholder="e.g. (@ 44th Ave)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-contact">Contact</label></div>
+        <textarea id="edit-contact" rows="4" placeholder="Name (role)&#10;Phone&#10;email@example.com" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none;resize:vertical;line-height:1.5"></textarea>
       </div>
       <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-notes">Notes <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(editing saves as truth — sync won't overwrite)</span></label></div>
-        <textarea id="edit-notes" rows="10" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;outline:none;resize:vertical;line-height:1.6"></textarea>
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-notes">Notes <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(saving locks this from sync overwrites)</span></label></div>
+        <textarea id="edit-notes" rows="8" placeholder="- bullet point&#10;- another note" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;outline:none;resize:vertical;line-height:1.6"></textarea>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:4px;border-top:1px solid var(--border)">
         <button onclick="closeEditPanel()" style="background:transparent;border:1px solid var(--border2);color:var(--text2);padding:7px 16px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace">Cancel</button>
@@ -401,14 +429,21 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   </div>
 </div>
 
-<!-- Raw Notes Modal -->
+<!-- Raw Notes Modal — editable -->
 <div id="raw-notes-modal" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center" role="dialog" aria-label="Raw notes">
-  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(560px,90vw);max-height:80vh;overflow-y:auto;padding:24px;position:relative">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text3)">Raw SmugMug Notes</div>
-      <button onclick="document.getElementById('raw-notes-modal').style.display='none'" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px" aria-label="Close">×</button>
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(640px,92vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 20px 12px;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text2);font-weight:500">Raw Notes</div>
+        <div id="raw-notes-hint" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
+      </div>
+      <button onclick="closeRawNotes()" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px" aria-label="Close">×</button>
     </div>
-    <pre id="raw-notes-content" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text2);white-space:pre-wrap;line-height:1.7"></pre>
+    <textarea id="raw-notes-content" style="flex:1;min-height:300px;background:var(--bg3);border:none;padding:14px 20px;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;outline:none;resize:none;line-height:1.7"></textarea>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="closeRawNotes()" style="background:transparent;border:1px solid var(--border2);color:var(--text2);padding:7px 16px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace">Cancel</button>
+      <button onclick="saveRawNotes()" id="raw-save-btn" style="background:var(--accent);border:none;color:var(--bg);padding:7px 16px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace;font-weight:500">Save</button>
+    </div>
   </div>
 </div>
 
