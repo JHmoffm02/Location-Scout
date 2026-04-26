@@ -138,6 +138,52 @@ async function findOrCreateFolderPath(pathSegments, accessToken, accessTokenSecr
   return current;
 }
 
+// DELETE a node (folder or album) by its full URI
+async function deleteNodeByUri(nodeUri, accessToken, accessTokenSecret) {
+  const consumerKey = envOrThrow('SMUGMUG_KEY');
+  const consumerSecret = envOrThrow('SMUGMUG_SECRET');
+  const baseUrl = nodeUri.startsWith('http') ? nodeUri : `https://api.smugmug.com${nodeUri}`;
+  const oauthParams = makeOauthParams(consumerKey, accessToken);
+  const authHeader = buildAuthHeader('DELETE', baseUrl, oauthParams, {}, consumerSecret, accessTokenSecret || '');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'DELETE',
+      headers: { Authorization: authHeader, Accept: 'application/json' },
+      signal: ctrl.signal
+    });
+    if (!res.ok) throw new Error(`SmugMug DELETE ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  } finally { clearTimeout(timer); }
+}
+
+// Find a folder by path and delete it (must be empty in SmugMug — caller should move children first)
+async function deleteFolderByPath(path, accessToken, accessTokenSecret) {
+  const segments = String(path || '').split('/').filter(Boolean);
+  if (!segments.length) throw new Error('Empty path');
+  // Walk down to find the node URI for this folder
+  const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
+  let currentNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
+  if (!currentNodeUri) throw new Error('No root node');
+  for (const seg of segments) {
+    const baseUri = currentNodeUri.split('!')[0];
+    const childRes = await smRequest(baseUri + '!children', accessToken, accessTokenSecret, { count: '500' });
+    const children = childRes.Response?.Node || [];
+    const arr = Array.isArray(children) ? children : [children];
+    const slug = urlSlug(seg), lower = seg.toLowerCase();
+    const match = arr.find(c => {
+      if (!c) return false;
+      const n = (c.Name || '').toLowerCase().trim();
+      const u = (c.UrlName || '').toLowerCase();
+      return n === lower || u === slug || n.replace(/[-\s]+/g, '') === lower.replace(/[-\s]+/g, '');
+    });
+    if (!match) throw new Error(`Folder segment not found: ${seg}`);
+    currentNodeUri = match.Uri;
+  }
+  await deleteNodeByUri(currentNodeUri, accessToken, accessTokenSecret);
+  return { ok: true, deletedPath: segments.join('/') };
+}
+
 // PATCH album fields (Keywords, Description, etc.)
 async function patchAlbum(albumKey, fields, accessToken, accessTokenSecret) {
   const consumerKey = envOrThrow('SMUGMUG_KEY');
@@ -531,6 +577,20 @@ module.exports = async function handler(req, res) {
         return res.json(result);
       } catch (e) {
         return res.status(500).json({ error: e.message || 'move failed' });
+      }
+    }
+
+    if (action === 'delete_folder') {
+      const body = req.method === 'POST'
+        ? (typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {}))
+        : req.query;
+      const { path } = body;
+      if (!path) return res.status(400).json({ error: 'path required' });
+      try {
+        const result = await deleteFolderByPath(path, accessToken, accessTokenSecret);
+        return res.json(result);
+      } catch (e) {
+        return res.status(500).json({ error: e.message || 'delete failed' });
       }
     }
 
