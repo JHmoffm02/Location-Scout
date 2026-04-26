@@ -107,20 +107,58 @@ Return ONLY this JSON, no prose, no markdown fences:
 }`;
 }
 
-function buildClassifySystemPrompt(taxonomy) {
+function buildClassifySystemPrompt(taxonomy, corrections) {
   const taxList = (taxonomy && taxonomy.length)
     ? taxonomy.map(p => '  - ' + p).join('\n')
     : '  (no existing categories — propose appropriate ones)';
+
+  let correctionsBlock = '';
+  if (corrections && corrections.length) {
+    correctionsBlock = '\n\nPAST USER CORRECTIONS (the scout has previously fixed these — apply the same patterns):\n' +
+      corrections.slice(0, 12).map(c => {
+        const parts = [];
+        if (c.applied_path && c.ai_path && c.applied_path !== c.ai_path) {
+          parts.push(`"${c.album_name}" — AI suggested "${c.ai_path}", user moved to "${c.applied_path}".${c.note ? ' Note: ' + c.note : ''}`);
+        } else if (c.applied_path) {
+          parts.push(`"${c.album_name}" → "${c.applied_path}".`);
+        }
+        if (c.rejected_tags && c.rejected_tags.length) {
+          parts.push(`  ↳ Rejected tags: ${c.rejected_tags.join(', ')} (don't suggest these for similar places).`);
+        }
+        if (c.added_tags && c.added_tags.length) {
+          parts.push(`  ↳ User added tags: ${c.added_tags.join(', ')}.`);
+        }
+        return parts.join('\n');
+      }).filter(Boolean).join('\n') + '\n';
+  }
 
   return `You classify locations for a film/TV scout's photo library AND extract rich, searchable visual descriptors that help the scout find this place later.
 
 EXISTING TAXONOMY (prefer these paths when they fit):
 ${taxList}
-
+${correctionsBlock}
 PATH GUIDELINES:
+- The album NAME is critical — it often contains both the location identity AND its area (e.g. "100 East 1st St - Mt Vernon", "Joe's Pizza - Astoria")
 - Use existing paths when an album fits one well, even loosely
-- Propose NEW paths only when nothing existing fits — keep them lowercase, hyphenated, hierarchical (e.g. "residences/brownstones", "commercial/warehouses")
-- Common patterns: residences/{houses|apartments|mansions|lofts|brownstones|townhouses}, restaurants/{casual|fine-dining|diners|cafes}, bars, hotels, hospitals, schools, offices, industrial/{warehouses|factories|garages}, religious, public/{libraries|courthouses|museums}, retail/{shops|malls}
+- If an album doesn't fit existing paths cleanly, PROPOSE A NEW PATH — don't force-fit. New paths should be lowercase, hyphenated, hierarchical
+- Many existing paths use a category/area structure (e.g. "bars/long-island"). When the album's area doesn't match an existing area-path, propose a NEW area-path rather than misclassifying the area.
+
+NY METRO AREA REFERENCE (for the area portion of paths):
+- manhattan — anywhere in Manhattan/NYC proper
+- brooklyn — any Brooklyn neighborhood (Williamsburg, Park Slope, Bushwick, Crown Heights, etc.)
+- queens — any Queens neighborhood (Astoria, Long Island City/LIC, Flushing, Jackson Heights, Forest Hills)
+- bronx — anywhere in the Bronx
+- staten-island — Staten Island
+- long-island — Nassau & Suffolk counties ONLY (Hempstead, Garden City, Great Neck, Port Washington, Bayside, Levittown, Huntington, the Hamptons)
+- westchester — Westchester County: Yonkers, MOUNT VERNON / MT VERNON, New Rochelle, White Plains, Pleasantville, Tarrytown, Mt Kisco, Larchmont, Scarsdale
+- rockland — Rockland County: Nyack, New City, Spring Valley
+- hudson-valley — Putnam, Dutchess, Orange counties (north of Westchester/Rockland)
+- jersey — northern NJ urban (Jersey City, Hoboken, Newark, etc.)
+- connecticut — CT areas (Greenwich, Stamford, Norwalk)
+- upstate — anything else north of NYC metro
+- LOCATION TYPE prefixes: residences, restaurants, bars, hotels, hospitals, schools, offices, industrial, religious, public, retail, etc.
+
+If the album name says "Mt Vernon", that is WESTCHESTER, not Long Island. If "Astoria" or "LIC", that is QUEENS, not Long Island. The "Long Island" geographic label only applies to places east of NYC city limits in Nassau or Suffolk County.
 
 CONFIDENCE RUBRIC:
 - 0.95+ = images clearly show the type
@@ -276,13 +314,20 @@ async function curateImages(allUrls, apiKey) {
   return { indices: selected, curationReasoning: parsed.reasoning || '', usedCuration: true };
 }
 
+async function classifyWithImages(album, taxonomy, corrections, imageSources, model, apiKey) {
+  const sys = buildClassifySystemPrompt(taxonomy, corrections);
+  const userParts = buildAlbumMessage(album, imageSources);
+  const r = await callClaude(model, sys, userParts, apiKey, 1000);
+  return parseJSON(r.text);
+}
+
 // ── Top-level: classify a single album ────────────────────────────────────
-async function classifyOne(album, taxonomy, apiKey) {
+async function classifyOne(album, taxonomy, corrections, apiKey) {
   const allImages = (album.image_urls || []).filter(Boolean);
 
   if (allImages.length === 0) {
     // Text-only fallback
-    const sys = buildClassifySystemPrompt(taxonomy);
+    const sys = buildClassifySystemPrompt(taxonomy, corrections);
     const userParts = buildAlbumMessage(album, []);
     const r = await callClaude(HAIKU, sys, userParts, apiKey, 1000);
     const result = parseJSON(r.text);
@@ -298,21 +343,14 @@ async function classifyOne(album, taxonomy, apiKey) {
   const validLarge = largeSources.filter(Boolean);
 
   if (validLarge.length === 0) {
-    // All large fetches failed → text-only
-    const sys = buildClassifySystemPrompt(taxonomy);
+    const sys = buildClassifySystemPrompt(taxonomy, corrections);
     const userParts = buildAlbumMessage(album, []);
     const r = await callClaude(HAIKU, sys, userParts, apiKey, 1000);
     const result = parseJSON(r.text);
-    return {
-      ...result, key: album.key, model: HAIKU, _images_used: 0,
-      _curation: 'failed-large-fetch'
-    };
+    return { ...result, key: album.key, model: HAIKU, _images_used: 0, _curation: 'failed-large-fetch' };
   }
 
-  const sys = buildClassifySystemPrompt(taxonomy);
-  const userParts = buildAlbumMessage(album, largeSources);
-  const r = await callClaude(SONNET, sys, userParts, apiKey, 1000);
-  const result = parseJSON(r.text);
+  const result = await classifyWithImages(album, taxonomy, corrections, largeSources, SONNET, apiKey);
 
   return {
     ...result,
@@ -343,11 +381,11 @@ module.exports = async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const albums = Array.isArray(body && body.albums) ? body.albums : [];
     const taxonomy = Array.isArray(body && body.taxonomy) ? body.taxonomy : [];
+    const corrections = Array.isArray(body && body.corrections) ? body.corrections : [];
     if (albums.length === 0) return res.status(400).json({ ok: false, error: 'no albums in request' });
-    // Cap at 25 — each album is 2 LLM calls so a batch of 25 is up to 50 API calls
     if (albums.length > 25) return res.status(400).json({ ok: false, error: 'max 25 albums per request' });
 
-    const results = await pmap(albums, a => classifyOne(a, taxonomy, apiKey), PARALLEL);
+    const results = await pmap(albums, a => classifyOne(a, taxonomy, corrections, apiKey), PARALLEL);
 
     const cleaned = results.map((r, i) => {
       if (r && r.error) return { key: albums[i].key, error: r.error };
