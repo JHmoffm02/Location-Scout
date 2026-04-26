@@ -900,10 +900,13 @@ window.initMap = async function() {
     db('smugmug_albums?select=sm_key,name,web_url').then(function(r){ mapAlbums=r; }),
     db('smugmug_folders?select=name,path&order=path.asc').then(function(r){ mapFolders=r; })
   ]);
-  refreshPins();
   buildLeftPanel();
   checkAuth();
   checkSyncStatus();
+  // Wait for map to settle before drawing pins - prevents mid-zoom rendering
+  google.maps.event.addListenerOnce(gmap, 'idle', function() {
+    refreshPins();
+  });
 };
 
 // ── Filtering ──
@@ -1022,23 +1025,43 @@ function refreshPins() {
       clusterer = new markerClusterer.MarkerClusterer({
         map: gmap,
         markers: markers,
-        algorithm: new markerClusterer.GridAlgorithm({maxZoom: 13, gridSize: 60}),
+        algorithm: new markerClusterer.SuperClusterAlgorithm({maxZoom: 13, radius: 80}),
         renderer: {
           render: function(cluster, stats) {
             var count = cluster.count;
-            var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">' +
-              '<circle cx="20" cy="20" r="18" fill="#1c1e22" stroke="rgba(200,169,110,0.4)" stroke-width="1.5"/>' +
-              '<text x="20" y="25" text-anchor="middle" font-family="monospace" font-size="12" fill="#c8a96e">' + count + '</text>' +
+            // Determine cluster color — if all markers share one colored category, use it
+            var clusterColor = null;
+            var cats = new Set();
+            if (cluster.markers) {
+              cluster.markers.forEach(function(m) {
+                if (m._loc) {
+                  var cat = getCatForLoc(m._loc);
+                  if (cat) cats.add(cat);
+                }
+              });
+            }
+            // Single category with a color assigned = color the cluster
+            if (cats.size === 1) {
+              var onlyCat = Array.from(cats)[0];
+              if (catPinColors[onlyCat]) clusterColor = catPinColors[onlyCat];
+            }
+            var fill = clusterColor ? clusterColor + '22' : '#1c1e22';
+            var stroke = clusterColor ? clusterColor : 'rgba(255,255,255,0.12)';
+            var text = clusterColor ? clusterColor : '#e6e4de';
+            var size = count > 99 ? 48 : count > 9 ? 42 : 36;
+            var r = size / 2;
+            var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '">' +
+              '<circle cx="' + r + '" cy="' + r + '" r="' + (r-2) + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"/>' +
+              '<text x="' + r + '" y="' + (r+4) + '" text-anchor="middle" font-family="DM Mono,monospace" font-size="11" fill="' + text + '">' + count + '</text>' +
               '</svg>';
-            var icon = {
-              url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-              scaledSize: new google.maps.Size(40, 40),
-              anchor: new google.maps.Point(20, 20)
-            };
             return new google.maps.Marker({
               position: cluster.position,
-              icon: icon,
-              zIndex: 999
+              icon: {
+                url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+                scaledSize: new google.maps.Size(size, size),
+                anchor: new google.maps.Point(r, r)
+              },
+              zIndex: 900 + count
             });
           }
         }
