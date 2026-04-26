@@ -857,7 +857,7 @@ function loadMapScript() {
   if (document.getElementById('gms')) return;
   // Load clusterer first, then maps
   var c = document.createElement('script'); c.id = 'gmc';
-  c.src = 'https://cdn.jsdelivr.net/npm/@googlemaps/markerclusterer@2.3.1/dist/index.min.umd.js';
+  c.src = 'https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js';
   c.onload = function() {
     var s = document.createElement('script'); s.id = 'gms'; s.async = true;
     s.src = 'https://maps.googleapis.com/maps/api/js?key=' + GM_KEY + '&callback=initMap&loading=async';
