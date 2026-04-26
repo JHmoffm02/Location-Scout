@@ -1,8 +1,18 @@
-// api/smugmug.js
+// api/smugmug.js — OAuth 1.0a + library crawl with parallelized fetches
+//
+// Improvements over v1:
+// - Bounded-concurrency album fetches (was the big sync slowdown)
+// - Retry on transient SmugMug errors
+// - Secure cookie flag
+// - Defensive env var checks
+
 const crypto = require('crypto');
 const SM_API = 'https://api.smugmug.com/api/v2';
-const SM_USER = 'jordanhoffman';
+const CONCURRENCY = 5;          // parallel SmugMug requests
+const MAX_RETRIES = 2;
+const CRAWL_DEPTH_LIMIT = 8;
 
+// ── OAuth helpers ──────────────────────────────────────────────────────────
 function pct(s) { return encodeURIComponent(s).replace(/!/g, '%21'); }
 
 function buildAuthHeader(method, baseUrl, oauthParams, signatureParams, consumerSecret, tokenSecret) {
@@ -29,24 +39,69 @@ function makeOauthParams(consumerKey, accessToken) {
   return p;
 }
 
-async function smRequest(path, accessToken, accessTokenSecret, extraParams = {}) {
-  const consumerKey = process.env.SMUGMUG_KEY;
-  const consumerSecret = process.env.SMUGMUG_SECRET;
+function envOrThrow(name) {
+  const v = process.env[name];
+  if (!v) throw new Error(`${name} not configured`);
+  return v;
+}
+
+async function smRequest(path, accessToken, accessTokenSecret, extraParams = {}, attempt = 0) {
+  const consumerKey = envOrThrow('SMUGMUG_KEY');
+  const consumerSecret = envOrThrow('SMUGMUG_SECRET');
   const baseUrl = (path.startsWith('http') ? path : `${SM_API}${path}`).split('?')[0];
   const oauthParams = makeOauthParams(consumerKey, accessToken);
   const authHeader = buildAuthHeader('GET', baseUrl, oauthParams, extraParams, consumerSecret, accessTokenSecret || '');
   const finalUrl = new URL(baseUrl);
   Object.entries(extraParams).forEach(([k, v]) => finalUrl.searchParams.set(k, v));
-  const res = await fetch(finalUrl.toString(), {
-    headers: { Authorization: authHeader, Accept: 'application/json' }
-  });
-  if (!res.ok) throw new Error(`SmugMug API ${res.status}: ${await res.text()}`);
-  return res.json();
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    let res;
+    try {
+      res = await fetch(finalUrl.toString(), {
+        headers: { Authorization: authHeader, Accept: 'application/json' },
+        signal: ctrl.signal
+      });
+    } finally { clearTimeout(timer); }
+
+    // 429 = rate limit; 5xx = transient — retry with backoff
+    if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+      await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+      return smRequest(path, accessToken, accessTokenSecret, extraParams, attempt + 1);
+    }
+    if (!res.ok) throw new Error(`SmugMug API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    return res.json();
+  } catch (e) {
+    if ((e.name === 'AbortError' || /network|fetch/i.test(e.message)) && attempt < MAX_RETRIES) {
+      await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+      return smRequest(path, accessToken, accessTokenSecret, extraParams, attempt + 1);
+    }
+    throw e;
+  }
 }
 
+// ── Bounded-concurrency map (replaces serial for-loop) ────────────────────
+async function pmap(items, fn, concurrency = CONCURRENCY) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= items.length) return;
+      try { results[idx] = await fn(items[idx], idx); }
+      catch (e) { results[idx] = { __error: e.message }; }
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
+// ── OAuth flow ─────────────────────────────────────────────────────────────
 async function getRequestToken(callbackUrl) {
-  const consumerKey = process.env.SMUGMUG_KEY;
-  const consumerSecret = process.env.SMUGMUG_SECRET;
+  const consumerKey = envOrThrow('SMUGMUG_KEY');
+  const consumerSecret = envOrThrow('SMUGMUG_SECRET');
   const url = 'https://api.smugmug.com/services/oauth/1.0a/getRequestToken';
   const oauthParams = makeOauthParams(consumerKey, null);
   oauthParams.oauth_callback = callbackUrl;
@@ -57,14 +112,14 @@ async function getRequestToken(callbackUrl) {
     body: `oauth_callback=${pct(callbackUrl)}`
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Request token failed: ${text}`);
+  if (!res.ok) throw new Error(`Request token failed: ${text.slice(0, 200)}`);
   const params = new URLSearchParams(text);
   return { requestToken: params.get('oauth_token'), requestTokenSecret: params.get('oauth_token_secret') };
 }
 
 async function getAccessToken(requestToken, requestTokenSecret, verifier) {
-  const consumerKey = process.env.SMUGMUG_KEY;
-  const consumerSecret = process.env.SMUGMUG_SECRET;
+  const consumerKey = envOrThrow('SMUGMUG_KEY');
+  const consumerSecret = envOrThrow('SMUGMUG_SECRET');
   const url = 'https://api.smugmug.com/services/oauth/1.0a/getAccessToken';
   const oauthParams = makeOauthParams(consumerKey, requestToken);
   oauthParams.oauth_verifier = verifier;
@@ -75,139 +130,154 @@ async function getAccessToken(requestToken, requestTokenSecret, verifier) {
     body: `oauth_verifier=${pct(verifier)}`
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Access token failed: ${text}`);
+  if (!res.ok) throw new Error(`Access token failed: ${text.slice(0, 200)}`);
   const params = new URLSearchParams(text);
   return { accessToken: params.get('oauth_token'), accessTokenSecret: params.get('oauth_token_secret') };
 }
 
-async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
+// ── Crawl: walk the entire library, parallelize at each level ──────────────
+async function crawlLibrary(accessToken, accessTokenSecret) {
   const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
   const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
   if (!rootNodeUri) throw new Error('Could not get root node');
-  const segments = urlPath.split('/').filter(Boolean);
-  let currentNodeUri = rootNodeUri;
-  for (const segment of segments) {
-    const nodeRes = await smRequest(currentNodeUri, accessToken, accessTokenSecret);
-    const node = nodeRes.Response?.Node;
-    if (!node) throw new Error(`Node not found at segment: ${segment}`);
-    const childrenUri = node.Uris?.ChildNodes?.Uri;
-    if (!childrenUri) throw new Error(`No children at: ${segment}`);
-    const childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
-    const children = childRes.Response?.Node || [];
-    const childArr = Array.isArray(children) ? children : [children];
-    const match = childArr.find(c =>
-      c && (
-        (c.UrlName || '').toLowerCase() === segment.toLowerCase() ||
-        (c.Name || '').toLowerCase() === segment.toLowerCase().replace(/-/g, ' ')
-      )
-    );
-    if (!match) throw new Error(`Folder not found: ${segment}`);
-    currentNodeUri = match.Uri;
-  }
-  const targetRes = await smRequest(currentNodeUri, accessToken, accessTokenSecret);
-  const targetNode = targetRes.Response?.Node;
-  const childrenUri = targetNode?.Uris?.ChildNodes?.Uri;
-  if (!childrenUri) return { folders: [], albums: [] };
-  const childData = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
-  const children = childData.Response?.Node || [];
-  const arr = Array.isArray(children) ? children : [children];
+
   const folders = [], albums = [];
-  for (const item of arr) {
-    if (!item) continue;
-    if (item.Type === 'Album') {
-      const albumUri = item.Uris?.Album?.Uri;
-      let albumKey = null, imageCount = 0, description = '', keywords = '', thumbUrl = null;
-      if (albumUri) {
-        try {
-          const albumData = await smRequest(albumUri, accessToken, accessTokenSecret);
-          const album = albumData.Response?.Album;
-          if (album) {
-            albumKey = album.AlbumKey;
-            imageCount = album.ImageCount || 0;
-            description = album.Description || '';
-            keywords = album.Keywords || '';
-            const hlUri = album.Uris?.HighlightImage?.Uri;
-            if (hlUri) {
-              try {
-                const hlData = await smRequest(hlUri, accessToken, accessTokenSecret);
-                thumbUrl = hlData.Response?.Image?.ThumbnailUrl || null;
-              } catch(e) {}
-            }
+  const folderSet = new Set();
+
+  async function processNode(nodeUri, depth) {
+    if (depth > CRAWL_DEPTH_LIMIT) return;
+    let nodeRes;
+    try { nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret); }
+    catch (e) { return; }
+
+    const node = nodeRes.Response?.Node;
+    if (!node) return;
+    const childrenUri = node.Uris?.ChildNodes?.Uri;
+    if (!childrenUri) return;
+
+    let childRes;
+    try { childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '500' }); }
+    catch (e) { return; }
+
+    const children = childRes.Response?.Node || [];
+    const arr = Array.isArray(children) ? children : [children];
+
+    // Process albums in parallel; recurse into folders sequentially (to respect depth)
+    const albumChildren = arr.filter(c => c && c.Type === 'Album');
+    const folderChildren = arr.filter(c => c && c.Type === 'Folder');
+
+    // Parallel album fetches
+    const albumResults = await pmap(albumChildren, async child => {
+      const albumUri = child.Uris?.Album?.Uri;
+      if (!albumUri) return null;
+      try {
+        const albumRes = await smRequest(albumUri, accessToken, accessTokenSecret);
+        const album = albumRes.Response?.Album;
+        if (!album) return null;
+        const webUrl = album.WebUri || '';
+        const urlParts = webUrl.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
+        const folderPath = urlParts.length > 1 ? urlParts.slice(0, -1).join('/') : '';
+        return {
+          album: {
+            id: album.AlbumKey,
+            name: album.Name,
+            path: folderPath,
+            url: webUrl,
+            imageCount: album.ImageCount || 0,
+            description: album.Description || '',
+            keywords: album.Keywords || ''
+          },
+          folderPath
+        };
+      } catch (e) { return null; }
+    });
+
+    albumResults.forEach(r => {
+      if (!r || r.__error) return;
+      albums.push(r.album);
+      if (r.folderPath) {
+        const parts = r.folderPath.split('/');
+        let cum = '';
+        parts.forEach((p, i) => {
+          cum = i === 0 ? p : cum + '/' + p;
+          if (!folderSet.has(cum)) {
+            folderSet.add(cum);
+            folders.push({
+              id: cum, name: p.replace(/-/g, ' '), path: cum,
+              url: 'https://jordanhoffman.smugmug.com/' + cum
+            });
           }
-        } catch(e) { console.error('album error:', e.message); }
+        });
       }
-      albums.push({ id: albumKey || item.NodeID, name: item.Name, urlName: item.UrlName,
-        url: item.WebUri, imageCount, description, keywords, thumbUrl });
-    } else if (item.Type === 'Folder' || item.Type === 'Page') {
-      folders.push({ name: item.Name, urlName: item.UrlName,
-        path: `${urlPath}/${item.UrlName}`, url: item.WebUri });
-    }
+    });
+
+    // Recurse into folders — also in parallel but limited depth
+    await pmap(folderChildren, child => processNode(child.Uri, depth + 1), 3);
   }
+
+  await processNode(rootNodeUri, 0);
   return { folders, albums };
 }
 
-async function syncAlbumsFromPath(urlPath, accessToken, accessTokenSecret) {
-  const { folders, albums } = await fetchFolderByPath(urlPath, accessToken, accessTokenSecret);
-  const images = [];
-  for (const album of albums) {
-    if (!album.id) continue;
-    try {
-      const albumData = await smRequest(`/album/${album.id}`, accessToken, accessTokenSecret);
-      const full = albumData.Response?.Album;
-      if (full) {
-        album.description = full.Description || '';
-        album.keywords = full.Keywords || '';
-        album.imageCount = full.ImageCount || 0;
-        const hlUri = full.Uris?.HighlightImage?.Uri;
-        if (hlUri) {
-          try {
-            const hlData = await smRequest(hlUri, accessToken, accessTokenSecret);
-            const hlImage = hlData.Response?.Image;
-            if (hlImage) album.thumbUrl = hlImage.ThumbnailUrl || hlImage.SmallImageUrl;
-          } catch(e) {}
-        }
-        const imagesUri = full.Uris?.AlbumImages?.Uri;
-        if (imagesUri) {
-          try {
-            const imgData = await smRequest(imagesUri, accessToken, accessTokenSecret, { count: '10' });
-            const imgs = imgData.Response?.AlbumImage || [];
-            const imgArr = Array.isArray(imgs) ? imgs : [imgs];
-            imgArr.forEach(img => {
-              if (!img || !img.ImageKey) return;
-              images.push({ id: img.ImageKey, albumKey: album.id, albumName: album.name,
-                albumPath: urlPath, albumUrl: album.url, filename: img.FileName || '',
-                title: img.Title || img.FileName || '', caption: img.Caption || '',
-                keywords: img.Keywords || '', thumbUrl: img.ThumbnailUrl || null,
-                webUri: img.WebUri || null, lat: img.Latitude || null, lng: img.Longitude || null,
-                isVideo: img.IsVideo || false });
-              if (!album.thumbUrl && img.ThumbnailUrl) album.thumbUrl = img.ThumbnailUrl;
-            });
-          } catch(e) {}
-        }
-      }
-    } catch(e) { console.error('album detail error:', e.message); }
+// ── album-images: all images + description, paginated ─────────────────────
+async function fetchAlbumImages(albumKey, accessToken, accessTokenSecret) {
+  const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
+  const album = albumRes.Response?.Album;
+  if (!album) return { images: [], description: '' };
+
+  const description = album.Description || '';
+  const imagesUri = album.Uris?.AlbumImages?.Uri;
+  if (!imagesUri) return { images: [], description };
+
+  const all = [];
+  let start = 1;
+  while (true) {
+    const imgRes = await smRequest(imagesUri, accessToken, accessTokenSecret,
+      { count: '100', start: String(start) });
+    const imgs = imgRes.Response?.AlbumImage || [];
+    const arr = Array.isArray(imgs) ? imgs : [imgs];
+    arr.forEach(img => {
+      if (!img || !img.ImageKey) return;
+      all.push({
+        id: img.ImageKey, albumKey, albumName: album.Name,
+        albumPath: '', albumUrl: album.WebUri || '',
+        filename: img.FileName || '', title: img.Title || img.FileName || '',
+        caption: img.Caption || '', keywords: img.Keywords || '',
+        date: img.DateTimeOriginal || null,
+        width: img.OriginalWidth || null, height: img.OriginalHeight || null,
+        thumbUrl: img.ThumbnailUrl || null, webUri: img.WebUri || null,
+        lat: img.Latitude || null, lng: img.Longitude || null,
+        format: img.Format || null, size: img.ArchivedSize || null,
+        isVideo: img.IsVideo || false
+      });
+    });
+    if (arr.length < 100) break;
+    start += 100;
+    if (start > 5000) break;  // hard cap, prevents runaway
   }
-  return { folders, albums, images };
+  return { images: all, description };
 }
 
+// ── Handler ────────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', '*');  // OAuth callback needs to redirect cross-origin; consider locking after stable
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
   const { action } = req.query;
 
   try {
+    // ── auth / callback (no Bearer needed) ─────────────────────────────────
     if (action === 'auth') {
       const host = req.headers.host || '';
       const proto = host.includes('localhost') ? 'http' : 'https';
       const callbackUrl = `${proto}://${host}/api/smugmug?action=callback`;
       const { requestToken, requestTokenSecret } = await getRequestToken(callbackUrl);
-      res.setHeader('Set-Cookie', `sm_rts=${requestTokenSecret}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`);
+      const secureFlag = proto === 'https' ? '; Secure' : '';
+      res.setHeader('Set-Cookie', `sm_rts=${requestTokenSecret}; Path=/; HttpOnly; SameSite=Lax${secureFlag}; Max-Age=600`);
       const authUrl = `https://api.smugmug.com/services/oauth/1.0a/authorize?oauth_token=${requestToken}&Access=Full&Permissions=Read`;
-      res.json({ authUrl, requestToken });
-      return;
+      return res.json({ authUrl, requestToken });
     }
 
     if (action === 'callback') {
@@ -215,16 +285,18 @@ module.exports = async function handler(req, res) {
       const cookieStr = req.headers.cookie || '';
       const rtsCookie = cookieStr.split(';').find(c => c.trim().startsWith('sm_rts='));
       const requestTokenSecret = rtsCookie ? rtsCookie.split('=')[1].trim() : '';
-      if (!oauth_token || !oauth_verifier) { res.status(400).json({ error: 'Missing OAuth params' }); return; }
+      if (!oauth_token || !oauth_verifier) return res.status(400).json({ error: 'Missing OAuth params' });
       const { accessToken, accessTokenSecret } = await getAccessToken(oauth_token, requestTokenSecret, oauth_verifier);
       const host = req.headers.host || '';
       const proto = host.includes('localhost') ? 'http' : 'https';
       const payload = pct(JSON.stringify({ accessToken, accessTokenSecret }));
+      // Clear the sm_rts cookie
+      res.setHeader('Set-Cookie', `sm_rts=; Path=/; HttpOnly; Max-Age=0`);
       res.writeHead(302, { Location: `${proto}://${host}/#sm_auth=${payload}` });
-      res.end();
-      return;
+      return res.end();
     }
 
+    // ── Auth required for everything below ─────────────────────────────────
     let accessToken = '', accessTokenSecret = '';
     const authHeader = req.headers.authorization || '';
     if (authHeader.startsWith('Bearer ')) {
@@ -232,158 +304,42 @@ module.exports = async function handler(req, res) {
         const tokens = JSON.parse(Buffer.from(authHeader.slice(7), 'base64').toString());
         accessToken = tokens.accessToken;
         accessTokenSecret = tokens.accessTokenSecret;
-      } catch(e) {}
+      } catch (e) {}
     }
+    if (!accessToken) return res.status(401).json({ error: 'Not authenticated' });
 
     if (action === 'test') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
       const data = await smRequest('/!authuser', accessToken, accessTokenSecret);
-      res.json({ ok: true, user: data.Response?.User?.Name });
-      return;
-    }
-
-    if (action === 'browse') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      const urlPath = req.query.path || '/Master-Library';
-      const { folders, albums } = await fetchFolderByPath(urlPath, accessToken, accessTokenSecret);
-      res.json({ ok: true, folders, albums });
-      return;
-    }
-
-    if (action === 'sync-path') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      const urlPath = req.query.path || '/Master-Library';
-      const result = await syncAlbumsFromPath(urlPath, accessToken, accessTokenSecret);
-      res.json({ ok: true, ...result });
-      return;
+      return res.json({ ok: true, user: data.Response?.User?.Name });
     }
 
     if (action === 'crawl' || action === 'structure') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-      const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
-      const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
-      if (!rootNodeUri) throw new Error('Could not get root node');
-      const folders = [], albums = [];
-      const folderSet = new Set();
-
-      async function walkNode(nodeUri, depth) {
-        if (depth > 6) return;
-        let nodeRes;
-        try { nodeRes = await smRequest(nodeUri, accessToken, accessTokenSecret); } catch(e) { return; }
-        const node = nodeRes.Response?.Node;
-        if (!node) return;
-        const childrenUri = node.Uris?.ChildNodes?.Uri;
-        if (!childrenUri) return;
-        let childRes;
-        try { childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' }); } catch(e) { return; }
-        const children = childRes.Response?.Node || [];
-        const arr = Array.isArray(children) ? children : [children];
-        for (const child of arr) {
-          if (!child || !child.Uri) continue;
-          if (child.Type === 'Album') {
-            const albumUri = child.Uris?.Album?.Uri;
-            if (!albumUri) continue;
-            try {
-              const albumRes = await smRequest(albumUri, accessToken, accessTokenSecret);
-              const album = albumRes.Response?.Album;
-              if (!album) continue;
-              const webUrl = album.WebUri || '';
-              const urlParts = webUrl.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
-              const folderPath = urlParts.length > 1 ? urlParts.slice(0, -1).join('/') : '';
-              if (folderPath) {
-                const parts = folderPath.split('/');
-                let cum = '';
-                parts.forEach((p, i) => {
-                  cum = i === 0 ? p : cum + '/' + p;
-                  if (!folderSet.has(cum)) {
-                    folderSet.add(cum);
-                    folders.push({ id: cum, name: p.replace(/-/g, ' '), path: cum,
-                      url: 'https://jordanhoffman.smugmug.com/' + cum });
-                  }
-                });
-              }
-              albums.push({ id: album.AlbumKey, name: album.Name, path: folderPath,
-                url: webUrl, imageCount: album.ImageCount || 0,
-                description: album.Description || '', keywords: album.Keywords || '' });
-            } catch(e) { continue; }
-          } else if (child.Type === 'Folder') {
-            await walkNode(child.Uri, depth + 1);
-          }
-        }
-      }
-
-      await walkNode(rootNodeUri, 0);
-      res.json({ ok: true, library: { folders, albums, images: [] } });
-      return;
+      const lib = await crawlLibrary(accessToken, accessTokenSecret);
+      return res.json({ ok: true, library: { ...lib, images: [] } });
     }
 
-    // ── album-images: fetch all images + album description ──
     if (action === 'album-images') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
       const { albumKey } = req.query;
-      if (!albumKey) { res.status(400).json({ error: 'albumKey required' }); return; }
-      const images = [];
-      let description = '';
-      try {
-        const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
-        const album = albumRes.Response?.Album;
-        if (!album) { res.json({ ok: true, images: [], description: '' }); return; }
-
-        // Capture album description for notes sync
-        description = album.Description || '';
-
-        const imagesUri = album.Uris?.AlbumImages?.Uri;
-        if (!imagesUri) { res.json({ ok: true, images: [], description }); return; }
-        let start = 1;
-        while (true) {
-          const imgRes = await smRequest(imagesUri, accessToken, accessTokenSecret,
-            { count: '100', start: String(start) });
-          const imgs = imgRes.Response?.AlbumImage || [];
-          const arr = Array.isArray(imgs) ? imgs : [imgs];
-          for (const img of arr) {
-            if (!img || !img.ImageKey) continue;
-            images.push({
-              id: img.ImageKey, albumKey, albumName: album.Name,
-              albumPath: '', albumUrl: album.WebUri || '',
-              filename: img.FileName || '', title: img.Title || img.FileName || '',
-              caption: img.Caption || '', keywords: img.Keywords || '',
-              date: img.DateTimeOriginal || null,
-              width: img.OriginalWidth || null, height: img.OriginalHeight || null,
-              thumbUrl: img.ThumbnailUrl || null, webUri: img.WebUri || null,
-              lat: img.Latitude || null, lng: img.Longitude || null,
-              format: img.Format || null, size: img.ArchivedSize || null,
-              isVideo: img.IsVideo || false
-            });
-          }
-          if (arr.length < 100) break;
-          start += 100;
-        }
-      } catch(e) { console.error('album-images error:', e.message); }
-      // Return images AND description
-      res.json({ ok: true, images, description });
-      return;
+      if (!albumKey) return res.status(400).json({ error: 'albumKey required' });
+      const { images, description } = await fetchAlbumImages(albumKey, accessToken, accessTokenSecret);
+      return res.json({ ok: true, images, description });
     }
 
-    // ── album-description: fetch just the description for a single album ──
     if (action === 'album-description') {
-      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
       const { albumKey } = req.query;
-      if (!albumKey) { res.status(400).json({ error: 'albumKey required' }); return; }
+      if (!albumKey) return res.status(400).json({ error: 'albumKey required' });
       try {
         const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
         const album = albumRes.Response?.Album;
-        const description = album?.Description || '';
-        res.json({ ok: true, description });
-      } catch(e) {
-        res.json({ ok: true, description: '' });
+        return res.json({ ok: true, description: album?.Description || '' });
+      } catch (e) {
+        return res.json({ ok: true, description: '' });
       }
-      return;
     }
 
-    res.status(400).json({ error: `Unknown action: ${action}` });
-
-  } catch(e) {
+    return res.status(400).json({ error: `Unknown action: ${action}` });
+  } catch (e) {
     console.error('SmugMug error:', e.message);
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: 'smugmug request failed' });
   }
 };
