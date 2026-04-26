@@ -26,6 +26,7 @@ const ALLOWED_ORIGINS = new Set([
 
 // SmugMug image size transforms
 function smThumb(url)  { return url ? url.replace(/\/(Ti|S|M|L|XL)\//, '/Th/') : ''; }
+function smMedium(url) { return url ? url.replace(/\/(Th|Ti|S|L|XL)\//, '/M/') : ''; }
 function smLarge(url)  { return url ? url.replace(/\/(Th|Ti|S|M)\//, '/L/') : ''; }
 
 // ── Image fetching: SmugMug blocks Anthropic via robots.txt, so we proxy ──
