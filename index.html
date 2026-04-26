@@ -1307,132 +1307,121 @@ async function loadDetailGallery(loc) {
 function formatNotes(raw, loc) {
   if (!raw) return '';
 
-  // 1. Strip markdown links but keep email address
+  // 1. Strip markdown links → plain email
   raw = raw.replace(/\[([^\]]+)\]\(mailto:([^)]+)\)/g, '$2');
 
-  // 2. Expand collapsed text — inject newlines before section markers
+  // 2. Expand collapsed text
   raw = raw.replace(/(\w)\(Btw /g, '$1\n(Btw ');
   raw = raw.replace(/(\w)\(Entrance/g, '$1\n(Entrance');
-  raw = raw.replace(/\)(\w)/g, ')\n$1');   // split after closing paren
+  raw = raw.replace(/\)(\w)/g, ')\n$1');
   raw = raw.replace(/(\d{5})(C\d*:)/g, '$1\n$2');
   raw = raw.replace(/ (C\d*:) /g, '\n$1 ');
   raw = raw.replace(/(Notes:)/g, '\n$1\n');
-
-  // 3. Collapse excess blank lines
   raw = raw.replace(/\n{3,}/g, '\n\n');
 
-  // 4. Split and trim lines
-  var lines = raw.split('\n').map(function(l) { return l.trim(); });
+  var lines = raw.split('\n').map(function(l){ return l.trim(); });
 
-  // 5. Parse sections
-  var titleLines = [];   // filename-style title lines to skip
-  var addrLines = [];    // street address lines
-  var crossLine = '';    // (Btw X & Y) line
-  var contacts = [];
-  var noteLines = [];
-  var italicLines = [];  // *note* context lines
-  var dateStr = '';
-  var hoffmanStr = '';
-  var inNotes = false;
-  var currentContact = null;
-  var addrDone = false;
+  var titleLines=[], addrLines=[], crossLine='', contacts=[], noteLines=[];
+  var italicLines=[], inNotes=false, currentContact=null, addrDone=false;
+  var dateStr='', hoffmanStr='';
 
   var locName = loc && loc.name ? loc.name.toLowerCase().trim() : '';
-  var locAddr = loc && loc.address ? loc.address.toLowerCase().trim() : '';
   var locCity = loc && loc.city ? loc.city.toLowerCase().trim() : '';
+  var knownCities = ['manhattan','brooklyn','queens','bronx','the bronx','staten island',
+    'jersey city','hoboken','newark','yonkers','nyc','new york','long island city',
+    'astoria','flushing','jamaica','harlem','bronxville','pleasantville','mt kisco',
+    'white plains','tarrytown','nyack','malverne','bayside','forest hills',
+    'kew gardens','ozone park','city island','new rochelle'];
 
   for (var i = 0; i < lines.length; i++) {
     var l = lines[i];
     if (!l) continue;
 
-    // Skip title line: matches loc name, or "Business Name - Town" (not a street address)
+    // Italic *note* lines (standalone)
+    if (/^\*[^*]+\*$/.test(l)) {
+      italicLines.push(l.replace(/^\*|\*$/g,'')); continue;
+    }
+
+    // Strip leading/trailing asterisks and inline *annotation* suffix
+    var stripped = l.replace(/^\*+|\*+$/g,'').trim();
+    stripped = stripped.replace(/\s*\*[^*]+\*\s*$/, '').trim();
+    var lLow = stripped.toLowerCase();
+
+    // Title detection (before any address/contact)
     if (!addrDone && !inNotes && !currentContact) {
-      var stripped = l.replace(/^\*+|\*+$/g, '').trim();
-      var lLow = stripped.toLowerCase();
-      // Exact match with location name (case-insensitive)
+      // Exact match with loc name
       if (lLow === locName) { titleLines.push(l); continue; }
-      // Non-address first line: no digits, not a cross-street, not empty
-      // e.g. "St. Ann & the Holy Trinity Church"
-      if (titleLines.length === 0 && !/\d/.test(stripped) && 
+
+      // First non-address line: no digits = business/location name
+      if (titleLines.length === 0 && !/\d/.test(stripped) &&
           !stripped.startsWith('(') && !/^C\d*:/i.test(stripped) &&
-          !/^notes?/i.test(stripped) && stripped.length > 0) {
-        // Looks like a business/location name line — skip it
+          !/^notes?/i.test(stripped)) {
         titleLines.push(l); continue;
       }
-      // "X - Town" pattern — only skip if the part before " - " is NOT a street address
-      // Street addresses start with a number followed by spaces then street name
-      // Title lines: "Bourbon Street - Bayside" (no leading number)
-      // NOT title: "350 140th St - The Bronx" (IS a street address — has number + street)
-      // NOT title: "40-12 Bell Blvd - Queens" (IS a street address — hyphenated number)
-      if (/ - /.test(stripped) && stripped.length < 120 &&
-          !/^C\d*:/i.test(stripped) && !/^\(/.test(stripped)) {
+
+      // Duplicate of title brand name e.g. "Phillips 66" after "Phillips 66 - Pleasantville"
+      if (titleLines.length > 0) {
+        var titleBrand = titleLines[0].replace(/^\*+|\*+$/g,'').replace(/\s*\*[^*]+\*\s*$/,'')
+          .replace(/\s*-.*$/,'').trim().toLowerCase();
+        if (lLow === titleBrand || (titleBrand.length > 3 && titleBrand.startsWith(lLow) && !/\d/.test(lLow))) {
+          titleLines.push(l); continue;
+        }
+      }
+
+      // "Name - Town" pattern
+      if (/ - /.test(stripped) && stripped.length < 130 &&
+          !/^C\d*:/i.test(stripped) && !stripped.startsWith('(')) {
         var beforeDash = stripped.split(' - ')[0].trim();
-        // It's a title (not address) if: doesn't start with digit, OR
-        // starts with a digit but the loc.name matches it
-        var looksLikeStreet = /^\d/.test(beforeDash) || /^\d+-\d+/.test(beforeDash);
+        var afterDash = stripped.split(' - ').slice(1).join(' - ')
+          .replace(/\s*\*.*$/,'').trim().toLowerCase();
+        var looksLikeStreet = /^\d/.test(beforeDash);
         if (!looksLikeStreet) { titleLines.push(l); continue; }
-        // Street-number address with city: "305 E 140th St - The Bronx" 
-        // Skip if the part after " - " is a borough/city name
-        var afterDash = stripped.split(' - ').slice(1).join(' - ').trim().toLowerCase();
-        var knownCities = ['manhattan','brooklyn','queens','bronx','the bronx','staten island',
-          'jersey city','hoboken','newark','yonkers','nyc','new york','nj','ny'];
-        var isKnownCity = knownCities.some(function(c){ return afterDash === c || afterDash.indexOf(c) === 0; });
-        if (isKnownCity) { titleLines.push(l); continue; }
-        // Also skip if it matches loc.name exactly (even if it starts with number)
-        if (lLow === locName) { titleLines.push(l); continue; }
+        var isKnownCity = knownCities.some(function(c){
+          return afterDash === c || afterDash.indexOf(c) === 0;
+        });
+        if (isKnownCity || locCity && afterDash.indexOf(locCity) === 0) {
+          titleLines.push(l); continue;
+        }
       }
     }
 
-    // Italic context line: *some note* — check before anything else
-    if (/^\*[^*]+\*$/.test(l)) {
-      italicLines.push(l.replace(/^\*|\*$/g, ''));
-      continue;
-    }
-
-    // Footer: J. Hoffman + date — keep both
+    // J. Hoffman footer
     if (/^J\.?\s+Hoffman/i.test(l)) { hoffmanStr = l; continue; }
+
+    // Date line
     if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}$/.test(l)) {
-      var parts = l.split(/[-\/]/);
-      dateStr = parts[0] + '/' + parts[1] + '/' + parts[2];
-      continue;
+      var dp = l.split(/[-\/]/);
+      dateStr = dp[0] + '/' + dp[1] + '/' + dp[2]; continue;
     }
 
     // Notes section
-    if (/^notes?\s*:?\s*$/i.test(l)) { inNotes = true; addrDone = true; continue; }
+    if (/^notes?\s*:?\s*$/i.test(l)) { inNotes=true; addrDone=true; continue; }
     if (inNotes) { noteLines.push(l); continue; }
 
     // Contact line
     if (/^C\d*\s*:/i.test(l)) {
       addrDone = true;
       if (currentContact) contacts.push(currentContact);
-      var cText = l.replace(/^C\d*\s*:\s*/i, '');
-      currentContact = { name: cText, phones: [], emails: [] };
+      currentContact = { name: l.replace(/^C\d*\s*:\s*/i,''), phones:[], emails:[] };
       continue;
     }
 
     // Inside contact block
     if (currentContact) {
-      if (/@/.test(l)) {
-        currentContact.emails.push(l.trim());
-      } else if (/[\d]{3}[\s.-]?[\d]{3}[\s.-]?[\d]{4}/.test(l)) {
-        currentContact.phones.push(l);
-      } else if (currentContact.phones.length === 0 && currentContact.emails.length === 0) {
+      if (/@/.test(l)) { currentContact.emails.push(l.trim()); }
+      else if (/\d{3}[\s.-]?\d{3}[\s.-]?\d{4}/.test(l)) { currentContact.phones.push(l); }
+      else if (!currentContact.phones.length && !currentContact.emails.length) {
         currentContact.name += '\n' + l;
-      } else {
-        noteLines.push(l);
-      }
+      } else { noteLines.push(l); }
       continue;
     }
 
-    // Address lines
+    // Address
     if (/^\(/.test(l)) {
-      crossLine = l; // cross-street (@, Btw, At, etc)
+      crossLine = l;
     } else {
-      // Skip city/state line e.g. "Brooklyn, NY 11201" when locCity="brooklyn"
-      var lLow2 = l.toLowerCase();
-      var cityPart = lLow2.split(',')[0].trim();
-      var isDupCity = locCity && cityPart === locCity;
-      if (!isDupCity) {
+      var cityPart = l.toLowerCase().split(',')[0].trim();
+      if (!(locCity && cityPart === locCity)) {
         addrLines.push(l);
       }
     }
@@ -1440,53 +1429,47 @@ function formatNotes(raw, loc) {
   if (currentContact) contacts.push(currentContact);
 
   // Build HTML
-  var s = {
-    addr: 'margin-bottom:10px',
-    addrLine: 'display:block;font-size:13px;color:var(--text)',
-    cross: 'display:block;font-size:11px;color:var(--text3);font-style:italic;margin-top:2px',
-    italic: 'display:block;font-size:11px;color:var(--accent);font-style:italic;margin-bottom:6px',
-    section: 'border-top:1px solid var(--border);padding-top:8px;margin-top:8px',
-    label: 'font-size:8px;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px',
-    cName: 'font-size:12px;font-weight:500;color:var(--text);white-space:pre-line',
-    cDetail: 'font-size:11px;color:var(--text2)',
+  var S = {
+    cross:  'font-size:11px;color:var(--text3);font-style:italic;display:block;margin-top:2px',
+    italic: 'font-size:11px;color:var(--accent);font-style:italic;display:block;margin-bottom:6px',
+    sec:    'border-top:1px solid var(--border);padding-top:8px;margin-top:8px',
+    lbl:    'font-size:8px;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px',
+    addr:   'font-size:13px;color:var(--text);display:block',
+    cName:  'font-size:12px;font-weight:500;color:var(--text);white-space:pre-line',
+    cInfo:  'font-size:11px;color:var(--text2)',
     cEmail: 'font-size:11px;color:var(--accent);text-decoration:none',
-    note: 'font-size:12px;color:var(--text2);padding-left:10px;margin-bottom:2px',
-    noteP: 'font-size:12px;color:var(--text2);margin-bottom:2px',
-    date: 'font-size:10px;color:var(--text3);font-family:\'DM Mono\',monospace;margin-top:8px'
+    note:   'font-size:12px;color:var(--text2);padding-left:10px;margin-bottom:2px',
+    noteP:  'font-size:12px;color:var(--text2);margin-bottom:2px',
+    foot:   'font-size:10px;color:var(--text3);font-family:\'DM Mono\',monospace;margin-top:10px'
   };
 
   var html = '';
 
-  // Italic context lines (top)
-  if (italicLines.length) {
-    italicLines.forEach(function(l) {
-      html += '<span style="'+s.italic+'">'+l+'</span>';
-    });
-  }
+  // Italic context lines
+  italicLines.forEach(function(l){
+    html += '<span style="'+S.italic+'">'+l+'</span>';
+  });
 
-  // Address block — only show if we have address lines beyond what's in structured fields
-  var extraAddrLines = addrLines; // city already filtered during parse
-  if (extraAddrLines.length || crossLine) {
-    html += '<div style="'+s.addr+'">';
-    extraAddrLines.forEach(function(l) {
-      html += '<span style="'+s.addrLine+'">'+l+'</span>';
+  // Address block
+  if (addrLines.length || crossLine) {
+    html += '<div style="margin-bottom:8px">';
+    addrLines.forEach(function(l){
+      html += '<span style="'+S.addr+'">'+l+'</span>';
     });
-    if (crossLine) html += '<span style="'+s.cross+'">'+crossLine+'</span>';
+    if (crossLine) html += '<span style="'+S.cross+'">'+crossLine+'</span>';
     html += '</div>';
   }
 
   // Contacts
   if (contacts.length) {
-    html += '<div style="'+s.section+'">';
-    html += '<div style="'+s.label+'">Contact</div>';
+    html += '<div style="'+S.sec+'">';
+    html += '<div style="'+S.lbl+'">Contact</div>';
     contacts.forEach(function(c, ci) {
-      if (ci > 0) html += '<div style="height:6px"></div>';
-      html += '<div style="'+s.cName+'">'+c.name+'</div>';
-      c.phones.forEach(function(p) {
-        html += '<div style="'+s.cDetail+'">'+p+'</div>';
-      });
-      c.emails.forEach(function(e) {
-        html += '<a href="mailto:'+e+'" style="'+s.cEmail+'">'+e+'</a>';
+      if (ci > 0) html += '<div style="height:5px"></div>';
+      html += '<div style="'+S.cName+'">'+c.name+'</div>';
+      c.phones.forEach(function(p){ html += '<div style="'+S.cInfo+'">'+p+'</div>'; });
+      c.emails.forEach(function(e){
+        html += '<a href="mailto:'+e+'" style="'+S.cEmail+'">'+e+'</a>';
       });
     });
     html += '</div>';
@@ -1494,24 +1477,22 @@ function formatNotes(raw, loc) {
 
   // Notes
   if (noteLines.length) {
-    html += '<div style="'+s.section+'">';
-    html += '<div style="'+s.label+'">Notes</div>';
-    noteLines.forEach(function(l) {
+    html += '<div style="'+S.sec+'">';
+    html += '<div style="'+S.lbl+'">Notes</div>';
+    noteLines.forEach(function(l){
       if (!l) return;
-      if (/^[-•]\s*/.test(l)) {
-        html += '<div style="'+s.note+'">&bull; '+l.replace(/^[-•]\s*/,'')+'</div>';
-      } else {
-        html += '<div style="'+s.noteP+'">'+l+'</div>';
-      }
+      if (/^[-•]\s*/.test(l))
+        html += '<div style="'+S.note+'">&bull; '+l.replace(/^[-•]\s*/,'')+'</div>';
+      else
+        html += '<div style="'+S.noteP+'">'+l+'</div>';
     });
     html += '</div>';
   }
 
-  // Scout credit + date
+  // Footer
   if (hoffmanStr || dateStr) {
-    html += '<div style="'+s.date+'">';
-    if (hoffmanStr && dateStr) html += hoffmanStr + ' &nbsp;·&nbsp; ' + dateStr;
-    else html += hoffmanStr || dateStr;
+    html += '<div style="'+S.foot+'">';
+    html += hoffmanStr && dateStr ? hoffmanStr+' &nbsp;&middot;&nbsp; '+dateStr : (hoffmanStr||dateStr);
     html += '</div>';
   }
 
