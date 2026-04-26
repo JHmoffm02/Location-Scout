@@ -306,7 +306,7 @@ window.applyFilters = function () {
 
 function saveFilterSettings() {
   const s = {};
-  ['ny','nj','other','thoughts','pending','clears','zone'].forEach(id => {
+  ['ny','nj','other','thoughts','pending','clears','zone','flatten'].forEach(id => {
     const el = $('f-' + id); if (el) s['f-'+id] = el.checked;
   });
   try { localStorage.setItem('mapFilters', JSON.stringify(s)); } catch (e) {}
@@ -315,7 +315,7 @@ function saveFilterSettings() {
 function loadFilterSettings() {
   try {
     const s = JSON.parse(localStorage.getItem('mapFilters') || '{}');
-    ['ny','nj','other','thoughts','pending','clears','zone'].forEach(id => {
+    ['ny','nj','other','thoughts','pending','clears','zone','flatten'].forEach(id => {
       const el = $('f-' + id);
       if (el && s.hasOwnProperty('f-'+id)) el.checked = s['f-'+id];
     });
@@ -798,6 +798,32 @@ window.openDetail = function (loc) {
   $('detail-panel').classList.add('open');
   $('dp-scroll').scrollTop = 0;
 
+  // Lock map keyboard shortcuts so arrow keys go to the detail viewer, not the map
+  if (S.gmap) S.gmap.setOptions({ keyboardShortcuts: false });
+  document.body.focus();
+
+  // Arm outside-click handler — clicking anywhere outside the panel closes it
+  // Wait one tick so the click that opened the panel doesn't immediately close it
+  setTimeout(() => {
+    if (!S._dpOutsideClickHandler) {
+      S._dpOutsideClickHandler = function (e) {
+        const panel = $('detail-panel');
+        const lb = $('lightbox');
+        const editPanel = $('edit-panel');
+        const rawModal = $('raw-notes-modal');
+        // Don't close on clicks inside any of these
+        if (panel && panel.contains(e.target)) return;
+        if (lb && lb.classList.contains('open')) return;
+        if (editPanel && editPanel.style.display === 'flex' && editPanel.contains(e.target)) return;
+        if (rawModal && rawModal.style.display === 'flex' && rawModal.contains(e.target)) return;
+        // Don't close on map pin clicks (they open new locations) — handled by gmap click listener
+        // Allow nav buttons and category list to still work — close panel + let click through
+        if (S.currentDetailLoc) closeDetail();
+      };
+      document.addEventListener('mousedown', S._dpOutsideClickHandler, true);
+    }
+  }, 30);
+
   if ($('home-page').classList.contains('active')) {
     highlightPin(loc);
     setTimeout(() => panToVisible(loc), 300);
@@ -949,6 +975,11 @@ window.closeDetail = function () {
   $('detail-panel').classList.remove('open');
   S.currentDetailLoc = null;
   if (S.selectionOverlay) { S.selectionOverlay.setMap(null); S.selectionOverlay = null; }
+  if (S.gmap) S.gmap.setOptions({ keyboardShortcuts: true });
+  if (S._dpOutsideClickHandler) {
+    document.removeEventListener('mousedown', S._dpOutsideClickHandler, true);
+    S._dpOutsideClickHandler = null;
+  }
 };
 
 
@@ -1628,6 +1659,7 @@ function libRender() {
   const grid = $('lib-grid'), bc = $('lib-bc');
   const currentPath = S.libStack.length ? S.libStack[S.libStack.length-1].path : null;
   const targetPath  = currentPath || 'Master-Library';
+  const flatten = $('f-flatten') && $('f-flatten').checked;
 
   // Breadcrumb
   let bcHtml = `<span class="lib-bc-seg${currentPath ? '' : ' cur'}" onclick="libBrowse(null)">Master Library</span>`;
@@ -1648,8 +1680,16 @@ function libRender() {
     return f.path.slice(targetPath.length+1).indexOf('/') < 0;
   });
 
+  // When "flatten places" is on, treat all albums under targetPath (any depth) as direct children
+  // — i.e., skip the area-folder navigation level and just show every album in one grid.
   const directAlbums = S.libAlbums.filter(a => {
-    if (albumParentPath(a) !== targetPath) return false;
+    const p = albumParentPath(a);
+    if (flatten) {
+      // Album's parent path must be inside targetPath at any depth
+      if (p !== targetPath && p.indexOf(targetPath + '/') !== 0) return false;
+    } else {
+      if (p !== targetPath) return false;
+    }
     const loc = locByAlbumKey.get(a.sm_key);
     if (loc && !locPassesGlobalFilter(loc)) return false;
     return true;
@@ -1657,7 +1697,8 @@ function libRender() {
 
   let cards = '';
 
-  subFolders.forEach(f => {
+  if (!flatten) {
+    subFolders.forEach(f => {
     const children = S.libAlbums.filter(a => {
       const p = albumParentPath(a);
       if (p !== f.path && p.indexOf(f.path + '/') !== 0) return false;
@@ -1680,7 +1721,8 @@ function libRender() {
     cards += '<div class="gcard-ph">▤</div>';
     cards += `<div class="gcard-overlay">${E(name)}</div></div>`;
     cards += `<div class="gcard-meta"><span>${children.length} location${children.length !== 1 ? 's' : ''}</span></div></div>`;
-  });
+    });
+  }
 
   directAlbums.forEach(a => {
     const loc = locByAlbumKey.get(a.sm_key);
@@ -2986,6 +3028,212 @@ window.orgApplyMoves = async function () {
     try { S.libFolders = await db('smugmug_folders?select=name,path&order=path.asc'); } catch (e) {}
     renderTaxonomyTree();
   }, 500);
+};
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// FOLDER MERGE (find duplicates + execute)
+// ══════════════════════════════════════════════════════════════════════════
+window.orgFindDuplicateFolders = async function () {
+  const body = $('merge-body');
+  const hint = $('merge-hint');
+  $('merge-modal').style.display = 'flex';
+  hint.textContent = 'Scanning your library…';
+  body.innerHTML = '<div class="empty"><div class="spin"></div><span>analyzing folder names…</span></div>';
+
+  try {
+    const folders = await db('smugmug_folders?select=name,path&order=path.asc');
+    const albums  = await db('smugmug_albums?select=sm_key,name,path,web_url');
+
+    const folderRecords = [];
+    folders.forEach(f => {
+      if (!f.path) return;
+      const parts = f.path.split('/').filter(Boolean);
+      if (parts[0] !== 'Master-Library' || parts.length < 2) return;
+      if (/^uploads(-\d+)?$/i.test(parts[1] || '') || parts[1] === 'Orphans') return;
+      const innerPath = parts.slice(1).join('/');
+      const matchingAlbums = albums.filter(a => {
+        if (!a.web_url) return false;
+        const aParts = a.web_url.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
+        return aParts.length > 1 && aParts.slice(1, -1).join('/') === innerPath;
+      });
+      folderRecords.push({
+        path: innerPath,
+        name: f.name || parts[parts.length - 1].replace(/-/g, ' '),
+        album_count: matchingAlbums.length,
+        sample_albums: matchingAlbums.slice(0, 3).map(a => a.name)
+      });
+    });
+
+    if (!folderRecords.length) {
+      body.innerHTML = '<div class="empty">No category folders found</div>';
+      hint.textContent = '';
+      return;
+    }
+
+    hint.textContent = `Asking AI to find similar folders among ${folderRecords.length}…`;
+    const r = await fetch(`${SM_BASE}/api/find_duplicates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folders: folderRecords })
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'find_duplicates failed');
+
+    const clusters = data.clusters || [];
+    if (!clusters.length) {
+      hint.textContent = `Scanned ${folderRecords.length} folders — no obvious duplicates.`;
+      body.innerHTML = '<div class="empty" style="padding:32px">✓ Library looks clean — no near-duplicate folders detected.</div>';
+      return;
+    }
+
+    hint.textContent = `Found ${clusters.length} candidate cluster${clusters.length !== 1 ? 's' : ''}. Review and merge.`;
+    S.mergeClusters = clusters;
+    S.mergeFolderRecords = folderRecords;
+    renderMergeClusters();
+  } catch (e) {
+    body.innerHTML = `<div class="empty" style="color:var(--red)">Error: ${E(e.message || 'unknown')}</div>`;
+    hint.textContent = '';
+  }
+};
+
+function renderMergeClusters() {
+  const body = $('merge-body');
+  const recordsByPath = {};
+  S.mergeFolderRecords.forEach(r => { recordsByPath[r.path] = r; });
+
+  body.innerHTML = S.mergeClusters.map((cluster, ci) => {
+    const items = (cluster.paths || []).map(p => {
+      const r = recordsByPath[p];
+      return r ? r : { path: p, album_count: 0, sample_albums: [] };
+    });
+    const totalAlbums = items.reduce((s, i) => s + (i.album_count || 0), 0);
+    return `<div class="merge-cluster" data-ci="${ci}">
+      <div class="merge-cluster-head">
+        <div class="merge-reason">${E(cluster.reason || '')}</div>
+      </div>
+      <div class="merge-folder-list">
+        ${items.map(it => `
+          <label class="merge-folder">
+            <input type="radio" name="merge-canon-${ci}" value="${E(it.path)}" ${it.path === cluster.canonical ? 'checked' : ''}>
+            <div class="merge-folder-info">
+              <div class="merge-folder-path">${E(it.path)}</div>
+              <div class="merge-folder-meta">${it.album_count || 0} album${(it.album_count||0) !== 1 ? 's' : ''}${it.sample_albums && it.sample_albums.length ? ' · ' + it.sample_albums.slice(0,2).map(s => E(s)).join(', ') : ''}</div>
+            </div>
+          </label>
+        `).join('')}
+      </div>
+      <div class="merge-cluster-actions">
+        <span class="merge-totals">${totalAlbums} albums total · select canonical</span>
+        <button class="org-btn" onclick="orgMergeCluster(${ci})">⌗ Merge</button>
+        <button class="org-btn" onclick="orgDismissCluster(${ci})">skip</button>
+      </div>
+      <div id="merge-progress-${ci}" class="merge-progress"></div>
+    </div>`;
+  }).join('');
+}
+
+window.orgDismissCluster = function (ci) {
+  S.mergeClusters[ci] = null;
+  S.mergeClusters = S.mergeClusters.filter(Boolean);
+  if (!S.mergeClusters.length) {
+    $('merge-body').innerHTML = '<div class="empty" style="padding:32px">All clusters reviewed.</div>';
+    $('merge-hint').textContent = '';
+    return;
+  }
+  renderMergeClusters();
+};
+
+window.orgMergeCluster = async function (ci) {
+  if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
+  const cluster = S.mergeClusters[ci];
+  if (!cluster) return;
+  const radio = document.querySelector(`input[name="merge-canon-${ci}"]:checked`);
+  const canonical = radio ? radio.value : cluster.canonical;
+  const sources = (cluster.paths || []).filter(p => p !== canonical);
+  if (!sources.length) { toast('Pick a canonical folder', 'err'); return; }
+
+  // Get all albums in source folders
+  const allAlbums = await db('smugmug_albums?select=sm_key,name,web_url');
+  const sourceAlbums = [];
+  sources.forEach(srcPath => {
+    allAlbums.forEach(a => {
+      if (!a.web_url) return;
+      const parts = a.web_url.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
+      const albumParent = parts.length > 1 ? parts.slice(1, -1).join('/') : '';
+      if (albumParent === srcPath || albumParent.indexOf(srcPath + '/') === 0) {
+        sourceAlbums.push({ ...a, _sourcePath: srcPath, _albumParentInner: albumParent });
+      }
+    });
+  });
+
+  const msg = sourceAlbums.length
+    ? `Merge ${sources.length} folder${sources.length!==1?'s':''} into "${canonical}"?\n\nThis will:\n  • Move ${sourceAlbums.length} album${sourceAlbums.length!==1?'s':''} into the canonical folder\n  • Delete the source folder${sources.length!==1?'s':''} once empty\n\nReversible (you can move back), but takes a few minutes.`
+    : `No albums in source folders. Just delete empty source folders, keeping "${canonical}"?`;
+  if (!confirm(msg)) return;
+
+  const progressEl = $(`merge-progress-${ci}`);
+  const tb = btoa(JSON.stringify(S.smTokens));
+  let moved = 0, failed = 0;
+
+  for (let i = 0; i < sourceAlbums.length; i++) {
+    const a = sourceAlbums[i];
+    progressEl.innerHTML = `Moving ${i+1}/${sourceAlbums.length}: ${E(a.name)}…`;
+    let newInnerPath = a._albumParentInner;
+    if (newInnerPath === a._sourcePath) newInnerPath = canonical;
+    else newInnerPath = canonical + newInnerPath.slice(a._sourcePath.length);
+    const destPath = 'Master-Library/' + newInnerPath;
+    try {
+      const r = await fetch(`${SM_BASE}/api/smugmug?action=move_album`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + tb, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ albumKey: a.sm_key, destPath })
+      });
+      const data = await r.json();
+      if (data.ok) {
+        moved++;
+        try {
+          await fetch(`${SB_URL}/rest/v1/smugmug_albums?sm_key=eq.${a.sm_key}`, {
+            method: 'PATCH',
+            headers: {
+              apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+              'Content-Type': 'application/json', Prefer: 'return=minimal'
+            },
+            body: JSON.stringify({ path: newInnerPath, web_url: data.newWebUri || a.web_url })
+          });
+        } catch (e) {}
+      } else { failed++; }
+    } catch (e) { failed++; }
+  }
+
+  progressEl.innerHTML = `Cleaning up empty folders…`;
+  let deleted = 0;
+  for (const srcPath of sources) {
+    try {
+      const r = await fetch(`${SM_BASE}/api/smugmug?action=delete_folder`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + tb, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: 'Master-Library/' + srcPath })
+      });
+      const data = await r.json();
+      if (data.ok) {
+        deleted++;
+        try {
+          await fetch(`${SB_URL}/rest/v1/smugmug_folders?path=eq.${encodeURIComponent('Master-Library/' + srcPath)}`, {
+            method: 'DELETE',
+            headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, Prefer: 'return=minimal' }
+          });
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  progressEl.innerHTML = `<span style="color:var(--green)">✓ Merged: ${moved} moved · ${deleted} deleted${failed ? ` · ${failed} failed` : ''}</span>`;
+  toast(`Merge complete · ${moved} albums moved`, 'ok');
+
+  S.libLoaded = false;
+  try { S.libFolders = await db('smugmug_folders?select=name,path&order=path.asc'); } catch (e) {}
+  setTimeout(() => orgDismissCluster(ci), 1500);
 };
 
 
