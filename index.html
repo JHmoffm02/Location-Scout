@@ -1120,30 +1120,32 @@ function highlightPin(loc) {
 function panToVisible(loc) {
   if (!gmap || !hasCoords(loc)) return;
   var lat = Number(loc.lat), lng = Number(loc.lng);
+
+  // Measure the actual visible map area
+  var mapWrap = document.getElementById('map-wrap');
+  var leftPanel = document.getElementById('left-panel');
   var dp = document.getElementById('detail-panel');
-  var panelW = (dp && dp.classList.contains('open')) ? dp.offsetWidth : 0;
 
-  // Calculate the offset center so the pin lands in the visible area
-  // (left of the detail panel), not at the true map center
-  var currentZoom = gmap.getZoom();
-  var targetZoom = Math.max(currentZoom, 14);
+  var mapLeft = leftPanel ? leftPanel.offsetWidth : 0;
+  var mapRight = dp && dp.classList.contains('open') ? dp.offsetWidth : 0;
+  var mapTotalW = mapWrap ? mapWrap.offsetWidth : window.innerWidth;
 
-  if (panelW > 0) {
-    // Compute pixel offset: shift center left by half the panel width
-    // so the pin appears centered in the remaining visible map area
-    var projection = gmap.getProjection();
-    if (projection) {
-      var targetPoint = projection.fromLatLngToPoint(new google.maps.LatLng(lat, lng));
-      var scale = Math.pow(2, targetZoom);
-      var offsetX = panelW / 2 / scale;
-      var adjustedLng = lng - (offsetX * 360 / 256);
-      gmap.setZoom(targetZoom);
-      gmap.panTo({lat: lat, lng: adjustedLng});
-      return;
-    }
-  }
+  // Visible map width and its center in pixels from left edge of map-wrap
+  var visibleW = mapTotalW - mapRight;
+  var visibleCenterX = mapLeft + (visibleW - mapLeft) / 2;
+
+  // Pixel offset from true map center to visible center
+  // positive = shift map right (pin moves left toward visible center)
+  var mapCenterX = mapTotalW / 2;
+  var offsetPx = visibleCenterX - mapCenterX;
+
+  var targetZoom = Math.max(gmap.getZoom(), 14);
   gmap.setZoom(targetZoom);
-  gmap.panTo({lat: lat, lng: lng});
+
+  // Convert pixel offset to lng degrees at target zoom
+  var scale = Math.pow(2, targetZoom);
+  var lngOffset = offsetPx * 360 / (256 * scale);
+  gmap.panTo({lat: lat, lng: lng - lngOffset});
 }
 
 // ── Hover card ──
