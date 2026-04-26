@@ -1908,20 +1908,27 @@ async function startFullSync() {
       var alb = remaining[j];
       if (ns) ns.textContent = 'images ' + (j+1) + '/' + remaining.length + ' — ' + alb.name;
       try {
-        var imgs = (await (await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+alb.sm_key,{headers:{Authorization:'Bearer '+tb}})).json()).images || [];
+        // Fetch images and album description in parallel
+        var imgResp = (await (await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+alb.sm_key,{headers:{Authorization:'Bearer '+tb}})).json());
+        var imgs = imgResp.images || [];
+        var albDesc = imgResp.description || '';
         if (imgs.length) {
           await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library:{folders:[],albums:[],images:imgs}})});
           var firstThumb = imgs[0] && imgs[0].thumbUrl;
-          if (firstThumb) {
-            var loc = locations.find(function(l){return l.smugmug_album_key===alb.sm_key;});
-            if (loc && !loc.cover_photo_url) {
-              await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({cover_photo_url:firstThumb})});
+          var loc = locations.find(function(l){return l.smugmug_album_key===alb.sm_key;});
+          if (loc) {
+            var locUpdate = {};
+            if (firstThumb && !loc.cover_photo_url) {
+              locUpdate.cover_photo_url = firstThumb;
               loc.cover_photo_url = firstThumb;
             }
-            // Sync notes from SmugMug description — only if not overridden by user edit
-            if (loc && !loc.notes_override && imgs[0] && imgs[0].album_description) {
-              await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({notes:imgs[0].album_description})});
-              loc.notes = imgs[0].album_description;
+            // Write album description to notes — unless user has manually overridden
+            if (albDesc && !loc.notes_override) {
+              locUpdate.notes = albDesc;
+              loc.notes = albDesc;
+            }
+            if (Object.keys(locUpdate).length) {
+              await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(locUpdate)});
             }
           }
           imgDone++;
@@ -1934,6 +1941,31 @@ async function startFullSync() {
     }
     // Clear checkpoint on successful completion
     try { localStorage.removeItem(ckptKey); } catch(e) {}
+
+    // Second pass: fetch album descriptions for locations that already had images
+    // (skipped in the image loop above because they were in syncedKeys)
+    var noNotes = locations.filter(function(l){
+      return l.smugmug_album_key && !l.notes_override &&
+             (!l.notes || /^[•\-]/.test((l.notes||'').trim()));
+    });
+    if (noNotes.length && ns) ns.textContent = 'fetching notes for ' + noNotes.length + ' locations...';
+    for (var k = 0; k < noNotes.length; k++) {
+      var nl = noNotes[k];
+      try {
+        var aResp = await (await fetch(SM_BASE+'/api/smugmug?action=album-description&albumKey='+nl.smugmug_album_key,
+          {headers:{Authorization:'Bearer '+tb}})).json();
+        var desc = aResp.description || '';
+        if (desc && desc.trim()) {
+          await fetch(SB_URL+'/rest/v1/locations?id=eq.'+nl.id,{
+            method:'PATCH',
+            headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+            body:JSON.stringify({notes:desc})
+          });
+          nl.notes = desc;
+        }
+      } catch(e) {}
+      await new Promise(function(r){setTimeout(r,120);});
+    }
 
     await loadLocations(true); // force fresh after sync
     if (gmap) refreshPins();
