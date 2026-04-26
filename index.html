@@ -1029,22 +1029,25 @@ function refreshPins() {
         renderer: {
           render: function(cluster, stats) {
             var count = cluster.count;
-            // Determine cluster color — if all markers share one colored category, use it
+            // Determine cluster color — find dominant colored category
             var clusterColor = null;
-            var cats = new Set();
+            var catCounts = {};
             if (cluster.markers) {
               cluster.markers.forEach(function(m) {
                 if (m._loc) {
                   var cat = getCatForLoc(m._loc);
-                  if (cat) cats.add(cat);
+                  if (cat && catPinColors[cat]) {
+                    catCounts[cat] = (catCounts[cat] || 0) + 1;
+                  }
                 }
               });
             }
-            // Single category with a color assigned = color the cluster
-            if (cats.size === 1) {
-              var onlyCat = Array.from(cats)[0];
-              if (catPinColors[onlyCat]) clusterColor = catPinColors[onlyCat];
-            }
+            // If any colored category present, use the most common one
+            var topCat = null, topCount = 0;
+            Object.keys(catCounts).forEach(function(cat) {
+              if (catCounts[cat] > topCount) { topCount = catCounts[cat]; topCat = cat; }
+            });
+            if (topCat) clusterColor = catPinColors[topCat];
             var fill = clusterColor ? clusterColor + '22' : '#1c1e22';
             var stroke = clusterColor ? clusterColor : 'rgba(255,255,255,0.12)';
             var text = clusterColor ? clusterColor : '#e6e4de';
@@ -1073,22 +1076,58 @@ function refreshPins() {
 
   var pc = document.getElementById('pin-count'); if (pc) pc.textContent = markers.length;
   if (zoneOn) drawZone();
+  // Re-apply selection highlight after rebuild
+  if (currentDetailLoc) {
+    var m = markerPool.get(currentDetailLoc.id);
+    if (m) {
+      m._selected = true;
+      selectedMarker = m;
+      if (clusterer) clusterer.removeMarker(m, true);
+      m.setMap(gmap);
+      m.setIcon({
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 14,
+        fillColor: m._col,
+        fillOpacity: 1,
+        strokeColor: '#fff',
+        strokeWeight: 3
+      });
+      m.setZIndex(1000);
+    }
+  }
 }
 
 function highlightPin(loc) {
+  // Restore previous selected marker back to clusterer
   if (selectedMarker) {
-    selectedMarker.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:selectedMarker._col,fillOpacity:.9,strokeColor:'rgba(0,0,0,.6)',strokeWeight:1.5});
+    selectedMarker._selected = false;
+    selectedMarker.setIcon(makeIcon(selectedMarker._col));
     selectedMarker.setZIndex(1);
+    // Re-add to clusterer
+    if (clusterer) {
+      clusterer.addMarker(selectedMarker);
+    } else {
+      selectedMarker.setMap(gmap);
+    }
     selectedMarker = null;
   }
   if (!loc) return;
   var m = markerPool.get(loc.id);
   if (m) {
+    m._selected = true;
     selectedMarker = m;
+    // Pull out of clusterer so it stays visible on top
     if (clusterer) clusterer.removeMarker(m, true);
     m.setMap(gmap);
-    m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:m._col,fillOpacity:1,strokeColor:'#fff',strokeWeight:2.5});
-    m.setZIndex(999);
+    m.setIcon({
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 14,
+      fillColor: m._col,
+      fillOpacity: 1,
+      strokeColor: '#fff',
+      strokeWeight: 3
+    });
+    m.setZIndex(1000);
   }
 }
 
