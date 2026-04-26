@@ -1219,11 +1219,15 @@ function openDetail(loc) {
   html += '</div>';
   if (loc.address || loc.city) {
     html += '<div class="dp-section"><div class="dp-label">Address</div>';
-    html += '<div class="dp-val">'+[loc.address,loc.city,loc.state_code].filter(Boolean).join(', ')+'</div></div>';
+    html += '<div class="dp-val" style="line-height:1.7">';
+    if (loc.address) html += loc.address + '<br>';
+    var cityState = [loc.city, loc.state_code].filter(Boolean).join(', ');
+    if (cityState) html += cityState;
+    html += '</div></div>';
   }
   if (loc.notes) {
-    html += '<div class="dp-section"><div class="dp-label">Scout notes</div>';
-    html += '<div class="dp-notes">'+formatNotes(loc.notes)+'</div></div>';
+    html += '<div class="dp-section">';
+    html += '<div class="dp-notes">'+formatNotes(loc.notes, loc)+'</div></div>';
   }
   if (loc.tags && loc.tags.length) {
     html += '<div class="dp-section"><div class="dp-label">Tags</div><div class="dp-tags">';
@@ -1300,7 +1304,7 @@ async function loadDetailGallery(loc) {
   } catch(e) { console.error('gallery:', e); }
 }
 
-function formatNotes(raw) {
+function formatNotes(raw, loc) {
   if (!raw) return '';
 
   // Strip markdown email links [text](mailto:addr) -> addr
@@ -1319,13 +1323,17 @@ function formatNotes(raw) {
   var lines = raw.split('\n').map(function(l) { return l.trim(); });
 
   // Remove leading filename-style line: "address - town" or "*address - town"
-  // Pattern: starts with number OR star, contains " - ", no "C:" or "Notes"
-  if (lines.length > 0) {
+  // Also remove if it matches the location name
+  var locName = loc && loc.name ? loc.name.toLowerCase() : '';
+  while (lines.length > 0) {
     var first = lines[0].replace(/^\*+/, '').trim();
-    if (/^[\d*]/.test(lines[0]) && / - /.test(first) && !/^C\d*:/i.test(first)) {
-      // Check if second line is similar (duplicate title line)
+    var firstLow = first.toLowerCase();
+    // Skip if: matches loc name, or is "address - town" pattern, or is duplicate of next line
+    if (firstLow === locName ||
+        (/ - /.test(first) && !/^C\d*:/i.test(first) && first.length < 80)) {
       lines.shift();
-      if (lines[0] && lines[0].replace(/^\*+/,'').trim() === first) lines.shift();
+    } else {
+      break;
     }
   }
 
@@ -1378,7 +1386,12 @@ function formatNotes(raw) {
     }
 
     // Address lines (before any contact)
-    addressLines.push(l);
+    // Skip if this line is already captured in loc.address or loc.city fields
+    var locAddr = loc && loc.address ? loc.address.toLowerCase() : '';
+    var locCity = loc && loc.city ? loc.city.toLowerCase() : '';
+    var lLow = l.toLowerCase();
+    var alreadyInFields = locAddr && (lLow.indexOf(locAddr.split(',')[0]) >= 0);
+    if (!alreadyInFields) addressLines.push(l);
   }
   if (currentContact) contacts.push(currentContact);
 
