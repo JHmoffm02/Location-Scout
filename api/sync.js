@@ -1,14 +1,26 @@
-// api/sync.js — CommonJS
+// api/sync.js — DB sync from SmugMug crawl
+//
+// Major fixes vs v1:
+// - Uses shared parser.js (no duplicate parser logic)
+// - Respects notes_override (won't clobber user edits)
+// - No state_code default (was always 'NY')
+// - Keywords parsed properly (no destroying multi-word tags)
+// - Removed dead deletion code path
+// - Sets address_verified = false on auto-extracted addresses
+// - Stores parser candidates for the verification UI
+
+const Parser = require('../parser.js');
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
-  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_KEY;
-  if (!supabaseUrl || !supabaseKey) { res.status(500).json({ error: 'Supabase not configured' }); return; }
+  if (!supabaseUrl || !supabaseKey) return res.status(500).json({ error: 'Supabase not configured' });
 
   const sb = async (path, opts = {}) => {
     const r = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
@@ -18,135 +30,42 @@ module.exports = async function handler(req, res) {
         Prefer: opts.prefer || 'return=representation', ...opts.headers
       }, ...opts
     });
-    if (!r.ok) throw new Error(`Supabase ${r.status}: ${await r.text()}`);
+    if (!r.ok) throw new Error(`Supabase ${r.status}: ${(await r.text()).slice(0, 300)}`);
     const text = await r.text();
     return text ? JSON.parse(text) : null;
   };
 
-  // ---- DESCRIPTION PARSER ----
-  function parseDescription(desc, albumName) {
-    if (!desc || !desc.trim()) return {};
-    const result = {};
-
-    // Normalize line endings and trim
-    const raw = desc.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-
-    // Extract status from *word* pattern
-    const statusMatch = raw.match(/\*(pending|approved|scouted|identified|rejected|limited|available|hold)\*/i);
-    if (statusMatch) {
-      const s = statusMatch[1].toLowerCase();
-      if (['pending', 'approved', 'scouted', 'identified', 'rejected'].includes(s)) {
-        result.status = s;
-      }
-    }
-
-    // Split on newlines or find the address block
-    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
-
-    // Find notes section
-    const notesIdx = lines.findIndex(l => /^notes?\s*:/i.test(l));
-
-    // Address is typically on line 1 or 2 — after the name/status line
-    // Look for a line that contains a street number or zip code pattern
-    const addressPattern = /\d+[\w\s\-\.]+(?:st|ave|blvd|rd|dr|ln|pl|way|ct|terr?|pkwy|hwy|broadway|street|avenue|road|drive|lane|place|court|blvd)\b/i;
-    const zipPattern = /\b\d{5}\b/;
-    const cityStatePattern = /\b([A-Z]{2})\s+\d{5}\b/;
-
-    let addressLines = [];
-    const endIdx = notesIdx >= 0 ? notesIdx : lines.length;
-
-    for (let i = 0; i < endIdx; i++) {
-      const line = lines[i];
-      // Skip the name/status line (first line)
-      if (i === 0) continue;
-      // If line has address characteristics, include it
-      if (addressPattern.test(line) || zipPattern.test(line)) {
-        addressLines.push(line);
-      }
-    }
-
-    // If no structured address found, try line 1 (second line after name)
-    if (!addressLines.length && lines.length > 1) {
-      const candidate = lines[1];
-      // Only use if it doesn't look like just a status/name line
-      if (!candidate.match(/^\*/)) {
-        addressLines.push(candidate);
-      }
-    }
-
-    if (addressLines.length) {
-      const fullAddr = addressLines.join(' ');
-
-      // Extract state code
-      const stateMatch = fullAddr.match(/\b(NY|NJ|CT|PA|MA|CA|FL|TX)\b/);
-      if (stateMatch) result.state_code = stateMatch[1];
-
-      // Extract city — word(s) before state
-      const cityMatch = fullAddr.match(/([A-Za-z\s]+),?\s+(?:NY|NJ|CT|PA|MA)\b/);
-      if (cityMatch) result.city = cityMatch[1].trim().replace(/,$/, '');
-
-      // Store clean address — strip the city/state/zip part for address field
-      const addrClean = fullAddr
-        .replace(/\(.*?\)/g, '') // remove parentheticals
-        .replace(/\s+/g, ' ')
-        .trim();
-      result.address = addrClean;
-    }
-
-    // Extract notes content
-    if (notesIdx >= 0) {
-      const noteLines = lines.slice(notesIdx);
-      const notesRaw = noteLines.join('\n')
-        .replace(/^notes?\s*:/i, '')
-        .trim();
-
-      // Clean up bullet dashes and extra spaces
-      result.notes = notesRaw
-        .replace(/^-\s*/gm, '• ')
-        .replace(/\.\s*-\s*/g, '.\n• ')
-        .trim();
-
-      // Try to extract scout date (MM-DD-YY or MM/DD/YY at end)
-      const dateMatch = result.notes.match(/([A-Z]\.\s*\w+|J\.\s*Hoffman)\s+(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})\.?\s*$/i);
-      if (dateMatch) {
-        result.scout_date = dateMatch[2];
-        result.scout_name = dateMatch[1].trim();
-      }
-    }
-
-    // Build geocode address — prefer parsed address + city/state, fallback to album name
-    if (result.address) {
-      result.geocode_query = [result.address, result.city, result.state_code].filter(Boolean).join(', ');
-    } else {
-      result.geocode_query = albumName;
-    }
-
-    return result;
+  // Better keyword splitter — handles SmugMug's typical formats
+  function parseKeywords(raw) {
+    if (!raw || typeof raw !== 'string') return [];
+    // SmugMug uses semicolons or commas as separators; words within a tag stay intact
+    return raw.split(/[;,]/).map(t => t.trim()).filter(Boolean);
   }
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const { library } = body || {};
-    if (!library) { res.status(400).json({ error: 'No library data' }); return; }
+    const { library, mode } = body || {};
+    if (!library) return res.status(400).json({ error: 'No library data' });
 
     const { folders = [], albums = [], images = [] } = library;
-    const stats = { folders: 0, albums: 0, images: 0, locations: 0, updated: 0 };
+    const stats = { folders: 0, albums: 0, images: 0, locations_created: 0, locations_updated: 0, deleted: 0 };
 
-    // Upsert folders
+    // ── Folders upsert ────────────────────────────────────────────────────
     for (const f of folders) {
       try {
         await sb('smugmug_folders?on_conflict=path', {
           method: 'POST', prefer: 'resolution=merge-duplicates',
           body: JSON.stringify({
-            sm_id: f.id||f.path, name: f.name, path: f.path,
-            web_url: f.url||null, sm_uri: f.uri||null, synced_at: new Date().toISOString()
+            sm_id: f.id || f.path, name: f.name, path: f.path,
+            web_url: f.url || null, sm_uri: f.uri || null,
+            synced_at: new Date().toISOString()
           })
         });
         stats.folders++;
-      } catch(e) { console.error('Folder error:', e.message); }
+      } catch (e) { console.error('Folder error:', e.message); }
     }
 
-    // Upsert albums — parse description for each
+    // ── Albums upsert + locations sync ────────────────────────────────────
     for (const a of albums) {
       try {
         await sb('smugmug_albums?on_conflict=sm_key', {
@@ -154,69 +73,106 @@ module.exports = async function handler(req, res) {
           body: JSON.stringify({
             sm_key: a.id, name: a.name, path: a.path,
             web_url: a.url, sm_uri: a.uri,
-            image_count: a.imageCount,
-            keywords: a.keywords,
-            description: a.description,
-            highlight_url: a.thumbUrl || null,
+            image_count: a.imageCount || 0,
+            keywords: a.keywords || '',
+            description: a.description || '',
             highlight_url: a.thumbUrl || null,
             synced_at: new Date().toISOString()
           })
         });
         stats.albums++;
 
-        // Parse description and update/create location
-        const parsed = parseDescription(a.description, a.name);
+        // Run shared parser on the album description
+        const parsed = Parser.parse(a.description, { locName: a.name });
+        const addr = (parsed && parsed.address) || null;
+        const candidates = (parsed && parsed.addressCandidates) || [];
+        const tags = parseKeywords(a.keywords);
+        const sigDate = (parsed && parsed.date) || null;
+        const sigName = (parsed && parsed.signature) || null;
+        const status = (parsed && parsed.pending) ? 'pending' : 'identified';
 
-        // Check if location exists for this album
-        const existing = await sb(`locations?smugmug_album_key=eq.${a.id}&select=id,lat,lng`);
+        // Find existing location for this album
+        const existing = await sb(`locations?smugmug_album_key=eq.${a.id}&select=id,address,city,state_code,notes,notes_override,address_verified,lat,lng,cover_photo_url,status`);
 
         if (existing && existing.length > 0) {
-          // Update existing — only fill in missing fields
           const loc = existing[0];
           const updates = {
             smugmug_gallery_url: a.url,
             updated_at: new Date().toISOString(),
           };
-          if (parsed.status) updates.status = parsed.status;
-          if (parsed.address) updates.address = parsed.address;
-          if (parsed.city) updates.city = parsed.city;
-          if (parsed.state_code) updates.state_code = parsed.state_code;
-          if (parsed.notes) updates.notes = parsed.notes;
-          if (parsed.geocode_query) updates.geocode_query = parsed.geocode_query;
-          // Only update coords if currently 0/null
-          if ((!loc.lat || loc.lat === 0) && a.lat) updates.lat = a.lat;
-          if ((!loc.lng || loc.lng === 0) && a.lng) updates.lng = a.lng;
+
+          // Address fields: only update if NOT verified by user
+          if (!loc.address_verified) {
+            if (addr && addr.street) updates.address = addr.street;
+            if (addr && addr.cross) updates.address_cross = addr.cross;
+            if (addr && addr.city)  updates.city = addr.city;
+            if (addr && addr.state) updates.state_code = addr.state;
+            if (addr && addr.zip)   updates.zip = addr.zip;
+            if (candidates.length)  updates.address_candidates = candidates;
+            if (parsed && parsed.address) {
+              updates.geocode_query = [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
+            } else if (a.name) {
+              updates.geocode_query = a.name;
+            }
+          }
+
+          // Notes: only update if NOT overridden by user, and only if description is non-empty
+          if (!loc.notes_override && a.description && a.description.trim()) {
+            updates.notes = a.description;
+          }
+
+          // Tags
+          if (tags.length) updates.tags = tags;
+
+          // Status: only update if "identified" (default) — preserve user-set scouted/approved
+          if ((loc.status === 'identified' || !loc.status) && status === 'pending') {
+            updates.status = 'pending';
+          }
+
+          // Scout signature
+          if (sigDate && !loc.scout_date) updates.scout_date = sigDate;
+          if (sigName && !loc.scout_name) updates.scout_name = sigName;
 
           await sb(`locations?id=eq.${loc.id}`, {
             method: 'PATCH', body: JSON.stringify(updates),
             headers: { Prefer: 'return=minimal' }
           });
-          stats.updated++;
+          stats.locations_updated++;
         } else {
-          // Create new location from album
+          // Create new location
+          const newLoc = {
+            name: a.name,
+            status: status,
+            address: addr ? (addr.street || null) : null,
+            address_cross: addr ? (addr.cross || null) : null,
+            city: addr ? (addr.city || null) : null,
+            state_code: addr ? (addr.state || null) : null,
+            zip: addr ? (addr.zip || null) : null,
+            address_verified: false,
+            address_candidates: candidates.length ? candidates : null,
+            lat: null, lng: null,
+            notes: a.description || null,
+            notes_override: false,
+            tags: tags,
+            smugmug_gallery_url: a.url,
+            smugmug_album_key: a.id,
+            scout_date: sigDate,
+            scout_name: sigName,
+            geocode_query: addr
+              ? [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', ')
+              : a.name
+          };
           await sb('locations', {
             method: 'POST',
-            body: JSON.stringify({
-              name: a.name,
-              status: parsed.status || 'identified',
-              address: parsed.address || null,
-              city: parsed.city || null,
-              state_code: parsed.state_code || 'NY',
-              lat: a.lat || null,
-              lng: a.lng || null,
-              notes: parsed.notes || null,
-              tags: a.keywords ? a.keywords.split(/[\s,]+/).filter(Boolean) : [],
-              smugmug_gallery_url: a.url,
-              smugmug_album_key: a.id,
-              geocode_query: parsed.geocode_query || a.name,
-            })
+            body: JSON.stringify(newLoc),
+            headers: { Prefer: 'return=minimal' }
           });
-          stats.locations++;
+          stats.locations_created++;
         }
-      } catch(e) { console.error('Album error:', e.message); }
+      } catch (e) { console.error('Album sync error for', a.name, ':', e.message); }
     }
 
-    // Upsert images in batches of 50
+    // ── Images batch upsert ───────────────────────────────────────────────
     for (let i = 0; i < images.length; i += 50) {
       const batch = images.slice(i, i + 50).map(img => ({
         sm_key: img.id, album_key: img.albumKey,
@@ -237,18 +193,16 @@ module.exports = async function handler(req, res) {
           body: JSON.stringify(batch)
         });
         stats.images += batch.length;
-      } catch(e) { console.error('Image batch error:', e.message); }
+      } catch (e) { console.error('Image batch error:', e.message); }
     }
 
-    // Set cover photos for locations from first image in album
+    // ── Set cover photos for new locations from first image ───────────────
     if (images.length > 0) {
-      const albumFirstImage = {};
+      const firstByAlbum = {};
       images.forEach(img => {
-        if (img.thumbUrl && !albumFirstImage[img.albumKey]) {
-          albumFirstImage[img.albumKey] = img.thumbUrl;
-        }
+        if (img.thumbUrl && !firstByAlbum[img.albumKey]) firstByAlbum[img.albumKey] = img.thumbUrl;
       });
-      for (const [albumKey, thumbUrl] of Object.entries(albumFirstImage)) {
+      for (const [albumKey, thumbUrl] of Object.entries(firstByAlbum)) {
         try {
           const locs = await sb(`locations?smugmug_album_key=eq.${albumKey}&select=id,cover_photo_url`);
           if (locs && locs[0] && !locs[0].cover_photo_url) {
@@ -257,64 +211,30 @@ module.exports = async function handler(req, res) {
               headers: { Prefer: 'return=minimal' }
             });
           }
-        } catch(e) {}
+        } catch (e) {}
       }
     }
 
-    // Delete removed albums — anything in DB not in the synced set
-    if (albums.length > 0) {
+    // ── Deletion (only when called in 'full' mode with complete album list) ──
+    // The frontend now signals this explicitly to prevent partial-list deletions.
+    if (mode === 'full' && albums.length > 0) {
       try {
-        const syncedKeys = albums.map(a => a.id).filter(Boolean);
-        // Get all album keys currently in DB
-        const existing = await sb('smugmug_albums?select=sm_key');
-        const existingKeys = (existing || []).map(e => e.sm_key);
-        const toDelete = existingKeys.filter(k => !syncedKeys.includes(k));
-        for (const key of toDelete) {
-          // Remove from smugmug_albums
-          await sb('smugmug_albums?sm_key=eq.' + key, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
-          // Remove linked location if it was auto-created (has no manual data)
-          await sb('locations?smugmug_album_key=eq.' + key + '&address=is.null&notes=is.null',
-            { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
-          console.log('deleted removed album:', key);
-        }
-        stats.deleted = toDelete.length;
-      } catch(e) { console.error('deletion error:', e.message); }
-    }
-
-    // Delete removed folders
-    if (folders.length > 0) {
-      try {
-        const syncedPaths = folders.map(f => f.path).filter(Boolean);
-        const existingFolders = await sb('smugmug_folders?select=path');
-        const existingPaths = (existingFolders || []).map(f => f.path);
-        const foldersToDelete = existingPaths.filter(p => !syncedPaths.includes(p));
-        for (const path of foldersToDelete) {
-          await sb('smugmug_folders?path=eq.' + encodeURIComponent(path),
-            { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
-        }
-      } catch(e) { console.error('folder deletion error:', e.message); }
-    }
-
-    // Delete stale albums — only runs when we got a real album list from SmugMug
-    // Uses synced_key_set: album keys that were actually synced in this run
-    const { sync_start, synced_keys } = body;
-    if (sync_start && synced_keys && synced_keys.length > 0) {
-      try {
-        // Get all album keys in DB
+        const syncedKeys = new Set(albums.map(a => a.id).filter(Boolean));
         const allInDb = await sb('smugmug_albums?select=sm_key,name');
-        // Any key NOT in synced_keys was removed from SmugMug
-        const toDelete = (allInDb || []).filter(a => !synced_keys.includes(a.sm_key));
+        const toDelete = (allInDb || []).filter(a => !syncedKeys.has(a.sm_key));
         for (const s of toDelete) {
-          await sb('smugmug_albums?sm_key=eq.' + s.sm_key, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
-          await sb('locations?smugmug_album_key=eq.' + s.sm_key + '&address=is.null&notes=is.null',
+          await sb('smugmug_albums?sm_key=eq.' + s.sm_key, {
+            method: 'DELETE', headers: { Prefer: 'return=minimal' }
+          });
+          // Only delete linked locations if they were never edited
+          await sb('locations?smugmug_album_key=eq.' + s.sm_key + '&address_verified=eq.false&notes_override=eq.false&address.is.null',
             { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
-          console.log('deleted removed album:', s.name);
         }
         stats.deleted = toDelete.length;
-      } catch(e) { console.error('delete error:', e.message); }
+      } catch (e) { console.error('deletion error:', e.message); }
     }
 
-    // Update sync log
+    // ── Sync log ──────────────────────────────────────────────────────────
     try {
       await sb('sync_log?on_conflict=id', {
         method: 'POST', prefer: 'resolution=merge-duplicates',
@@ -325,13 +245,11 @@ module.exports = async function handler(req, res) {
           images_count: stats.images
         })
       });
-    } catch(e) {}
+    } catch (e) {}
 
-    // Add geocode_query column if needed
-    res.json({ ok: true, stats });
-
-  } catch(e) {
+    return res.json({ ok: true, stats });
+  } catch (e) {
     console.error('Sync error:', e.message);
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: 'sync failed' });
   }
 };
