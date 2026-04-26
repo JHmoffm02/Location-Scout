@@ -1218,11 +1218,19 @@ function openDetail(loc) {
   var html = '<div class="dp-status-row">';
   html += '<span class="dp-badge" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span>';
   html += '</div>';
-  // Address section handled by formatNotes — just store maps URL for later use
   var mapsUrl = '';
   if (loc.address || loc.city) {
     var mapsQ = encodeURIComponent([loc.address,loc.city,loc.state_code].filter(Boolean).join(', '));
     mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + mapsQ;
+    html += '<div class="dp-section">';
+    html += '<div class="dp-label">Address</div>';
+    html += '<div class="dp-val" style="line-height:1.8">';
+    html += '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none;border-bottom:1px solid var(--border2)">';
+    if (loc.address) html += loc.address;
+    if (loc.address && loc.city) html += '<br>';
+    var cityState = [loc.city, loc.state_code].filter(Boolean).join(', ');
+    if (cityState) html += cityState;
+    html += '</a></div></div>';
   }
   var notesHtml = formatNotes(loc.notes, loc, mapsUrl);
   if (notesHtml) {
@@ -1508,18 +1516,9 @@ function formatNotes(raw, loc, mapsUrl) {
     html += '<span style="'+S.italic+'">'+l+'</span>';
   });
 
-  // Address block
-  if (result.addrLines.length || result.crossLines.length) {
-    html += '<div style="margin-bottom:8px">';
-    result.addrLines.forEach(function(l){
-      // Only make street address lines (with digits) into maps links
-      var isStreet = /\d/.test(l);
-      var open = (mapsUrl && isStreet)
-        ? '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none;border-bottom:1px solid var(--border2)">'
-        : '';
-      var close = (mapsUrl && isStreet) ? '</a>' : '';
-      html += open+'<span style="'+S.addr+'">'+l+'</span>'+close;
-    });
+  // Cross streets shown under the structured address (rendered in dp-body above)
+  if (result.crossLines.length) {
+    html += '<div style="margin-bottom:4px">';
     result.crossLines.forEach(function(l){
       html += '<span style="'+S.cross+'">'+l+'</span>';
     });
