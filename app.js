@@ -1879,11 +1879,56 @@ window.showPage = function (page, btn) {
 const ORG_CONFIDENCE_HIGH = 0.85;
 const ORG_CONFIDENCE_MED  = 0.70;
 const ORG_BATCH_SIZE      = 6;    // albums per /api/classify call (each does 2 LLM calls)
+const ORG_HISTORY_KEY     = 'org_corrections_v1';
+const ORG_HISTORY_MAX     = 60;   // keep this many corrections; we send the most useful 12
+
+// Persistent correction history (local — informs future classifications)
+function loadOrgHistory() {
+  try { return JSON.parse(localStorage.getItem(ORG_HISTORY_KEY) || '[]'); }
+  catch (e) { return []; }
+}
+function saveOrgHistoryEntry(entry) {
+  try {
+    const all = loadOrgHistory();
+    // Replace any existing entry for the same album
+    const filtered = all.filter(h => h.album_key !== entry.album_key);
+    filtered.unshift({ ...entry, ts: Date.now() });
+    const trimmed = filtered.slice(0, ORG_HISTORY_MAX);
+    localStorage.setItem(ORG_HISTORY_KEY, JSON.stringify(trimmed));
+  } catch (e) {}
+}
+// Pick the most useful corrections to send — prefer ones where user changed something
+function selectCorrectionsForPrompt(history, max) {
+  if (!history || !history.length) return [];
+  // Score: path correction (3 points), tag rejection (2), tag addition (1), recency tiebreak
+  const scored = history.map(h => {
+    let score = 0;
+    if (h.applied_path && h.ai_path && h.applied_path !== h.ai_path) score += 3;
+    if (h.rejected_tags && h.rejected_tags.length) score += 2;
+    if (h.added_tags && h.added_tags.length) score += 1;
+    return { h, score };
+  }).filter(s => s.score > 0)  // skip pure-accept entries (no learning signal)
+    .sort((a, b) => b.score - a.score || (b.h.ts || 0) - (a.h.ts || 0))
+    .slice(0, max)
+    .map(s => s.h);
+  return scored;
+}
 
 async function orgInit() {
   renderTaxonomyTree();
+  updateFeedbackBadge();
   if (!S.orgLoaded) await orgLoadUploads();
   else orgRender();
+}
+
+function updateFeedbackBadge() {
+  const el = $('org-feedback');
+  if (!el) return;
+  const corrections = selectCorrectionsForPrompt(loadOrgHistory(), 12);
+  el.textContent = corrections.length
+    ? `${corrections.length} learned correction${corrections.length !== 1 ? 's' : ''}`
+    : '';
+  el.style.display = corrections.length ? 'inline-flex' : 'none';
 }
 
 // Build the existing taxonomy from smugmug_folders
@@ -2004,7 +2049,8 @@ function orgRenderCard(album) {
     suggestHtml = `<div class="org-card-suggest">
       <div><span class="sg-path">${E(c.path || '?')}</span><span class="sg-conf ${confCls}">${confPct}%</span></div>
       ${c.reasoning ? `<div class="sg-reason">${E(c.reasoning)}</div>` : ''}
-      ${c.tags && c.tags.length ? `<div class="sg-tags-label">${c.tags.length} keywords (saved to album on accept):</div><div class="sg-tags">${c.tags.map(t => `<span class="sg-tag">${E(t)}</span>`).join('')}</div>` : ''}
+      ${c.tags && c.tags.length ? `<div class="sg-tags-label">${c.tags.length} keyword${c.tags.length !== 1 ? 's' : ''} (click ✕ to remove before accepting):</div><div class="sg-tags">${c.tags.map(t => `<span class="sg-tag" onclick="orgRemoveTag('${E(album.sm_key)}', '${E(t)}')" title="Remove this tag">${E(t)}<span class="sg-tag-x">✕</span></span>`).join('')}</div>` : ''}
+      ${c.rejectedTags && c.rejectedTags.length ? `<div class="sg-rejected-label">rejected: ${c.rejectedTags.map(t => E(t)).join(', ')} <button class="sg-restore" onclick="orgRestoreTags('${E(album.sm_key)}')">restore</button></div>` : ''}
       <div class="sg-model">${E(c.model || '')}${c.imagesUsed ? ` · ${c.imagesUsed} img${c.curation === 'haiku' ? ' (curated)' : ''}` : ''}${c.curationReasoning && c.curation === 'haiku' ? ` · ${E(c.curationReasoning)}` : ''}</div>
     </div>`;
   } else if (status === 'classifying') {
@@ -2057,6 +2103,7 @@ async function orgFetchAlbumImages(sm_key) {
 async function orgClassifyBatch(albums) {
   if (!albums.length) return;
   const taxonomy = buildTaxonomyPaths();
+  const corrections = selectCorrectionsForPrompt(loadOrgHistory(), 12);
 
   // Fetch images for each album in parallel
   const albumsWithImages = await Promise.all(albums.map(async a => {
@@ -2082,7 +2129,7 @@ async function orgClassifyBatch(albums) {
     const r = await fetch(`${SM_BASE}/api/classify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ albums: albumsWithImages, taxonomy })
+      body: JSON.stringify({ albums: albumsWithImages, taxonomy, corrections })
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'classify failed');
@@ -2098,6 +2145,9 @@ async function orgClassifyBatch(albums) {
           confidence: res.confidence,
           reasoning: res.reasoning,
           tags: res.tags || [],
+          aiTags: res.tags || [],     // remember what AI suggested (for diff on accept)
+          aiPath: res.path,            // remember original AI path
+          rejectedTags: [],            // user-rejected (will populate via UI)
           model: res.model || '',
           alternatives: res.alternative_paths || [],
           imagesUsed: res._images_used || 0,
@@ -2148,6 +2198,22 @@ window.orgClassifyOne = async function (sm_key) {
   const album = S.orgUploads.find(a => a.sm_key === sm_key);
   if (!album) return;
   await orgClassifyBatch([album]);
+};
+
+window.orgRemoveTag = function (sm_key, tag) {
+  const c = S.orgClassifications[sm_key];
+  if (!c || !c.tags) return;
+  c.tags = c.tags.filter(t => t !== tag);
+  c.rejectedTags = (c.rejectedTags || []).concat([tag]);
+  orgRender();
+};
+
+window.orgRestoreTags = function (sm_key) {
+  const c = S.orgClassifications[sm_key];
+  if (!c) return;
+  c.tags = (c.aiTags || []).slice();
+  c.rejectedTags = [];
+  orgRender();
 };
 
 window.orgAccept = function (sm_key) {
@@ -2245,7 +2311,7 @@ window.orgApplyMoves = async function () {
             })
           });
         } catch (e) {}
-        // Also update tags on any linked location (so they're searchable in the detail panel)
+        // Also update tags on any linked location
         if (c.tags && c.tags.length) {
           try {
             const locs = await db(`locations?smugmug_album_key=eq.${album.sm_key}&select=id,tags`);
@@ -2264,6 +2330,18 @@ window.orgApplyMoves = async function () {
             }
           } catch (e) {}
         }
+        // ── Save to correction history (informs future classifications) ──
+        saveOrgHistoryEntry({
+          album_key: album.sm_key,
+          album_name: album.name,
+          ai_path: c.aiPath || c.path,
+          applied_path: c.targetPath,
+          ai_tags: c.aiTags || [],
+          applied_tags: c.tags || [],
+          rejected_tags: c.rejectedTags || [],
+          added_tags: [],  // (no UI yet for adding tags — placeholder)
+          ai_model: c.model || ''
+        });
         S.orgClassifications[album.sm_key] = { ...c, status: 'applied' };
         done++;
       } else {
@@ -2281,6 +2359,7 @@ window.orgApplyMoves = async function () {
 
   $('org-apply-btn').disabled = false;
   toast(`Moved ${done} album${done !== 1 ? 's' : ''}${failed ? ` · ${failed} failed` : ''}`, failed ? 'err' : 'ok');
+  updateFeedbackBadge();
 
   // Trigger a sync so libraries refresh
   S.libLoaded = false;
