@@ -45,6 +45,182 @@ function envOrThrow(name) {
   return v;
 }
 
+async function smPost(path, accessToken, accessTokenSecret, jsonBody, attempt = 0) {
+  const consumerKey = envOrThrow('SMUGMUG_KEY');
+  const consumerSecret = envOrThrow('SMUGMUG_SECRET');
+  const baseUrl = (path.startsWith('http') ? path : `${SM_API}${path}`).split('?')[0];
+  const oauthParams = makeOauthParams(consumerKey, accessToken);
+  const authHeader = buildAuthHeader('POST', baseUrl, oauthParams, {}, consumerSecret, accessTokenSecret || '');
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    let res;
+    try {
+      res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          Accept: 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(jsonBody || {}),
+        signal: ctrl.signal
+      });
+    } finally { clearTimeout(timer); }
+
+    if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      return smPost(path, accessToken, accessTokenSecret, jsonBody, attempt + 1);
+    }
+    if (!res.ok) throw new Error(`SmugMug POST ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const text = await res.text();
+    return text ? JSON.parse(text) : {};
+  } catch (e) {
+    if ((e.name === 'AbortError' || /network|fetch/i.test(e.message)) && attempt < MAX_RETRIES) {
+      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      return smPost(path, accessToken, accessTokenSecret, jsonBody, attempt + 1);
+    }
+    throw e;
+  }
+}
+
+// ── Folder navigation / move helpers ──────────────────────────────────────
+function urlSlug(name) {
+  return String(name).toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'folder';
+}
+function titleCase(s) {
+  return String(s).replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Find or create a child folder under parentNodeUri matching `name`. Returns the child node URI.
+async function findOrCreateChildFolder(parentNodeUri, name, accessToken, accessTokenSecret) {
+  const baseUri = parentNodeUri.split('!')[0];
+  const childRes = await smRequest(baseUri + '!children', accessToken, accessTokenSecret, { count: '500' });
+  const children = childRes.Response?.Node || [];
+  const arr = Array.isArray(children) ? children : [children];
+
+  const slug = urlSlug(name);
+  const lower = name.toLowerCase().trim();
+  const existing = arr.find(c => {
+    if (!c || c.Type !== 'Folder') return false;
+    const n = (c.Name || '').toLowerCase().trim();
+    const u = (c.UrlName || '').toLowerCase();
+    return n === lower || u === slug || n.replace(/[-\s]+/g, '') === lower.replace(/[-\s]+/g, '');
+  });
+  if (existing) return existing.Uri;
+
+  // Create
+  const created = await smPost(baseUri + '!children', accessToken, accessTokenSecret, {
+    Name: titleCase(name),
+    UrlName: titleCase(name).replace(/\s+/g, '-'),
+    Privacy: 'Public',
+    Type: 'Folder'
+  });
+  const node = created.Response?.Node;
+  if (!node || !node.Uri) throw new Error('Folder create returned no Node URI');
+  return node.Uri;
+}
+
+// Walk down from root, creating segments as needed. Returns final folder node URI + path-segments-actually-used.
+async function findOrCreateFolderPath(pathSegments, accessToken, accessTokenSecret) {
+  const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
+  const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
+  if (!rootNodeUri) throw new Error('No root node URI');
+  let current = rootNodeUri;
+  for (const seg of pathSegments) {
+    if (!seg) continue;
+    current = await findOrCreateChildFolder(current, seg, accessToken, accessTokenSecret);
+  }
+  return current;
+}
+
+// PATCH album fields (Keywords, Description, etc.)
+async function patchAlbum(albumKey, fields, accessToken, accessTokenSecret) {
+  const consumerKey = envOrThrow('SMUGMUG_KEY');
+  const consumerSecret = envOrThrow('SMUGMUG_SECRET');
+  const baseUrl = `${SM_API}/album/${albumKey}`;
+  const oauthParams = makeOauthParams(consumerKey, accessToken);
+  const authHeader = buildAuthHeader('PATCH', baseUrl, oauthParams, {}, consumerSecret, accessTokenSecret || '');
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'PATCH',
+      headers: {
+        Authorization: authHeader,
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(fields || {}),
+      signal: ctrl.signal
+    });
+    if (!res.ok) throw new Error(`SmugMug PATCH ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const text = await res.text();
+    return text ? JSON.parse(text) : {};
+  } finally { clearTimeout(timer); }
+}
+
+// Merge tag arrays: dedupe (case-insensitive), preserve original casing for existing
+function mergeKeywords(existingRaw, newTags) {
+  const existing = String(existingRaw || '').split(/[;,]/).map(s => s.trim()).filter(Boolean);
+  const seen = new Set(existing.map(t => t.toLowerCase()));
+  const additions = (newTags || []).filter(t => t && !seen.has(String(t).toLowerCase().trim()));
+  return existing.concat(additions).join('; ');
+}
+
+// Move an album (by AlbumKey) to a destination folder path. Optionally update keywords/description.
+async function moveAlbumByKey(albumKey, destPath, opts, accessToken, accessTokenSecret) {
+  opts = opts || {};
+  // 1. Fetch album → get its node URI + current keywords
+  const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
+  const album = albumRes.Response?.Album;
+  if (!album) throw new Error('Album not found: ' + albumKey);
+  const albumNodeUri = album.Uris?.Node?.Uri;
+  if (!albumNodeUri) throw new Error('No album node URI for ' + albumKey);
+
+  // 2. Find/create destination folder
+  const segments = String(destPath || '').split('/').filter(Boolean);
+  if (!segments.length) throw new Error('Empty destination path');
+  const destNodeUri = await findOrCreateFolderPath(segments, accessToken, accessTokenSecret);
+
+  // 3. Move the album node
+  const baseUri = destNodeUri.split('!')[0];
+  await smPost(baseUri + '!movenodes', accessToken, accessTokenSecret, {
+    MoveUris: [albumNodeUri]
+  });
+
+  // 4. Optionally PATCH album with new keywords (merged) and/or description
+  const patchFields = {};
+  if (opts.tags && opts.tags.length) {
+    patchFields.Keywords = mergeKeywords(album.Keywords, opts.tags);
+  }
+  if (opts.description && !album.Description) {
+    patchFields.Description = opts.description;
+  }
+  let mergedKeywords = album.Keywords || '';
+  if (Object.keys(patchFields).length) {
+    try {
+      await patchAlbum(albumKey, patchFields, accessToken, accessTokenSecret);
+      if (patchFields.Keywords) mergedKeywords = patchFields.Keywords;
+    } catch (e) {
+      console.error('Album PATCH failed:', e.message);
+      // Don't fail the whole move just because tags didn't save
+    }
+  }
+
+  // 5. Re-fetch album to get its new WebUri
+  await new Promise(r => setTimeout(r, 250));
+  const after = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
+  const newWebUri = after.Response?.Album?.WebUri || '';
+
+  return { ok: true, albumKey, newPath: segments.join('/'), newWebUri, keywords: mergedKeywords };
+}
+
 async function smRequest(path, accessToken, accessTokenSecret, extraParams = {}, attempt = 0) {
   const consumerKey = envOrThrow('SMUGMUG_KEY');
   const consumerSecret = envOrThrow('SMUGMUG_SECRET');
@@ -334,6 +510,27 @@ module.exports = async function handler(req, res) {
         return res.json({ ok: true, description: album?.Description || '' });
       } catch (e) {
         return res.json({ ok: true, description: '' });
+      }
+    }
+
+    if (action === 'move_album') {
+      const body = req.method === 'POST'
+        ? (typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {}))
+        : req.query;
+      const { albumKey, destPath, tags, description } = body;
+      if (!albumKey || !destPath) {
+        return res.status(400).json({ error: 'albumKey and destPath required' });
+      }
+      try {
+        const result = await moveAlbumByKey(
+          albumKey,
+          destPath,
+          { tags: Array.isArray(tags) ? tags : [], description: description || '' },
+          accessToken, accessTokenSecret
+        );
+        return res.json(result);
+      } catch (e) {
+        return res.status(500).json({ error: e.message || 'move failed' });
       }
     }
 
