@@ -1457,23 +1457,25 @@ function formatNotes(raw, loc, mapsUrl) {
     // Addr state
     if (isCross(clean)) {
       result.crossLines.push(clean);
+    } else if (/^[•\-]\s|^•/.test(clean)) {
+      // Bullet line = notes without header
+      result.noteLines.push(l);
     } else if (isCity(clean)) {
       var cp = clean.split(',')[0].trim().toLowerCase();
       if (!(locCity && cp === locCity)) result.addrLines.push(clean);
+    } else if (isPhone(clean) && !result.contacts.length) {
+      // Orphaned phone — check if prev addr line looks like a name (no digits)
+      if (result.addrLines.length && !/\d/.test(result.addrLines[result.addrLines.length-1])) {
+        var nameCandidate = result.addrLines.pop();
+        currentContact = {name:nameCandidate, phones:[clean], emails:[]};
+        state = 'contact';
+      } else {
+        result.addrLines.push(clean);
+      }
     } else if (result.titleLines.length && !/\d/.test(clean)) {
       // No digits in addr = possible brand dup
       if (isSubset(wordSet(clean), titleBrandWords)) {
-        result.titleLines.push(clean); // confirmed brand dup
-      } else {
-        result.addrLines.push(clean); // other non-address text
-      }
-    } else if (isPhone(clean) && state === 'addr' && !result.contacts.length) {
-      // Orphaned phone in address section = likely a contact with no C: prefix
-      // Check if previous addr line looks like a name (no digits, not a street)
-      if (result.addrLines.length && !/\d/.test(result.addrLines[result.addrLines.length-1])) {
-        var nameCandidate = result.addrLines.pop();
-        currentContact = {name: nameCandidate, phones: [clean], emails: []};
-        state = 'contact';
+        result.titleLines.push(clean);
       } else {
         result.addrLines.push(clean);
       }
@@ -1509,12 +1511,14 @@ function formatNotes(raw, loc, mapsUrl) {
   // Address block
   if (result.addrLines.length || result.crossLines.length) {
     html += '<div style="margin-bottom:8px">';
-    var addrOpen = mapsUrl
-      ? '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none">'
-      : '';
-    var addrClose = mapsUrl ? '</a>' : '';
     result.addrLines.forEach(function(l){
-      html += addrOpen+'<span style="'+S.addr+'">'+l+'</span>'+addrClose;
+      // Only make street address lines (with digits) into maps links
+      var isStreet = /\d/.test(l);
+      var open = (mapsUrl && isStreet)
+        ? '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none;border-bottom:1px solid var(--border2)">'
+        : '';
+      var close = (mapsUrl && isStreet) ? '</a>' : '';
+      html += open+'<span style="'+S.addr+'">'+l+'</span>'+close;
     });
     result.crossLines.forEach(function(l){
       html += '<span style="'+S.cross+'">'+l+'</span>';
