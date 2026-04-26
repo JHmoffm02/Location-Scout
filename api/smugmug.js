@@ -80,66 +80,43 @@ async function getAccessToken(requestToken, requestTokenSecret, verifier) {
   return { accessToken: params.get('oauth_token'), accessTokenSecret: params.get('oauth_token_secret') };
 }
 
-// Fetch children of a SmugMug folder by URL path
-// Uses the user node tree — walk path segments to find the right node
 async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
-  // Get user node first
   const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
   const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
   if (!rootNodeUri) throw new Error('Could not get root node');
-
-  // Split path into segments e.g. ['Master-Library', 'Apartments']
   const segments = urlPath.split('/').filter(Boolean);
-
-  // Walk the node tree segment by segment
   let currentNodeUri = rootNodeUri;
   for (const segment of segments) {
     const nodeRes = await smRequest(currentNodeUri, accessToken, accessTokenSecret);
     const node = nodeRes.Response?.Node;
     if (!node) throw new Error(`Node not found at segment: ${segment}`);
-
     const childrenUri = node.Uris?.ChildNodes?.Uri;
     if (!childrenUri) throw new Error(`No children at: ${segment}`);
-
-    // Fetch children and find matching segment
     const childRes = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
     const children = childRes.Response?.Node || [];
     const childArr = Array.isArray(children) ? children : [children];
-
     const match = childArr.find(c =>
       c && (
         (c.UrlName || '').toLowerCase() === segment.toLowerCase() ||
         (c.Name || '').toLowerCase() === segment.toLowerCase().replace(/-/g, ' ')
       )
     );
-
-    if (!match) throw new Error(`Folder not found: ${segment} (checked ${childArr.length} children)`);
+    if (!match) throw new Error(`Folder not found: ${segment}`);
     currentNodeUri = match.Uri;
   }
-
-  // Now get children of the target node
   const targetRes = await smRequest(currentNodeUri, accessToken, accessTokenSecret);
   const targetNode = targetRes.Response?.Node;
   const childrenUri = targetNode?.Uris?.ChildNodes?.Uri;
   if (!childrenUri) return { folders: [], albums: [] };
-
   const childData = await smRequest(childrenUri, accessToken, accessTokenSecret, { count: '200' });
   const children = childData.Response?.Node || [];
   const arr = Array.isArray(children) ? children : [children];
-
-  const folders = [];
-  const albums = [];
-
+  const folders = [], albums = [];
   for (const item of arr) {
     if (!item) continue;
     if (item.Type === 'Album') {
       const albumUri = item.Uris?.Album?.Uri;
-      let albumKey = null;
-      let imageCount = 0;
-      let description = '';
-      let keywords = '';
-      let thumbUrl = null;
-
+      let albumKey = null, imageCount = 0, description = '', keywords = '', thumbUrl = null;
       if (albumUri) {
         try {
           const albumData = await smRequest(albumUri, accessToken, accessTokenSecret);
@@ -159,38 +136,21 @@ async function fetchFolderByPath(urlPath, accessToken, accessTokenSecret) {
           }
         } catch(e) { console.error('album error:', e.message); }
       }
-
-      albums.push({
-        id: albumKey || item.NodeID,
-        name: item.Name,
-        urlName: item.UrlName,
-        url: item.WebUri,
-        imageCount,
-        description,
-        keywords,
-        thumbUrl,
-      });
+      albums.push({ id: albumKey || item.NodeID, name: item.Name, urlName: item.UrlName,
+        url: item.WebUri, imageCount, description, keywords, thumbUrl });
     } else if (item.Type === 'Folder' || item.Type === 'Page') {
-      folders.push({
-        name: item.Name,
-        urlName: item.UrlName,
-        path: `${urlPath}/${item.UrlName}`,
-        url: item.WebUri,
-      });
+      folders.push({ name: item.Name, urlName: item.UrlName,
+        path: `${urlPath}/${item.UrlName}`, url: item.WebUri });
     }
   }
-
   return { folders, albums };
 }
 
-// Sync albums from a specific path into Supabase
 async function syncAlbumsFromPath(urlPath, accessToken, accessTokenSecret) {
   const { folders, albums } = await fetchFolderByPath(urlPath, accessToken, accessTokenSecret);
   const images = [];
-
   for (const album of albums) {
     if (!album.id) continue;
-    // Get full album details for description
     try {
       const albumData = await smRequest(`/album/${album.id}`, accessToken, accessTokenSecret);
       const full = albumData.Response?.Album;
@@ -198,8 +158,6 @@ async function syncAlbumsFromPath(urlPath, accessToken, accessTokenSecret) {
         album.description = full.Description || '';
         album.keywords = full.Keywords || '';
         album.imageCount = full.ImageCount || 0;
-
-        // Get cover/highlight image
         const hlUri = full.Uris?.HighlightImage?.Uri;
         if (hlUri) {
           try {
@@ -208,8 +166,6 @@ async function syncAlbumsFromPath(urlPath, accessToken, accessTokenSecret) {
             if (hlImage) album.thumbUrl = hlImage.ThumbnailUrl || hlImage.SmallImageUrl;
           } catch(e) {}
         }
-
-        // Get first page of images for thumbnails
         const imagesUri = full.Uris?.AlbumImages?.Uri;
         if (imagesUri) {
           try {
@@ -218,23 +174,12 @@ async function syncAlbumsFromPath(urlPath, accessToken, accessTokenSecret) {
             const imgArr = Array.isArray(imgs) ? imgs : [imgs];
             imgArr.forEach(img => {
               if (!img || !img.ImageKey) return;
-              images.push({
-                id: img.ImageKey,
-                albumKey: album.id,
-                albumName: album.name,
-                albumPath: urlPath,
-                albumUrl: album.url,
-                filename: img.FileName || '',
-                title: img.Title || img.FileName || '',
-                caption: img.Caption || '',
-                keywords: img.Keywords || '',
-                thumbUrl: img.ThumbnailUrl || null,
-                webUri: img.WebUri || null,
-                lat: img.Latitude || null,
-                lng: img.Longitude || null,
-                isVideo: img.IsVideo || false,
-              });
-              // Use first image as album thumb if none set
+              images.push({ id: img.ImageKey, albumKey: album.id, albumName: album.name,
+                albumPath: urlPath, albumUrl: album.url, filename: img.FileName || '',
+                title: img.Title || img.FileName || '', caption: img.Caption || '',
+                keywords: img.Keywords || '', thumbUrl: img.ThumbnailUrl || null,
+                webUri: img.WebUri || null, lat: img.Latitude || null, lng: img.Longitude || null,
+                isVideo: img.IsVideo || false });
               if (!album.thumbUrl && img.ThumbnailUrl) album.thumbUrl = img.ThumbnailUrl;
             });
           } catch(e) {}
@@ -242,7 +187,6 @@ async function syncAlbumsFromPath(urlPath, accessToken, accessTokenSecret) {
       }
     } catch(e) { console.error('album detail error:', e.message); }
   }
-
   return { folders, albums, images };
 }
 
@@ -298,7 +242,6 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // Browse a folder by URL path — live from SmugMug
     if (action === 'browse') {
       if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
       const urlPath = req.query.path || '/Master-Library';
@@ -307,7 +250,6 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // Sync a specific folder path into Supabase
     if (action === 'sync-path') {
       if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
       const urlPath = req.query.path || '/Master-Library';
@@ -317,18 +259,13 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'crawl' || action === 'structure') {
-      // Crawl album+folder structure — no images, fast enough to avoid timeout
       if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
-
       const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
       const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
       if (!rootNodeUri) throw new Error('Could not get root node');
-
-      const folders = [];
-      const albums = [];
+      const folders = [], albums = [];
       const folderSet = new Set();
 
-      // Walk node tree collecting folders and albums (no image fetching)
       async function walkNode(nodeUri, depth) {
         if (depth > 6) return;
         let nodeRes;
@@ -351,10 +288,8 @@ module.exports = async function handler(req, res) {
               const album = albumRes.Response?.Album;
               if (!album) continue;
               const webUrl = album.WebUri || '';
-              // Extract folder path from URL
               const urlParts = webUrl.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
               const folderPath = urlParts.length > 1 ? urlParts.slice(0, -1).join('/') : '';
-              // Add intermediate folders
               if (folderPath) {
                 const parts = folderPath.split('/');
                 let cum = '';
@@ -362,17 +297,14 @@ module.exports = async function handler(req, res) {
                   cum = i === 0 ? p : cum + '/' + p;
                   if (!folderSet.has(cum)) {
                     folderSet.add(cum);
-                    folders.push({ id: cum, name: p.replace(/-/g, ' '), path: cum, url: 'https://jordanhoffman.smugmug.com/' + cum });
+                    folders.push({ id: cum, name: p.replace(/-/g, ' '), path: cum,
+                      url: 'https://jordanhoffman.smugmug.com/' + cum });
                   }
                 });
               }
-              albums.push({
-                id: album.AlbumKey, name: album.Name,
-                path: folderPath, url: webUrl,
-                imageCount: album.ImageCount || 0,
-                description: album.Description || '',
-                keywords: album.Keywords || ''
-              });
+              albums.push({ id: album.AlbumKey, name: album.Name, path: folderPath,
+                url: webUrl, imageCount: album.ImageCount || 0,
+                description: album.Description || '', keywords: album.Keywords || '' });
             } catch(e) { continue; }
           } else if (child.Type === 'Folder') {
             await walkNode(child.Uri, depth + 1);
@@ -385,21 +317,27 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // Fetch images for a single album by key
+    // ── album-images: fetch all images + album description ──
     if (action === 'album-images') {
       if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
       const { albumKey } = req.query;
       if (!albumKey) { res.status(400).json({ error: 'albumKey required' }); return; }
       const images = [];
+      let description = '';
       try {
         const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
         const album = albumRes.Response?.Album;
-        if (!album) { res.json({ ok: true, images: [] }); return; }
+        if (!album) { res.json({ ok: true, images: [], description: '' }); return; }
+
+        // Capture album description for notes sync
+        description = album.Description || '';
+
         const imagesUri = album.Uris?.AlbumImages?.Uri;
-        if (!imagesUri) { res.json({ ok: true, images: [] }); return; }
+        if (!imagesUri) { res.json({ ok: true, images: [], description }); return; }
         let start = 1;
         while (true) {
-          const imgRes = await smRequest(imagesUri, accessToken, accessTokenSecret, { count: '100', start: String(start) });
+          const imgRes = await smRequest(imagesUri, accessToken, accessTokenSecret,
+            { count: '100', start: String(start) });
           const imgs = imgRes.Response?.AlbumImage || [];
           const arr = Array.isArray(imgs) ? imgs : [imgs];
           for (const img of arr) {
@@ -421,7 +359,24 @@ module.exports = async function handler(req, res) {
           start += 100;
         }
       } catch(e) { console.error('album-images error:', e.message); }
-      res.json({ ok: true, images });
+      // Return images AND description
+      res.json({ ok: true, images, description });
+      return;
+    }
+
+    // ── album-description: fetch just the description for a single album ──
+    if (action === 'album-description') {
+      if (!accessToken) { res.status(401).json({ error: 'Not authenticated' }); return; }
+      const { albumKey } = req.query;
+      if (!albumKey) { res.status(400).json({ error: 'albumKey required' }); return; }
+      try {
+        const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
+        const album = albumRes.Response?.Album;
+        const description = album?.Description || '';
+        res.json({ ok: true, description });
+      } catch(e) {
+        res.json({ ok: true, description: '' });
+      }
       return;
     }
 
