@@ -17,39 +17,23 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;overflow:hidden}
+button{font-family:inherit}
+
+/* Focus visibility — accessibility */
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
+.nav-btn:focus-visible,.gcard:focus-visible,.dp-btn:focus-visible,.dock-btn:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px;
+}
 
 /* ── Shell ── */
 #shell{display:flex;flex-direction:column;height:100vh}
-
-#header{
-  height:44px;display:flex;align-items:center;justify-content:center;
-  border-bottom:1px solid var(--border);background:var(--bg);
-  flex-shrink:0;position:relative;z-index:10;
-}
-#header h1{
-  font-family:'DM Mono',monospace;font-size:11px;font-weight:400;
-  letter-spacing:.25em;color:var(--accent);text-transform:uppercase;
-}
-
-#nav{
-  height:44px;display:flex;align-items:center;justify-content:center;
-  border-bottom:1px solid var(--border);background:var(--bg2);
-  flex-shrink:0;position:relative;z-index:10;
-}
-#nav-status{
-  position:absolute;left:14px;font-size:9px;font-family:'DM Mono',monospace;
-  color:var(--text3);letter-spacing:.06em;white-space:nowrap;
-}
-.nav-btn{
-  padding:0 28px;height:44px;font-size:10px;font-family:'DM Mono',monospace;
-  letter-spacing:.12em;color:var(--text3);background:transparent;border:none;
-  border-bottom:2px solid transparent;cursor:pointer;transition:color .15s;text-transform:uppercase;
-  display:inline-flex;align-items:center;justify-content:center;
-  vertical-align:top;line-height:1;
-}
+#header{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0;position:relative;z-index:10}
+#header h1{font-family:'DM Mono',monospace;font-size:11px;font-weight:400;letter-spacing:.25em;color:var(--accent);text-transform:uppercase}
+#nav{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;position:relative;z-index:10}
+#nav-status{position:absolute;left:14px;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap}
+.nav-btn{padding:0 28px;height:44px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:color .15s;text-transform:uppercase;display:inline-flex;align-items:center;justify-content:center;vertical-align:top;line-height:1}
 .nav-btn:hover{color:var(--text2)}
 .nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
-
 #pages{flex:1;overflow:hidden;position:relative}
 .page{position:absolute;inset:0;display:none;flex-direction:column}
 .page.active{display:flex}
@@ -58,97 +42,52 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 #home-page{background:var(--bg);overflow:hidden;display:flex;flex-direction:row}
 
 /* ── Left Filter Panel ── */
-#left-panel{
-  width:180px;flex-shrink:0;background:var(--bg2);
-  border-right:1px solid var(--border);
-  display:flex;flex-direction:column;overflow:hidden;
-}
-#lp-head{
-  padding:10px 12px 8px;font-size:8px;font-family:'DM Mono',monospace;
-  letter-spacing:.16em;color:var(--text3);text-transform:uppercase;
-  border-bottom:1px solid var(--border);flex-shrink:0;
-  display:flex;justify-content:space-between;align-items:center;
-}
-#lp-head button{
-  font-size:8px;font-family:'DM Mono',monospace;color:var(--text3);
-  background:none;border:none;cursor:pointer;letter-spacing:.06em;
-  padding:2px 4px;border-radius:3px;
-}
+#left-panel{width:180px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+#lp-head{padding:10px 12px 8px;font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.16em;color:var(--text3);text-transform:uppercase;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;justify-content:space-between;align-items:center}
+#lp-head button{font-size:8px;font-family:'DM Mono',monospace;color:var(--text3);background:none;border:none;cursor:pointer;letter-spacing:.06em;padding:2px 4px;border-radius:3px}
 #lp-head button:hover{color:var(--accent);background:var(--accentd)}
 #lp-body{flex:1;overflow-y:auto;padding:4px 0 40px}
 #lp-body::-webkit-scrollbar{width:2px}
 #lp-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-
 .lp-cat{border-bottom:1px solid var(--border)}
 .lp-cat-row{display:flex;align-items:center;gap:6px;padding:6px 10px;user-select:none;cursor:pointer}
 .lp-cat-row:hover{background:var(--bg3)}
 .lp-col{width:10px;height:10px;border-radius:50%;flex-shrink:0;transition:all .15s;border:1.5px solid rgba(0,0,0,.4)}
 .lp-col.active{box-shadow:0 0 7px currentColor}
-
 .lp-cat-name{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s;cursor:pointer}
 .lp-cat-name:hover{color:var(--text)}
 .lp-cat-name.active{color:var(--text);font-weight:500}
 .lp-cat-name.dimmed{color:var(--text3)}
-.lp-tog{
-  font-size:15px;color:var(--text2);cursor:pointer;padding:0 2px;
-  transition:transform .2s;flex-shrink:0;line-height:1;font-weight:300;
-}
+.lp-tog{font-size:15px;color:var(--text2);cursor:pointer;padding:0 2px;transition:transform .2s;flex-shrink:0;line-height:1;font-weight:300}
 .lp-tog:hover{color:var(--text)}
 .lp-tog.open{transform:rotate(90deg)}
-
 .lp-areas{display:none;padding-bottom:2px}
 .lp-areas.open{display:block}
 .lp-area-row{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;user-select:none;cursor:pointer}
 .lp-area-row:hover{background:var(--bg3)}
-.lp-area-dot{
-  width:7px;height:7px;border-radius:50%;flex-shrink:0;
-  background:var(--border2);transition:all .15s;
-}
-.lp-area-dot.active{box-shadow:0 0 4px currentColor}
-.lp-area-name{font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s}
-.lp-area-name.active{color:var(--text2)}
 .lp-area-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--border2);transition:all .15s}
 .lp-area-dot.active{box-shadow:0 0 4px currentColor}
+.lp-area-name{font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s}
 .lp-area-name.active{color:var(--text2)}
 
 /* ── Map ── */
 #map-wrap{flex:1;position:relative;overflow:hidden}
 #the-map{position:absolute;inset:0}
-
-/* ── Map controls (bottom bar) ── */
-#map-controls{
-  position:absolute;bottom:0;left:0;right:0;z-index:15;
-  background:linear-gradient(transparent,rgba(8,9,11,.95) 30%);
-  padding:32px 20px 14px;
-  display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;
-}
+#map-controls{position:absolute;bottom:0;left:0;right:0;z-index:15;background:linear-gradient(transparent,rgba(8,9,11,.95) 30%);padding:32px 20px 14px;display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap}
 .fc{display:flex;flex-direction:column;gap:4px}
 .fl{font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.16em;color:var(--text3);text-transform:uppercase}
 .fr{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .fi{display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
-.fi input[type=checkbox]{accent-color:var(--accent);width:12px;height:12px;cursor:pointer}
+.fi input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
 .fi label{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer}
-
-.zone-tog{
-  display:flex;align-items:center;gap:6px;padding:4px 10px;
-  border:1px solid var(--border2);border-radius:20px;
-  background:rgba(0,0,0,.4);cursor:pointer;transition:all .15s;
-}
+.zone-tog{display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border2);border-radius:20px;background:rgba(0,0,0,.4);cursor:pointer;transition:all .15s}
 .zone-tog:hover{border-color:var(--red)}
 .zone-tog.on{border-color:var(--red);background:rgba(194,96,96,.1)}
-.zone-tog label{font-size:9px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer}
 .zdot{width:6px;height:6px;border-radius:50%;border:1.5px solid var(--red);flex-shrink:0}
 .zone-tog.on .zdot{background:var(--red)}
 
 /* ── Hover card ── */
-.hcard{
-  position:absolute;z-index:20;width:300px;
-  background:var(--bg2);border:1px solid var(--border2);border-radius:10px;
-  overflow:hidden;pointer-events:none;
-  opacity:0;transform:translateY(6px) scale(.97);
-  transition:opacity .15s,transform .15s;
-  box-shadow:var(--shadow);
-}
+.hcard{position:absolute;z-index:20;width:300px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;overflow:hidden;pointer-events:none;opacity:0;transform:translateY(6px) scale(.97);transition:opacity .15s,transform .15s;box-shadow:var(--shadow)}
 .hcard.show{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
 .hcard-img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;cursor:pointer;background:var(--bg4)}
 .hcard-ph{width:100%;aspect-ratio:16/9;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.08em}
@@ -160,183 +99,125 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .hcard-foot{display:flex;justify-content:space-between;align-items:center}
 .hcard-status{font-size:9px;font-family:'DM Mono',monospace}
 .hcard-btns{display:flex;gap:4px}
-.hcard-btn{
-  font-size:9px;font-family:'DM Mono',monospace;cursor:pointer;
-  padding:3px 8px;border:1px solid var(--border2);border-radius:3px;
-  background:transparent;color:var(--text3);transition:all .12s;
-}
+.hcard-btn{font-size:9px;font-family:'DM Mono',monospace;cursor:pointer;padding:3px 8px;border:1px solid var(--border2);border-radius:3px;background:transparent;color:var(--text3);transition:all .12s}
 .hcard-btn:hover{border-color:var(--accent2);color:var(--accent)}
 .hcard-btn.pri{color:var(--accent);border-color:var(--accent2)}
 
 /* ── Detail panel ── */
-#detail-panel{
-  position:fixed;top:0;right:0;width:48vw;min-width:380px;max-width:820px;
-  height:100vh;z-index:600;background:var(--bg2);
-  border-left:1px solid var(--border2);
-  display:flex;flex-direction:column;
-  transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);
-  box-shadow:-12px 0 48px rgba(0,0,0,.9);
-}
+#detail-panel{position:fixed;top:0;right:0;width:48vw;min-width:380px;max-width:820px;height:100vh;z-index:600;background:var(--bg2);border-left:1px solid var(--border2);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);box-shadow:-12px 0 48px rgba(0,0,0,.9)}
 #detail-panel.open{transform:translateX(0)}
-
-.dp-header{
-  padding:14px 16px 12px;border-bottom:1px solid var(--border);
-  flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
-}
+.dp-header{padding:14px 16px 12px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .dp-name{font-size:17px;font-weight:500;line-height:1.3;flex:1}
 .dp-header-meta{display:flex;align-items:center;gap:6px;margin-top:4px}
-.dp-cat-pill{
-  font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.08em;
-  padding:2px 8px;border-radius:10px;opacity:.85;
-}
-.dp-close{
-  background:none;border:1px solid var(--border2);color:var(--text3);
-  font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0;
-  width:28px;height:28px;border-radius:var(--radius);
-  display:flex;align-items:center;justify-content:center;
-  transition:all .12s;
-}
+.dp-cat-pill{font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.08em;padding:2px 8px;border-radius:10px;opacity:.85}
+.dp-close{background:none;border:1px solid var(--border2);color:var(--text3);font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0;width:28px;height:28px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;transition:all .12s}
 .dp-close:hover{border-color:var(--border3);color:var(--text)}
-
 .dp-scroll{flex:1;overflow-y:auto}
 .dp-scroll::-webkit-scrollbar{width:3px}
 .dp-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-
-/* viewer */
 .dp-viewer{position:relative;background:var(--bg4);flex-shrink:0}
 .dp-viewer-img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;cursor:zoom-in}
-.dp-viewer-ph{
-  width:100%;aspect-ratio:16/9;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:8px;
-  font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);
-}
-.dp-arrow{
-  position:absolute;top:50%;transform:translateY(-50%);
-  background:rgba(0,0,0,.5);border:none;
-  color:rgba(255,255,255,.8);font-size:24px;
-  cursor:pointer;padding:16px 10px;line-height:1;
-  transition:background .15s;z-index:5;backdrop-filter:blur(4px);
-}
+.dp-viewer-ph{width:100%;aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3)}
+.dp-arrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.5);border:none;color:rgba(255,255,255,.8);font-size:24px;cursor:pointer;padding:16px 10px;line-height:1;transition:background .15s;z-index:5;backdrop-filter:blur(4px)}
 .dp-arrow:hover{background:rgba(0,0,0,.85);color:#fff}
 .dp-arrow.prev{left:0;border-radius:0 4px 4px 0}
 .dp-arrow.next{right:0;border-radius:4px 0 0 4px}
-.dp-counter{
-  position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
-  font-size:9px;font-family:'DM Mono',monospace;
-  color:rgba(255,255,255,.6);background:rgba(0,0,0,.5);
-  padding:3px 10px;border-radius:10px;pointer-events:none;
-  backdrop-filter:blur(4px);letter-spacing:.06em;
-}
-.dp-hint{
-  position:absolute;bottom:10px;right:10px;
-  font-size:8px;font-family:'DM Mono',monospace;
-  color:rgba(255,255,255,.3);pointer-events:none;
-}
-
-/* body */
+.dp-counter{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:9px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.6);background:rgba(0,0,0,.5);padding:3px 10px;border-radius:10px;backdrop-filter:blur(4px);letter-spacing:.06em}
+.dp-hint{position:absolute;bottom:10px;right:10px;font-size:8px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.3);pointer-events:none}
 .dp-body{padding:16px 18px 24px}
 .dp-status-row{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
-.dp-badge{
-  padding:3px 10px;border-radius:4px;font-size:9px;
-  font-family:'DM Mono',monospace;letter-spacing:.06em;font-weight:500;
-}
-.dp-zone{font-size:9px;font-family:'DM Mono',monospace;color:var(--green)}
+.dp-badge{padding:3px 10px;border-radius:4px;font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;font-weight:500}
 .dp-section{margin-bottom:12px}
-.dp-label{
-  font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;
-  color:var(--text3);text-transform:uppercase;margin-bottom:4px;
-}
+.dp-label{font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:4px}
 .dp-val{font-size:12px;color:var(--text2);line-height:1.6}
 .dp-notes{font-size:12px;color:var(--text2);line-height:1.75;word-break:break-word}
 .dp-tags{display:flex;flex-wrap:wrap;gap:5px}
-.dp-tag{
-  font-size:9px;padding:3px 8px;border-radius:3px;
-  background:var(--bg4);border:1px solid var(--border2);
-  color:var(--text3);font-family:'DM Mono',monospace;
-}
-.dp-actions{
-  display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;
-  padding-top:14px;border-top:1px solid var(--border);
-}
-.dp-btn{
-  padding:7px 14px;font-size:9px;font-family:'DM Mono',monospace;
-  border-radius:var(--radius);cursor:pointer;
-  border:1px solid var(--border2);background:transparent;
-  color:var(--text2);transition:all .15s;letter-spacing:.06em;
-}
+.dp-tag{font-size:9px;padding:3px 8px;border-radius:3px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace}
+.dp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+.dp-btn{padding:7px 14px;font-size:9px;font-family:'DM Mono',monospace;border-radius:var(--radius);cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .15s;letter-spacing:.06em}
 .dp-btn:hover{border-color:var(--accent2);color:var(--accent)}
 .dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .dp-btn.pri:hover{opacity:.88}
 
+/* ── Address verification widget ── */
+.addr-verify{
+  margin:-2px -2px 16px -2px;border:1px solid var(--amber);
+  background:linear-gradient(135deg,rgba(212,148,58,.08),rgba(212,148,58,.02));
+  border-radius:8px;overflow:hidden;
+}
+.av-header{
+  padding:8px 12px;border-bottom:1px solid rgba(212,148,58,.3);
+  display:flex;align-items:center;gap:8px;
+  font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.08em;
+  color:var(--amber);text-transform:uppercase;font-weight:500;
+}
+.av-icon{font-size:13px}
+.av-body{display:grid;grid-template-columns:1fr 140px;gap:10px;padding:12px;align-items:start}
+@media (max-width: 600px){.av-body{grid-template-columns:1fr}}
+.av-suggest{display:flex;flex-direction:column;gap:3px}
+.av-row{font-size:12px;color:var(--text);line-height:1.4}
+.av-street{font-weight:500}
+.av-cross{font-size:10px;color:var(--text3);font-style:italic;margin-top:1px}
+.av-city{color:var(--text2)}
+.av-map{
+  width:100%;aspect-ratio:1/1;background:var(--bg4);border-radius:6px;
+  overflow:hidden;border:1px solid var(--border2);
+}
+.av-map-placeholder{
+  width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);
+  letter-spacing:.06em;text-align:center;padding:8px;
+}
+.av-actions{
+  padding:8px 12px;border-top:1px solid rgba(212,148,58,.2);
+  display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;
+}
+.av-btn{
+  padding:6px 12px;font-size:10px;font-family:'DM Mono',monospace;
+  border-radius:4px;cursor:pointer;border:1px solid var(--border2);
+  background:transparent;color:var(--text2);transition:all .12s;letter-spacing:.04em;
+}
+.av-btn:hover{border-color:var(--text2);color:var(--text)}
+.av-btn.av-primary{background:var(--amber);color:var(--bg);border-color:var(--amber);font-weight:500}
+.av-btn.av-primary:hover{opacity:.88;color:var(--bg)}
+.av-edit-row{display:flex;margin-bottom:6px}
+.av-edit-row input{
+  width:100%;background:var(--bg3);border:1px solid var(--border2);
+  border-radius:4px;padding:6px 8px;color:var(--text);
+  font-size:12px;font-family:'DM Sans',sans-serif;outline:none;
+}
+.av-edit-row input:focus{border-color:var(--amber)}
+.av-edit-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:8px}
+
 /* ── Library ── */
 #library-page{background:var(--bg2);overflow:hidden}
-.lib-header{
-  height:48px;padding:0 16px;border-bottom:1px solid var(--border);
-  display:flex;align-items:center;gap:10px;flex-shrink:0;
-}
+.lib-header{height:48px;padding:0 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
 .lib-bc{display:flex;align-items:center;flex:1;min-width:0;overflow:hidden}
-.lib-bc-seg{
-  font-size:11px;font-family:'DM Mono',monospace;color:var(--accent);
-  cursor:pointer;padding:3px 6px;border-radius:4px;white-space:nowrap;
-  transition:background .12s;
-}
+.lib-bc-seg{font-size:11px;font-family:'DM Mono',monospace;color:var(--accent);cursor:pointer;padding:3px 6px;border-radius:4px;white-space:nowrap;transition:background .12s}
 .lib-bc-seg:hover{background:var(--accentd)}
 .lib-bc-seg.cur{color:var(--text2);cursor:default}
 .lib-bc-seg.cur:hover{background:transparent}
 .lib-bc-sep{font-size:11px;color:var(--text3);padding:0 1px;flex-shrink:0}
-.lib-search{
-  background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);
-  padding:5px 10px;font-size:12px;color:var(--text);
-  font-family:'DM Sans',sans-serif;outline:none;width:150px;flex-shrink:0;
-}
+.lib-search{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:5px 10px;font-size:12px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;width:150px;flex-shrink:0}
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
-.lib-sel{
-  padding:5px 8px;font-size:10px;font-family:'DM Mono',monospace;
-  background:var(--bg3);border:1px solid var(--border2);
-  border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0;
-}
-#lib-grid{
-  flex:1;min-height:0;overflow-y:auto;
-  padding:18px;
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
-  grid-auto-rows:min-content;gap:14px;align-content:start;
-}
+.lib-sel{padding:5px 8px;font-size:10px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
+#lib-grid{flex:1;min-height:0;overflow-y:auto;padding:18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));grid-auto-rows:min-content;gap:14px;align-content:start}
 #lib-grid::-webkit-scrollbar{width:3px}
 #lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
 /* ── Cards ── */
-.gcard{
-  background:var(--bg3);border:1px solid var(--border);
-  border-radius:var(--radius);overflow:hidden;cursor:pointer;
-  transition:border-color .15s,transform .15s,box-shadow .15s;
-  align-self:start;
-}
+.gcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s,transform .15s,box-shadow .15s;align-self:start}
 .gcard:hover{border-color:var(--border2);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.5)}
+.gcard.gcard-selected{border-color:var(--accent2)}
 .gcard-tw{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
 .gcard-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:1}
 .gcard-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:20px;z-index:0}
-.gcard-overlay{
-  position:absolute;bottom:0;left:0;right:0;z-index:2;
-  background:linear-gradient(transparent,rgba(0,0,0,.88));
-  padding:18px 10px 8px;
-  font-size:11px;font-family:'DM Mono',monospace;color:var(--text);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.gcard-meta{
-  padding:5px 10px;font-size:9px;color:var(--text3);
-  font-family:'DM Mono',monospace;border-top:1px solid var(--border);
-  display:flex;justify-content:space-between;align-items:center;
-}
-.gcard-status-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.gcard-overlay{position:absolute;bottom:0;left:0;right:0;z-index:2;background:linear-gradient(transparent,rgba(0,0,0,.88));padding:18px 10px 8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gcard-meta{padding:5px 10px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
 
-.dock-btn{
-  height:32px;padding:0 12px;border-radius:20px;
-  border:1px solid var(--border2);background:rgba(14,15,18,.8);
-  font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
-  cursor:pointer;display:flex;align-items:center;gap:5px;
-  transition:all .15s;white-space:nowrap;color:var(--text2);
-}
+/* ── Dock ── */
+.dock-btn{height:32px;padding:0 12px;border-radius:20px;border:1px solid var(--border2);background:rgba(14,15,18,.8);font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap;color:var(--text2)}
 .dock-btn:hover{border-color:var(--accent2);color:var(--accent)}
 #dock-sm-btn{border-color:var(--green);color:var(--green)}
 #dock-sm-btn.unconnected{border-color:var(--border2);color:var(--text2)}
@@ -346,73 +227,30 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 /* ── Shared ── */
 .modal-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
 .modal-ov.open{display:flex}
-.toast{
-  position:fixed;bottom:56px;right:14px;
-  background:var(--bg2);border:1px solid var(--border2);
-  border-radius:8px;padding:9px 14px;
-  font-size:10px;font-family:'DM Mono',monospace;
-  z-index:700;transform:translateY(60px);opacity:0;
-  transition:all .25s;max-width:260px;pointer-events:none;
-}
+.toast{position:fixed;bottom:56px;right:14px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:9px 14px;font-size:10px;font-family:'DM Mono',monospace;z-index:700;transform:translateY(60px);opacity:0;transition:all .25s;max-width:260px;pointer-events:none}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.ok{border-color:var(--green);color:var(--green)}
 .toast.err{border-color:var(--red);color:var(--red)}
 .toast.inf{border-color:var(--blue);color:var(--blue)}
-
-.spin{
-  width:12px;height:12px;border:1.5px solid var(--border2);
-  border-top-color:var(--accent);border-radius:50%;
-  animation:spin .7s linear infinite;display:inline-block;
-}
+.spin{width:12px;height:12px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
-.empty{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:10px;color:var(--text3);font-family:'DM Mono',monospace;font-size:10px;
-  grid-column:1/-1;min-height:120px;letter-spacing:.06em;
-}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text3);font-family:'DM Mono',monospace;font-size:10px;grid-column:1/-1;min-height:120px;letter-spacing:.06em}
 
-/* ── Lightbox ── */
-#lightbox{
-  display:none;position:fixed;inset:0;z-index:900;
-  background:rgba(0,0,0,.97);align-items:center;justify-content:center;
-}
+/* Lightbox */
+#lightbox{display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.97);align-items:center;justify-content:center}
 #lightbox.open{display:flex}
 #lightbox img{width:100vw;height:100vh;object-fit:contain}
-#lb-close{
-  position:absolute;top:14px;right:16px;
-  color:rgba(255,255,255,.4);font-size:28px;cursor:pointer;
-  background:none;border:none;line-height:1;z-index:901;
-  transition:color .12s;
-}
+#lb-close{position:absolute;top:14px;right:16px;color:rgba(255,255,255,.4);font-size:28px;cursor:pointer;background:none;border:none;line-height:1;z-index:901;transition:color .12s}
 #lb-close:hover{color:#fff}
-#lb-counter{
-  position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
-  font-size:10px;font-family:'DM Mono',monospace;
-  color:rgba(255,255,255,.4);letter-spacing:.08em;
-}
+#lb-counter{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:10px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.4);letter-spacing:.08em}
 
-/* ── Color picker ── */
-#cat-color-picker{
-  position:fixed;z-index:800;background:var(--bg2);
-  border:1px solid var(--border2);border-radius:10px;
-  padding:12px;box-shadow:var(--shadow);
-}
-.ccp-title{
-  font-size:8px;font-family:'DM Mono',monospace;color:var(--text3);
-  letter-spacing:.14em;margin-bottom:10px;text-transform:uppercase;
-}
+/* Color picker */
+#cat-color-picker{position:fixed;z-index:800;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:12px;box-shadow:var(--shadow)}
+.ccp-title{font-size:8px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.14em;margin-bottom:10px;text-transform:uppercase}
 .ccp-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:10px}
-.ccp-swatch{
-  width:24px;height:24px;border-radius:5px;cursor:pointer;
-  border:2px solid transparent;transition:transform .1s,border-color .1s;
-}
+.ccp-swatch{width:24px;height:24px;border-radius:5px;cursor:pointer;border:2px solid transparent;transition:transform .1s,border-color .1s}
 .ccp-swatch:hover{transform:scale(1.15)}
 .ccp-swatch.active{border-color:#fff}
-.ccp-custom{display:flex;gap:8px;align-items:center}
-.ccp-custom input[type=color]{
-  width:28px;height:22px;border:none;background:none;cursor:pointer;padding:0;
-}
-.ccp-custom span{font-size:9px;font-family:'DM Mono',monospace;color:var(--text3)}
 
 @media(max-width:700px){
   #lib-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
@@ -420,45 +258,35 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
   #left-panel{display:none}
 }
 </style>
-
 </head>
-<body tabindex="-1" style="outline:none">
+<body>
 <div id="shell">
   <div id="header"><h1>Jordan B. Hoffman &nbsp;·&nbsp; Locations</h1></div>
   <div id="nav">
-    <button class="nav-btn active" onclick="showPage('home',this)">Map</button>
-    <button class="nav-btn" onclick="showPage('library',this)">Library</button>
-    <!-- SmugMug status + buttons on RIGHT side -->
+    <button class="nav-btn active" onclick="showPage('home',this)" aria-label="Map view">Map</button>
+    <button class="nav-btn" onclick="showPage('library',this)" aria-label="Library view">Library</button>
     <div id="nav-status" style="position:absolute;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;right:0;top:0;height:44px;display:flex;align-items:center;pointer-events:none"></div>
     <div id="nav-right" style="position:absolute;right:10px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:nowrap">
       <div id="dock-actions" style="display:none;align-items:center;gap:6px">
-        <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">authorize ↗</button>
-        <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">
-          <span id="dock-sync-label">⟳ sync</span>
-        </button>
-        <button class="dock-btn" id="dock-signout-btn" onclick="signOutSmugMug()" style="display:none;height:28px;padding:0 10px;font-size:9px;border-radius:20px;border-color:var(--red);color:var(--red);white-space:nowrap">sign out</button>
+        <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px">authorize ↗</button>
+        <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px"><span id="dock-sync-label">⟳ sync</span></button>
+        <button class="dock-btn" id="dock-signout-btn" onclick="signOutSmugMug()" style="display:none;height:28px;padding:0 10px;border-color:var(--red);color:var(--red)">sign out</button>
       </div>
-      <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px;font-size:9px;border-radius:20px;white-space:nowrap">
-        <span id="dock-sm-label">smugmug</span>
-      </button>
+      <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px" aria-label="SmugMug menu"><span id="dock-sm-label">smugmug</span></button>
     </div>
   </div>
   <div id="pages">
-
-    <!-- HOME -->
     <div class="page active" id="home-page">
       <div id="left-panel">
-        <div id="lp-head"><span>Categories</span><button onclick="lpToggleAll()" title="Clear color selections">clear</button>
-        </div>
+        <div id="lp-head"><span>Categories</span><button onclick="lpToggleAll()" title="Clear color selections" aria-label="Clear all category colors">clear</button></div>
         <div id="lp-body"><div class="empty"><div class="spin"></div></div></div>
       </div>
       <div id="map-wrap">
-        <div id="the-map"></div>
-        <!-- Hover card -->
+        <div id="the-map" role="application" aria-label="Map of locations"></div>
         <div class="hcard" id="hcard">
           <div id="hcard-media"></div>
           <div class="hcard-body">
-            <div class="hcard-name" id="hcard-name" onclick="openDetail(currentHoverLoc)"></div>
+            <div class="hcard-name" id="hcard-name" onclick="openDetail(S.currentHoverLoc)"></div>
             <div class="hcard-meta">
               <span class="hcard-cat-dot" id="hcard-cat-dot"></span>
               <span id="hcard-cat"></span>
@@ -468,54 +296,42 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
             <div class="hcard-foot">
               <span class="hcard-status" id="hcard-status"></span>
               <div class="hcard-btns">
-                <button class="hcard-btn pri" onclick="openDetail(currentHoverLoc)">open</button>
-                <button class="hcard-btn" onclick="if(currentHoverLoc)window.open(currentHoverLoc.smugmug_gallery_url||'https://jordanhoffman.smugmug.com','_blank')">gallery ↗</button>
+                <button class="hcard-btn pri" onclick="openDetail(S.currentHoverLoc)">open</button>
+                <button class="hcard-btn" onclick="if(S.currentHoverLoc)window.open(S.currentHoverLoc.smugmug_gallery_url||'https://jordanhoffman.smugmug.com','_blank')">gallery ↗</button>
               </div>
             </div>
           </div>
         </div>
-        <!-- Map controls -->
         <div id="map-controls">
-          <div class="fc">
-            <div class="fl">State</div>
-            <div class="fr">
-              <div class="fi"><input type="checkbox" id="f-ny" checked onchange="applyFilters()"><label for="f-ny">NY</label></div>
-              <div class="fi"><input type="checkbox" id="f-nj" checked onchange="applyFilters()"><label for="f-nj">NJ</label></div>
-              <div class="fi"><input type="checkbox" id="f-ct" checked onchange="applyFilters()"><label for="f-ct">CT</label></div>
-              <div class="fi"><input type="checkbox" id="f-pa" checked onchange="applyFilters()"><label for="f-pa">PA</label></div>
-            </div>
-          </div>
-          <div class="fc">
-            <div class="fl">Status</div>
-            <div class="fr">
-              <div class="fi"><input type="checkbox" id="f-approved" checked onchange="applyFilters()"><label for="f-approved">Approved</label></div>
-              <div class="fi"><input type="checkbox" id="f-scouted" checked onchange="applyFilters()"><label for="f-scouted">Scouted</label></div>
-              <div class="fi"><input type="checkbox" id="f-pending" checked onchange="applyFilters()"><label for="f-pending">Pending</label></div>
-              <div class="fi"><input type="checkbox" id="f-identified" checked onchange="applyFilters()"><label for="f-identified">Identified</label></div>
-
-            </div>
-          </div>
+          <div class="fc"><div class="fl">State</div><div class="fr">
+            <div class="fi"><input type="checkbox" id="f-ny" checked onchange="applyFilters()"><label for="f-ny">NY</label></div>
+            <div class="fi"><input type="checkbox" id="f-nj" checked onchange="applyFilters()"><label for="f-nj">NJ</label></div>
+            <div class="fi"><input type="checkbox" id="f-ct" checked onchange="applyFilters()"><label for="f-ct">CT</label></div>
+            <div class="fi"><input type="checkbox" id="f-pa" checked onchange="applyFilters()"><label for="f-pa">PA</label></div>
+          </div></div>
+          <div class="fc"><div class="fl">Status</div><div class="fr">
+            <div class="fi"><input type="checkbox" id="f-approved" checked onchange="applyFilters()"><label for="f-approved">Approved</label></div>
+            <div class="fi"><input type="checkbox" id="f-scouted" checked onchange="applyFilters()"><label for="f-scouted">Scouted</label></div>
+            <div class="fi"><input type="checkbox" id="f-pending" checked onchange="applyFilters()"><label for="f-pending">Pending</label></div>
+            <div class="fi"><input type="checkbox" id="f-identified" checked onchange="applyFilters()"><label for="f-identified">Identified</label></div>
+          </div></div>
           <div style="display:flex;align-items:center;gap:8px">
-            <div class="fi">
-              <input type="checkbox" id="f-zone" onchange="applyFilters()">
-              <label for="f-zone" style="color:var(--text2)">zone</label>
-            </div>
-            <div class="zone-tog" id="zone-btn" onclick="toggleZone()" style="gap:5px">
+            <div class="fi"><input type="checkbox" id="f-zone" onchange="applyFilters()"><label for="f-zone" style="color:var(--text2)">zone</label></div>
+            <div class="zone-tog" id="zone-btn" onclick="toggleZone()" style="gap:5px" role="button" aria-label="Toggle 30-mile zone ring">
               <div class="zdot"></div>
               <span style="font-size:9px;font-family:'DM Mono',monospace;color:var(--red);letter-spacing:.06em">Zone</span>
             </div>
-            <button id="sat-btn" onclick="toggleSatellite()" style="height:28px;padding:0 12px;border-radius:20px;border:1px solid var(--border2);background:rgba(0,0,0,.5);font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;color:var(--text2);cursor:pointer;transition:all .15s">satellite</button>
+            <button id="sat-btn" onclick="toggleSatellite()" style="height:28px;padding:0 12px;border-radius:20px;border:1px solid var(--border2);background:rgba(0,0,0,.5);font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;color:var(--text2);cursor:pointer;transition:all .15s" aria-label="Toggle satellite view">satellite</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- LIBRARY -->
     <div class="page" id="library-page">
       <div class="lib-header">
         <div class="lib-bc" id="lib-bc"></div>
-        <input class="lib-search" id="lib-q" placeholder="search locations..." oninput="libSearch()">
-        <select class="lib-sel" id="lib-status-sel" onchange="libSearch()">
+        <input class="lib-search" id="lib-q" placeholder="search locations..." oninput="libSearch()" aria-label="Search locations">
+        <select class="lib-sel" id="lib-status-sel" onchange="libSearch()" aria-label="Filter by status">
           <option value="">all status</option>
           <option value="approved">approved</option>
           <option value="scouted">scouted</option>
@@ -523,16 +339,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
           <option value="identified">identified</option>
         </select>
       </div>
-      <div id="lib-grid" onclick="libGridClick(event)">
-        <div class="empty"><div class="spin"></div><span>loading library...</span></div>
-      </div>
+      <div id="lib-grid" onclick="libGridClick(event)"><div class="empty"><div class="spin"></div><span>loading library...</span></div></div>
     </div>
-
   </div>
 </div>
 
-<!-- Detail panel — outside shell so it overlays both pages -->
-<div id="detail-panel" tabindex="-1" style="outline:none">
+<!-- Detail panel -->
+<div id="detail-panel">
   <div class="dp-header">
     <div>
       <div class="dp-name" id="dp-name"></div>
@@ -541,19 +354,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
         <span id="dp-zone-badge"></span>
       </div>
     </div>
-    <button class="dp-close" onclick="closeDetail()">×</button>
+    <button class="dp-close" onclick="closeDetail()" aria-label="Close detail panel">×</button>
   </div>
   <div class="dp-scroll" id="dp-scroll">
     <div class="dp-viewer" id="dp-viewer">
-      <div class="dp-viewer-ph" id="dp-viewer-ph">
-        <span style="font-size:20px;opacity:.3">◻</span>
-        <span>no photo</span>
-      </div>
-      <img id="dp-viewer-img" class="dp-viewer-img" src="" style="display:none" onclick="openLightbox(this.src)">
-      <button class="dp-arrow prev" id="dp-prev" style="display:none">&#8249;</button>
-      <button class="dp-arrow next" id="dp-next" style="display:none">&#8250;</button>
-      <div class="dp-counter" id="dp-counter" style="display:none;cursor:pointer" onclick="togglePhotoJump()"></div>
-      <div id="dp-photo-jump" style="display:none;position:absolute;bottom:48px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--border2);border-radius:8px;overflow:hidden;z-index:10"></div>
+      <div class="dp-viewer-ph" id="dp-viewer-ph"><span style="font-size:20px;opacity:.3">◻</span><span>no photo</span></div>
+      <img id="dp-viewer-img" class="dp-viewer-img" src="" style="display:none" onclick="openLightbox(this.src)" alt="Location photo">
+      <button class="dp-arrow prev" id="dp-prev" style="display:none" aria-label="Previous photo">&#8249;</button>
+      <button class="dp-arrow next" id="dp-next" style="display:none" aria-label="Next photo">&#8250;</button>
+      <div class="dp-counter" id="dp-counter" style="display:none"></div>
       <div class="dp-hint" id="dp-hint" style="display:none">space · lightbox &nbsp; enter · switch view</div>
     </div>
     <div class="dp-body" id="dp-body"></div>
@@ -561,29 +370,29 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 </div>
 
 <!-- Edit Panel -->
-<div id="edit-panel" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+<div id="edit-panel" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center" role="dialog" aria-label="Edit location">
   <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(560px,90vw);max-height:85vh;overflow-y:auto;padding:24px;position:relative">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
       <div style="font-size:13px;font-weight:500;color:var(--text)">Edit Location</div>
-      <button onclick="closeEditPanel()" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px">×</button>
+      <button onclick="closeEditPanel()" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px" aria-label="Close edit panel">×</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:14px">
       <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Location Name</div>
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-name">Location Name</label></div>
         <input id="edit-name" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
       </div>
       <div style="display:flex;gap:10px">
         <div style="flex:2">
-          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Street Address</div>
+          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-address">Street Address</label></div>
           <input id="edit-address" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
         </div>
         <div style="flex:1">
-          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">City</div>
+          <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-city">City</label></div>
           <input id="edit-city" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
         </div>
       </div>
       <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Notes <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(editing saves as truth — sync won't overwrite)</span></div>
+        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-notes">Notes <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(editing saves as truth — sync won't overwrite)</span></label></div>
         <textarea id="edit-notes" rows="10" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;outline:none;resize:vertical;line-height:1.6"></textarea>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:4px;border-top:1px solid var(--border)">
@@ -595,1876 +404,27 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 </div>
 
 <!-- Raw Notes Modal -->
-<div id="raw-notes-modal" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+<div id="raw-notes-modal" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center" role="dialog" aria-label="Raw notes">
   <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(560px,90vw);max-height:80vh;overflow-y:auto;padding:24px;position:relative">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text3)">Raw SmugMug Notes</div>
-      <button onclick="document.getElementById('raw-notes-modal').style.display='none'" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px">×</button>
+      <button onclick="document.getElementById('raw-notes-modal').style.display='none'" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px" aria-label="Close">×</button>
     </div>
     <pre id="raw-notes-content" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text2);white-space:pre-wrap;line-height:1.7"></pre>
   </div>
 </div>
 
 <!-- Lightbox -->
-<div id="lightbox" onclick="closeLightbox()">
-  <button id="lb-close" onclick="closeLightbox()">×</button>
+<div id="lightbox" onclick="closeLightbox()" role="dialog" aria-label="Photo lightbox">
+  <button id="lb-close" onclick="closeLightbox()" aria-label="Close lightbox">×</button>
   <img id="lb-img" src="" alt="">
   <div id="lb-counter"></div>
 </div>
 
-
-
-<div class="toast" id="toast"></div>
-
-<script>
-// ── Constants ──
-var SB_URL='https://bdnezxdfhapaxhoedtrp.supabase.co';
-var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkbmV6eGRmaGFwYXhob2VkdHJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5OTgwMTAsImV4cCI6MjA5MTU3NDAxMH0.tdyh77PJ4xSOnb4GeLQRHcDWd0l2KRMpgl7Awj7NiB0';
-var GM_KEY='AIzaSyBORHlI6GqQNtL2Ev8RlapOFKrjFgkzJfA';
-var SM_BASE='https://location-scout-sand.vercel.app';
-var COLUMBUS={lat:40.7681,lng:-73.9819};
-var ZONE_M=30*1609.34;
-
-var SL={
-  identified:{bg:'rgba(85,83,80,.2)',c:'#888680'},
-  scouted:{bg:'rgba(91,155,213,.18)',c:'#5b9bd5'},
-  pending:{bg:'rgba(212,148,58,.18)',c:'#d4943a'},
-  approved:{bg:'rgba(76,175,130,.18)',c:'#4caf82'},
-  rejected:{bg:'rgba(194,96,96,.18)',c:'#c26060'}
-};
-
-// Category palette for color picker swatches
-var CAT_PALETTE=[
-  '#4a9edd','#3dbb7a','#e8832a','#9060d0','#e04545',
-  '#20b8c0','#d4b800','#e060a8','#68bb28','#3060d8',
-  '#e06830','#28b0e0','#c03838','#40cc90','#a030d0',
-  '#d0a000','#28b888','#d83880','#88cc20','#3888d8',
-  '#e05020','#18c8b8','#98cc18','#e03068','#2878e8'
-];
-// catPinColors: {catKey: hexColor} — cats in here show colored, others gray/hidden
-// Empty object = all gray, all visible
-var catPinColors={};
-var savedCatColors={}; // remembers last color even when deactivated
-var NAV_HISTORY_MAX = 50;
-var navHistory=[]; // undo stack for navigation & selection
-var navFuture=[];  // redo stack
-
-// ── State ──
-var locations=[], gmap=null, mapReady=false;
-var markers=[], markerPool=new Map(), zoneCircle=null, zoneOn=false, clusterer=null;
-var  selectionOverlay=null;
-var selectedMarker=null;
-var currentHoverLoc=null, currentDetailLoc=null;
-var smTokens=null, dockOpen=false;
-var mapFolders=[], mapAlbums=[];
-var filterState={};
-var libFolders=[], libAlbums=[], libLoaded=false;
-var libStack=[], libRedoStack=[];
-var dpImages=[], dpIndex=0;
-
-// ── DB helper (single clean definition) ──
-function db(p, o) {
-  o = o || {};
-  var opts = {
-    headers: {
-      apikey: SB_KEY,
-      Authorization: 'Bearer ' + SB_KEY,
-      'Content-Type': 'application/json',
-      Prefer: o.prefer || 'return=representation'
-    }
-  };
-  if (o.method) opts.method = o.method;
-  if (o.body) opts.body = o.body;
-  if (o.headers) Object.assign(opts.headers, o.headers);
-  return fetch(SB_URL + '/rest/v1/' + p, opts).then(function(r) {
-    return r.ok ? r.json() : r.json().then(function(e) { return Promise.reject(e); });
-  });
-}
-
-// ── Category colors ──
-function catColorByKey(ck) {
-  // Returns a stable display color for a category (UI only, not pin color)
-  if (!ck) return '#888680';
-  if (catPinColors[ck]) return catPinColors[ck];
-  var hash = 0;
-  for (var i = 0; i < ck.length; i++) hash = (hash * 31 + ck.charCodeAt(i)) & 0xffff;
-  return CAT_PALETTE[hash % CAT_PALETTE.length];
-}
-
-function hexToRgba(hex, alpha) {
-  var r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
-  return 'rgba('+r+','+g+','+b+','+alpha+')';
-}
-function getCatKeyFromUrl(webUrl) {
-  if (!webUrl) return '';
-  var parts = webUrl.replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
-  return parts[1] || '';
-}
-function glowStyleForAlbum(webUrl) {
-  var cat = getCatKeyFromUrl(webUrl);
-  var col = catPinColors[cat] || savedCatColors[cat] || null;
-  if (!col) return '';
-  return '0 0 6px 2px ' + hexToRgba(col, 0.55);
-}
-
-function getCatForLoc(loc) {
-  var a = mapAlbums.find(function(a) { return a.sm_key === loc.smugmug_album_key; });
-  if (!a || !a.web_url) return '';
-  var parts = a.web_url.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
-  return parts[1] || '';
-}
-
-// Pin color: if catPinColors has entries, only those cats show colored, others hidden
-// If empty, all pins show gray
-var highlightedCat = null;
-var selectedAreas = new Set();
-function getAreaForLoc(loc) {
-  var a = mapAlbums.find(function(a){return a.sm_key===loc.smugmug_album_key;});
-  if (!a || !a.web_url) return '';
-  var parts = a.web_url.replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
-  return parts[2] || '';
-}
-
-function updatePinHighlights() {
-  if (!gmap) return;
-  var hasSelection = highlightedCat || selectedAreas.size > 0;
-  markers.forEach(function(m) {
-    var mCat = getCatForLoc(m._loc);
-    var mArea = getAreaForLoc(m._loc);
-    var col = m._col;
-    var isVisible = pinColorForLoc(m._loc) !== null;
-    if (!isVisible) return;
-    var isSelected = false;
-    if (selectedAreas.size > 0) {
-      isSelected = selectedAreas.has(mCat + '/' + mArea);
-    } else if (highlightedCat) {
-      isSelected = mCat === highlightedCat;
-    }
-    if (hasSelection && isSelected) {
-      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:col,fillOpacity:1,strokeColor:'#fff',strokeWeight:2.5});
-      m.setVisible(true);
-      m.setZIndex(999);
-    } else if (hasSelection) {
-      // Hide pins not in selection — only keep visible if they have a color AND are enabled
-      var otherCat = getCatForLoc(m._loc);
-      var otherEnabled = !!catPinColors[otherCat];
-      m.setVisible(otherEnabled);
-      if (otherEnabled) {
-        m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:col,fillOpacity:.9,strokeColor:'rgba(0,0,0,.5)',strokeWeight:1.5});
-        m.setZIndex(1);
-      }
-    } else {
-      m.setVisible(true);
-      m.setIcon({path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:col,fillOpacity:.9,strokeColor:'rgba(0,0,0,.5)',strokeWeight:1.5});
-      m.setZIndex(1);
-    }
-  });
-}
-
-function pinColorForLoc(loc) {
-  var cat = getCatForLoc(loc);
-  if (Object.keys(catPinColors).length === 0) return '#888680'; // all gray
-  return catPinColors[cat] || null; // null = hidden
-}
-
-function navSnapshot() {
-  return {
-    detailLocId: currentDetailLoc ? currentDetailLoc.id : null,
-    libStack: JSON.parse(JSON.stringify(libStack)),
-    highlightedCat: highlightedCat,
-    selectedAreas: Array.from(selectedAreas)
-  };
-}
-function pushNav() {
-  navHistory.push(navSnapshot());
-  if (navHistory.length > NAV_HISTORY_MAX) navHistory.shift();
-  navFuture = [];
-}
-function applyNavSnapshot(snap) {
-  // Restore lib navigation
-  libStack = snap.libStack || [];
-  if (document.getElementById('library-page').classList.contains('active')) libRender();
-  // Restore highlight
-  highlightedCat = snap.highlightedCat || null;
-  selectedAreas = new Set(snap.selectedAreas || []);
-  buildLeftPanel();
-  updatePinHighlights();
-  // Restore detail panel
-  var loc = snap.detailLocId ? locations.find(function(l){return l.id===snap.detailLocId;}) : null;
-  if (loc) { openDetail(loc); } else { closeDetail(); }
-}
-function undoNav() {
-  if (!navHistory.length) return;
-  navFuture.push(navSnapshot());
-  applyNavSnapshot(navHistory.pop());
-}
-function redoNav() {
-  if (!navFuture.length) return;
-  navHistory.push(navSnapshot());
-  applyNavSnapshot(navFuture.pop());
-}
-// Color changes use setPinColors (no undo — separate concern)
-function setPinColors(newColors) {
-  catPinColors = newColors;
-  savePinColors(); buildLeftPanel(); refreshPins();
-}
-function toggleCatPinColor(cat, color) {
-  var next = Object.assign({}, catPinColors);
-  if (next[cat]) delete next[cat];
-  else next[cat] = color;
-  setPinColors(next);
-}
-
-function savePinColors() {
-  try { localStorage.setItem('pinColors', JSON.stringify(catPinColors)); } catch(e) {}
-}
-function loadPinColors() {
-  try { var s=localStorage.getItem('pinColors'); if(s) catPinColors=JSON.parse(s); } catch(e) {}
-  try { var s2=localStorage.getItem('savedCatColors'); if(s2) savedCatColors=JSON.parse(s2); } catch(e) {}
-}
-
-// ── Toast ──
-function toast(m, t) {
-  var el = document.getElementById('toast');
-  el.textContent = m;
-  el.className = 'toast ' + (t || 'ok') + ' show';
-  setTimeout(function() { el.className = 'toast'; }, 3500);
-}
-
-// ── Navigation ──
-function showPage(page, btn) {
-  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
-  document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
-  document.getElementById(page + '-page').classList.add('active');
-  btn.classList.add('active');
-  closeDock();
-  // Don't close detail — preserve it across page switches
-  // Show/hide red zone ring button based on page
-  var zb = document.getElementById('zone-btn');
-  if (zb) zb.style.display = page==='home' ? 'flex' : 'none';
-  if (page === 'home') {
-    if (!mapReady) loadMapScript();
-    else if (gmap) setTimeout(function() { google.maps.event.trigger(gmap, 'resize'); }, 50);
-  }
-  if (page === 'library') libInit();
-}
-
-// ── Data ──
-var LOC_CACHE_KEY = 'loc_cache';
-var LOC_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
-
-async function loadLocations(forceRefresh) {
-  // Try cache first
-  if (!forceRefresh) {
-    try {
-      var cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
-      if (cached && cached.ts && Date.now() - cached.ts < LOC_CACHE_TTL && cached.data && cached.data.length) {
-        locations = cached.data;
-        // Refresh in background without blocking
-        setTimeout(function() { refreshLocationsBackground(); }, 100);
-        return locations;
-      }
-    } catch(e) {}
-  }
-  return await fetchLocations();
-}
-
-async function fetchLocations() {
-  try {
-    var data = await db('locations?select=id,name,lat,lng,status,state_code,city,address,smugmug_album_key,smugmug_gallery_url,cover_photo_url,notes,tags,scout_name,scout_date&order=name.asc');
-    locations = data;
-    try { localStorage.setItem(LOC_CACHE_KEY, JSON.stringify({ts: Date.now(), data: data})); } catch(e) {}
-    return locations;
-  } catch(e) { toast('DB error', 'err'); return []; }
-}
-
-async function refreshLocationsBackground() {
-  try {
-    var data = await db('locations?select=id,name,lat,lng,status,state_code,city,address,smugmug_album_key,smugmug_gallery_url,cover_photo_url,notes,tags,scout_name,scout_date&order=name.asc');
-    if (!data || !data.length) return;
-    locations = data;
-    try { localStorage.setItem(LOC_CACHE_KEY, JSON.stringify({ts: Date.now(), data: data})); } catch(e) {}
-    // Quietly refresh pins if map is ready
-    if (gmap) refreshPins();
-  } catch(e) {}
-}
-
-function hasCoords(l) { return l.lat && l.lng && !(l.lat === 0 && l.lng === 0); }
-function miles(lat, lng) {
-  var R = 3958.8, dLat = (lat - COLUMBUS.lat) * Math.PI / 180, dLng = (lng - COLUMBUS.lng) * Math.PI / 180;
-  var a = Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(COLUMBUS.lat*Math.PI/180)*Math.cos(lat*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-function smMedium(url) { return url ? url.replace('/Th/','/M/').replace('/Ti/','/M/').replace('/S/','/M/') : ''; }
-function smLarge(url)  { return url ? url.replace('/Th/','/L/').replace('/Ti/','/L/').replace('/S/','/L/').replace('/M/','/L/') : ''; }
-function smXL(url)     { return url ? url.replace('/Th/','/XL/').replace('/Ti/','/XL/').replace('/S/','/XL/').replace('/M/','/XL/').replace('/L/','/XL/') : ''; }
-
-// ── Map ──
-function loadMapScript() {
-  if (document.getElementById('gms')) return;
-  // Load clusterer first, then maps
-  var c = document.createElement('script'); c.id = 'gmc';
-  c.src = 'https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js';
-  c.onload = function() {
-    var s = document.createElement('script'); s.id = 'gms'; s.async = true;
-    s.src = 'https://maps.googleapis.com/maps/api/js?key=' + GM_KEY + '&callback=initMap&loading=async';
-    document.head.appendChild(s);
-  };
-  document.head.appendChild(c);
-}
-
-window.initMap = async function() {
-  mapReady = true;
-  gmap = new google.maps.Map(document.getElementById('the-map'), {
-    zoom: 11, center: {lat: 40.73, lng: -73.97},
-    backgroundColor: '#08090b',
-    disableDefaultUI: true,
-    gestureHandling: 'greedy',
-    isFractionalZoomEnabled: true,
-    styles: [
-      {elementType:'geometry',stylers:[{color:'#0a0a0d'}]},
-      {elementType:'labels.text.stroke',stylers:[{color:'#0a0a0d'}]},
-      {elementType:'labels.text.fill',stylers:[{color:'#4a4846'}]},
-      {featureType:'road',elementType:'geometry',stylers:[{color:'#18181c'}]},
-      {featureType:'road.arterial',elementType:'geometry',stylers:[{color:'#202026'}]},
-      {featureType:'road.highway',elementType:'geometry',stylers:[{color:'#28282e'}]},
-      {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#404040'}]},
-      {featureType:'water',elementType:'geometry',stylers:[{color:'#05070d'}]},
-      {featureType:'poi',stylers:[{visibility:'off'}]},
-      {featureType:'transit',stylers:[{visibility:'off'}]},
-      {featureType:'administrative',elementType:'geometry',stylers:[{color:'#14141a'}]},
-      {featureType:'landscape',elementType:'geometry',stylers:[{color:'#0c0c10'}]}
-    ]
-  });
-  gmap.addListener('click', function() {
-    document.getElementById('hcard').classList.remove('show');
-    if (currentDetailLoc) closeDetail();
-  });
-
-  // Zoom handled by MarkerClusterer
-  await loadLocations();
-  // Load map albums in parallel with left panel build
-  await Promise.all([
-    db('smugmug_albums?select=sm_key,name,web_url').then(function(r){ mapAlbums=r; }),
-    db('smugmug_folders?select=name,path&order=path.asc').then(function(r){ mapFolders=r; })
-  ]);
-  buildLeftPanel();
-  checkAuth();
-  checkSyncStatus();
-  // Wait for map to settle before drawing pins - prevents mid-zoom rendering
-  google.maps.event.addListenerOnce(gmap, 'idle', function() {
-    refreshPins();
-  });
-};
-
-// ── Filtering ──
-function getActiveStates() {
-  return ['ny','nj','ct','pa'].filter(function(s) {
-    var el = document.getElementById('f-' + s); return el && el.checked;
-  }).map(function(s) { return s.toUpperCase(); });
-}
-function getActiveStatuses() {
-  return ['approved','scouted','pending','identified'].filter(function(s) {
-    var el = document.getElementById('f-' + s); return el && el.checked;
-  });
-}
-function zoneFilterActive() {
-  var el = document.getElementById('f-zone');
-  return el && el.checked;
-}
-function locPassesGlobalFilter(l) {
-  var states = getActiveStates(), statuses = getActiveStatuses();
-  if (states.length && l.state_code && states.indexOf((l.state_code||'').toUpperCase()) < 0) return false;
-  if (statuses.length && statuses.indexOf(l.status) < 0) return false;
-  if (zoneFilterActive() && hasCoords(l) && miles(l.lat, l.lng) > 30) return false;
-  return true;
-}
-
-function buildAllowedAlbumKeys() {
-  var anyUnchecked = Object.values(filterState).some(function(v) { return !v; });
-  if (!anyUnchecked) return null; // all checked = no filter needed
-  var allowed = new Set();
-  mapAlbums.forEach(function(a) {
-    var parts = (a.web_url||'').replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
-    var cat = parts[1]||'', area = parts[2]||'';
-    var aKey = 'area:' + cat + '/' + area, cKey = 'cat:' + cat;
-    var ok = filterState.hasOwnProperty(aKey) ? filterState[aKey] : (filterState.hasOwnProperty(cKey) ? filterState[cKey] : true);
-    if (ok) allowed.add(a.sm_key);
-  });
-  return allowed;
-}
-
-function getFiltered() {
-  var zoneOnly = zoneFilterActive(); // only checkbox controls pin/library filtering
-  var allowed = buildAllowedAlbumKeys();
-  return locations.filter(function(l) {
-    if (!hasCoords(l)) return false;
-    if (!locPassesGlobalFilter(l)) return false;
-    if (zoneOnly && miles(l.lat, l.lng) > 30) return false;
-    if (allowed && l.smugmug_album_key && !allowed.has(l.smugmug_album_key)) return false;
-    return true;
-  });
-}
-
-function applyFilters() {
-  saveFilterSettings();
-  if (gmap) refreshPins();
-  // In library: re-render at current position, don't reset to root
-  if (document.getElementById('library-page').classList.contains('active')) {
-    libRender();
-  }
-}
-
-// ── Pins ──
-function makeIcon(col, scale, stroke, opacity, sw) {
-  return {path:google.maps.SymbolPath.CIRCLE, scale:scale||8, fillColor:col, fillOpacity:opacity||.9, strokeColor:stroke||'rgba(0,0,0,.5)', strokeWeight:sw||1.5};
-}
-
-function refreshPins() {
-  if (!gmap) return;
-  highlightedCat = null; selectedAreas = new Set();
-  var filtered = getFiltered();
-  var filteredIds = new Set(filtered.map(function(l){return l.id;}));
-
-  // Clear clusterer and unmap all markers before rebuild
-  if (clusterer) { clusterer.clearMarkers(); }
-  markerPool.forEach(function(m) { m.setMap(null); });
-
-  filtered.forEach(function(loc) {
-    var col = pinColorForLoc(loc);
-    var visible = col !== null;
-    if (markerPool.has(loc.id)) {
-      var m = markerPool.get(loc.id);
-      m._col = col || '#888680';
-      m.setIcon(makeIcon(m._col));
-      // icon updated above, map assignment handled after
-    } else {
-      var finalCol = col || '#888680';
-      var m = new google.maps.Marker({
-        position: {lat:Number(loc.lat), lng:Number(loc.lng)},
-        title: loc.name,
-        icon: makeIcon(finalCol),
-        zIndex: 1
-      });
-      m._loc = loc; m._col = finalCol;
-      (function(location) {
-        m.addListener('mouseover', function(e) { currentHoverLoc=location; showHcard(location,e.domEvent); });
-        m.addListener('mouseout', function() { setTimeout(function(){var h=document.getElementById('hcard');if(!h.matches(':hover'))h.classList.remove('show');},180); });
-        m.addListener('mousemove', function(e) { posHcard(e.domEvent); });
-        m.addListener('click', function() { currentHoverLoc=location; openDetail(location); });
-      })(loc);
-      markerPool.set(loc.id, m);
-    }
-  });
-
-  // Collect visible markers for clusterer
-  markers = [];
-  filtered.forEach(function(loc) {
-    var m = markerPool.get(loc.id);
-    if (m && pinColorForLoc(loc) !== null) markers.push(m);
-  });
-
-  // Use MarkerClusterer if available, else direct
-  if (window.markerClusterer && window.markerClusterer.MarkerClusterer) {
-    if (clusterer) {
-      clusterer.clearMarkers();
-      clusterer.addMarkers(markers);
-    } else {
-      clusterer = new markerClusterer.MarkerClusterer({
-        map: gmap,
-        markers: markers,
-        algorithm: new markerClusterer.SuperClusterAlgorithm({maxZoom: 13, radius: 80}),
-        renderer: {
-          render: function(cluster, stats) {
-            var count = cluster.count;
-            // Determine cluster color — find dominant colored category
-            var clusterColor = null;
-            var catCounts = {};
-            if (cluster.markers) {
-              cluster.markers.forEach(function(m) {
-                if (m._loc) {
-                  var cat = getCatForLoc(m._loc);
-                  if (cat && catPinColors[cat]) {
-                    catCounts[cat] = (catCounts[cat] || 0) + 1;
-                  }
-                }
-              });
-            }
-            // If any colored category present, use the most common one
-            var topCat = null, topCount = 0;
-            Object.keys(catCounts).forEach(function(cat) {
-              if (catCounts[cat] > topCount) { topCount = catCounts[cat]; topCat = cat; }
-            });
-            if (topCat) clusterColor = catPinColors[topCat];
-            var fill = clusterColor ? clusterColor + '22' : '#1c1e22';
-            var stroke = clusterColor ? clusterColor : 'rgba(255,255,255,0.12)';
-            var text = clusterColor ? clusterColor : '#e6e4de';
-            var size = count > 99 ? 48 : count > 9 ? 42 : 36;
-            var r = size / 2;
-            var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '">' +
-              '<circle cx="' + r + '" cy="' + r + '" r="' + (r-2) + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"/>' +
-              '<text x="' + r + '" y="' + (r+4) + '" text-anchor="middle" font-family="DM Mono,monospace" font-size="11" fill="' + text + '">' + count + '</text>' +
-              '</svg>';
-            var cm = new google.maps.Marker({
-              position: cluster.position,
-              icon: {
-                url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-                scaledSize: new google.maps.Size(size, size),
-                anchor: new google.maps.Point(r, r)
-              },
-              zIndex: 900 + count
-            });
-
-            return cm;
-          }
-        }
-      });
-    }
-  } else {
-    markers.forEach(function(m) { m.setMap(gmap); });
-  }
-
-  var pc = document.getElementById('pin-count'); if (pc) pc.textContent = markers.length;
-  if (zoneOn) drawZone();
-
-}
-
-function highlightPin(loc) {
-  // Remove selection overlay
-  if (selectionOverlay) { selectionOverlay.setMap(null); selectionOverlay = null; }
-  if (selectedMarker) { selectedMarker._selected = false; selectedMarker = null; }
-  if (!loc) return;
-
-  var m = markerPool.get(loc.id);
-  if (!m) return;
-  m._selected = true;
-  selectedMarker = m;
-
-  // Create a separate marker as the selection indicator — never touches the clusterer
-  selectionOverlay = new google.maps.Marker({
-    position: m.getPosition(),
-    map: gmap,
-    icon: {
-      path: google.maps.SymbolPath.CIRCLE,
-      scale: 15,
-      fillColor: m._col,
-      fillOpacity: 1,
-      strokeColor: '#ffffff',
-      strokeWeight: 3
-    },
-    zIndex: 1000,
-    clickable: true,
-    title: loc.name
-  });
-  // Clicking overlay opens detail (or closes if already open)
-  selectionOverlay.addListener('click', function() {
-    openDetail(loc);
-  });
-}
-
-
-function panToVisible(loc) {
-  if (!gmap || !hasCoords(loc)) return;
-  var lat = Number(loc.lat), lng = Number(loc.lng);
-
-  // Measure the actual visible map area
-  var mapWrap = document.getElementById('map-wrap');
-  var leftPanel = document.getElementById('left-panel');
-  var dp = document.getElementById('detail-panel');
-
-  var mapLeft = leftPanel ? leftPanel.offsetWidth : 0;
-  var mapRight = dp && dp.classList.contains('open') ? dp.offsetWidth : 0;
-  var mapTotalW = mapWrap ? mapWrap.offsetWidth : window.innerWidth;
-
-  // Visible map width and its center in pixels from left edge of map-wrap
-  var visibleW = mapTotalW - mapRight;
-  var visibleCenterX = mapLeft + (visibleW - mapLeft) / 2;
-
-  // Pixel offset from true map center to visible center
-  // positive = shift map right (pin moves left toward visible center)
-  var mapCenterX = mapTotalW / 2;
-  var offsetPx = visibleCenterX - mapCenterX;
-
-  var targetZoom = Math.max(gmap.getZoom(), 14);
-  gmap.setZoom(targetZoom);
-
-  // Convert pixel offset to lng degrees at target zoom
-  var scale = Math.pow(2, targetZoom);
-  var lngOffset = offsetPx * 360 / (256 * scale);
-  gmap.panTo({lat: lat, lng: lng - lngOffset});
-}
-
-// ── Hover card ──
-function showHcard(loc, ev) {
-  currentHoverLoc = loc;
-  document.getElementById('hcard-name').textContent = loc.name.replace(/[\s*]*pending[\s*]*/gi,'').trim();
-  var cat = getCatForLoc(loc);
-  var col = cat ? catColorByKey(cat) : SL[loc.status]?.c || '#888';
-  document.getElementById('hcard-cat-dot').style.background = col;
-  document.getElementById('hcard-cat').textContent = cat ? cat.replace(/-/g,' ') : '';
-  document.getElementById('hcard-addr').textContent = [loc.city, loc.state_code].filter(Boolean).join(', ') || '';
-  var sl = SL[loc.status] || SL.identified;
-  document.getElementById('hcard-status').innerHTML = '<span style="color:'+sl.c+'">'+loc.status+'</span>';
-  var hm = document.getElementById('hcard-media');
-  if (loc.cover_photo_url) {
-    var hi = document.createElement('img');
-    hi.className = 'hcard-img'; hi.src = smMedium(loc.cover_photo_url); hi.loading = 'lazy';
-    hi.onclick = function() { openDetail(currentHoverLoc); };
-    hi.onerror = function() { hm.innerHTML = '<div class="hcard-ph">no photo</div>'; };
-    hm.innerHTML = ''; hm.appendChild(hi);
-  } else { hm.innerHTML = '<div class="hcard-ph">no photo</div>'; }
-  document.getElementById('hcard').classList.add('show');
-  posHcard(ev);
-}
-function posHcard(ev) {
-  var r = document.getElementById('map-wrap').getBoundingClientRect();
-  var h = document.getElementById('hcard');
-  var x = ev.clientX - r.left + 16, y = ev.clientY - r.top - 80;
-  if (x + 310 > r.width) x = ev.clientX - r.left - 316;
-  if (y < 0) y = 8;
-  if (y + 260 > r.height - 100) y = r.height - 360;
-  h.style.left = x + 'px'; h.style.top = y + 'px';
-}
-document.getElementById('hcard').addEventListener('mouseleave', function() {
-  document.getElementById('hcard').classList.remove('show');
-});
-
-// ── Detail Panel ──
-function openDetail(loc) {
-  if (!loc) return;
-  // Push nav history before changing selection
-  if (currentDetailLoc !== loc) pushNav();
-  currentDetailLoc = loc;
-  document.getElementById('hcard').classList.remove('show');
-  document.body.focus();
-
-  // Header
-  var displayName = loc.name.replace(/[\s*]*pending[\s*]*/gi,'').trim();
-  document.getElementById('dp-name').textContent = displayName;
-  var cat = getCatForLoc(loc);
-  var col = cat ? catColorByKey(cat) : '';
-  var pill = document.getElementById('dp-cat-pill');
-  if (cat) {
-    pill.textContent = cat.replace(/-/g,' ');
-    pill.style.background = col + '22';
-    pill.style.color = col;
-    pill.style.display = '';
-  } else { pill.style.display = 'none'; }
-  var zb = document.getElementById('dp-zone-badge');
-  zb.textContent = hasCoords(loc) && miles(loc.lat, loc.lng) <= 30 ? '· in zone' : '';
-  zb.style.color = 'var(--green)';
-
-  // Images
-  dpImages = loc.cover_photo_url ? [loc.cover_photo_url] : [];
-  dpIndex = 0;
-  dpUpdateViewer();
-
-  // Body
-  var sl = SL[loc.status] || SL.identified;
-  var html = '<div class="dp-status-row">';
-  html += '<span class="dp-badge" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span>';
-  html += '</div>';
-  var mapsUrl = '';
-  if (loc.address || loc.city) {
-    // Build clean address parts — avoid duplication if city is embedded in address
-    var addrPart = (loc.address || '').trim();
-    var cityPart = (loc.city || '').trim();
-    var statePart = (loc.state_code || '').trim();
-    // Don't repeat city if already in address
-    var cityLower = cityPart.toLowerCase();
-    var addrLower = addrPart.toLowerCase();
-    if (cityPart && addrLower.indexOf(cityLower) >= 0) cityPart = '';
-    var mapsQ = encodeURIComponent([addrPart, cityPart, statePart].filter(Boolean).join(' '));
-    mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + mapsQ;
-    html += '<div class="dp-section">';
-    html += '<div class="dp-label">Address</div>';
-    html += '<div class="dp-val" style="line-height:1.8">';
-    html += '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none;border-bottom:1px solid var(--border2)">';
-    if (addrPart) html += addrPart;
-    var cityState = [loc.city, statePart].filter(Boolean).join(', ');
-    if (addrPart && cityState) html += '<br>';
-    if (cityState) html += cityState;
-    html += '</a></div></div>';
-  }
-  var notesHtml = formatNotes(loc.notes, loc, mapsUrl);
-  if (notesHtml) {
-    html += '<div class="dp-section">';
-    html += '<div class="dp-notes">'+notesHtml+'</div></div>';
-  }
-  if (loc.tags && loc.tags.length) {
-    html += '<div class="dp-section"><div class="dp-label">Tags</div><div class="dp-tags">';
-    loc.tags.forEach(function(t) { html += '<span class="dp-tag">'+t+'</span>'; });
-    html += '</div></div>';
-  }
-  if (loc.scout_name || loc.scout_date) {
-    html += '<div class="dp-section"><div class="dp-label">Scouted by</div>';
-    html += '<div class="dp-val">'+(loc.scout_name||'')+(loc.scout_date?' · '+loc.scout_date:'')+'</div></div>';
-  }
-  html += '<div class="dp-actions">';
-  html += '<button class="dp-btn" onclick="openEditPanel(currentDetailLoc)">✏ Edit</button>';
-  if (loc.notes) html += '<button class="dp-btn" onclick="showRawNotes(currentDetailLoc)">raw notes</button>';
-  html += '</div>';
-  document.getElementById('dp-body').innerHTML = html;
-
-  document.getElementById('detail-panel').classList.add('open');
-  document.getElementById('dp-scroll').scrollTop = 0;
-  if (document.getElementById('home-page').classList.contains('active')) {
-    highlightPin(loc);
-    // Wait for detail panel CSS transition (280ms) before panning
-    // so we know the panel width and can offset correctly
-    setTimeout(function() { panToVisible(loc); }, 300);
-  }
-  loadDetailGallery(loc);
-}
-
-function dpUpdateViewer() {
-  var img = document.getElementById('dp-viewer-img');
-  var ph  = document.getElementById('dp-viewer-ph');
-  var prev = document.getElementById('dp-prev');
-  var next = document.getElementById('dp-next');
-  var ctr  = document.getElementById('dp-counter');
-  var hint = document.getElementById('dp-hint');
-  var none = !dpImages.length;
-  ph.style.display  = none ? 'flex' : 'none';
-  img.style.display = none ? 'none' : 'block';
-  if (!none) img.src = smLarge(dpImages[dpIndex]);
-  var multi = dpImages.length > 1;
-  prev.style.display = multi ? 'block' : 'none';
-  next.style.display = multi ? 'block' : 'none';
-  ctr.style.display  = multi ? 'block' : 'none';
-  hint.style.display = (!none) ? 'block' : 'none';
-  if (multi) { ctr.textContent = (dpIndex+1) + ' / ' + dpImages.length; }
-  // Set up arrow hold-to-skip
-  setupArrowHold(prev, -1);
-  setupArrowHold(next, 1);
-}
-
-var dpHoldTimer = null, dpHoldInterval = null;
-function setupArrowHold(btn, dir) {
-  btn.onmousedown = function() {
-    dpNav(dir);
-    dpHoldTimer = setTimeout(function() {
-      dpHoldInterval = setInterval(function() { dpNav(dir * 10); }, 667);
-    }, 1500);
-  };
-  btn.onmouseup = btn.onmouseleave = function() {
-    clearTimeout(dpHoldTimer); clearInterval(dpHoldInterval);
-  };
-}
-
-function togglePhotoJump() {
-  var jump = document.getElementById('dp-photo-jump');
-  if (jump.style.display !== 'none') { jump.style.display='none'; return; }
-  jump.innerHTML = '';
-  var total = dpImages.length;
-  for (var i = 0; i < total; i += 10) {
-    (function(idx) {
-      var btn = document.createElement('button');
-      btn.textContent = (idx+1) + (idx+9 < total ? '–'+(Math.min(idx+10,total)) : '');
-      btn.style.cssText = "display:block;width:100%;padding:6px 16px;background:none;border:none;border-bottom:1px solid var(--border);color:var(--text2);font-size:11px;font-family:'DM Mono',monospace;cursor:pointer;text-align:left";
-      btn.onmouseenter = function(){ this.style.background='var(--bg3)'; };
-      btn.onmouseleave = function(){ this.style.background='none'; };
-      btn.onclick = function() {
-        dpIndex = idx;
-        dpUpdateViewer();
-        jump.style.display = 'none';
-      };
-      jump.appendChild(btn);
-    })(i);
-  }
-  jump.style.display = 'block';
-}
-
-function dpNav(dir) {
-  if (!dpImages.length) return;
-  dpIndex = (dpIndex + dir + dpImages.length) % dpImages.length;
-  dpUpdateViewer();
-}
-
-function closeDetail() {
-  document.getElementById('detail-panel').classList.remove('open');
-  currentDetailLoc = null;
-  if (selectionOverlay) { selectionOverlay.setMap(null); selectionOverlay = null; }
-  if (selectedMarker) { selectedMarker._selected = false; selectedMarker = null; }
-}
-
-async function loadDetailGallery(loc) {
-  if (!loc.smugmug_album_key) return;
-  var savedLoc = loc;
-  try {
-    var imgs = await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url');
-    // Only update if this loc is still current
-    if (currentDetailLoc !== savedLoc) return;
-    if (!imgs || !imgs.length) return;
-    var thumbs = imgs.map(function(i) { return i.thumb_url; }).filter(Boolean);
-    var cover = loc.cover_photo_url;
-    // Merge: cover first, then thumbs (excluding any that duplicate cover)
-    dpImages = cover ? [cover].concat(thumbs.filter(function(t) { return t !== cover; })) : thumbs;
-    // Don't reset dpIndex — keep user's current position
-    dpUpdateViewer();
-  } catch(e) { console.error('gallery:', e); }
-}
-
-function formatNotes(raw, loc, mapsUrl) {
-  if (!raw) return '';
-
-  // ── Normalize ──
-  raw = raw.replace(/\[([^\]]+)\]\(mailto:([^)]+)\)/g, '$2');
-  raw = raw.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
-  raw = raw.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-  raw = raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
-
-  var locName = ((loc && loc.name) ? loc.name : '').toLowerCase().trim();
-  var locCity = ((loc && loc.city) ? loc.city : '').toLowerCase().trim();
-
-  // ── Regexes ──
-  var PHONE = /\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/;
-  var EMAIL = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
-  var CITY  = /^[A-Za-z][A-Za-z\s.]+,\s*[A-Z]{2}(\s+\d{5})?$/;
-  var CROSS = /^\(.*(?:Btw|btw|@\s|Across|Between|Entrance|Corner)/i;
-  var BULLET= /^[-\u2022\u2013\u2022]\s|^\u2022/;
-  var CMARK = /^C\d*\s*:/i;
-  var NOTESHDR = /^notes?\s*:?\s*$/i;
-  var HOFFMAN = /^J\.?\s*Hoffman/i;
-  var DATE  = /^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}$/;
-  var STREET= /^\d[\d\-]*\s+\w/;
-  var AREA  = /^(manhattan|brooklyn|queens|bronx|the bronx|staten island|jersey city|hoboken|newark|yonkers|nyc|new york|nolita|soho|tribeca|midtown|harlem|pleasantville|mt kisco|white plains|tarrytown|nyack|malverne|bayside|midtown east|downtown|greenpoint|williamsburg|astoria|flushing|park slope|cobble hill|red hook|forest hills|kew gardens|city island|riverdale|new rochelle|mount vernon|new city|spring valley|valley stream|hempstead|garden city|great neck|port washington|long island city|jackson heights|upper west|upper east|chelsea|gramercy|flatiron|financial district|lower east side|east village|west village|meatpacking|washington heights|inwood)/i;
-
-  function isTitleLine(s) {
-    var sc = s.replace(/\s*\*[^*]*\*\s*/g,' ').trim();
-    var ll = sc.toLowerCase();
-    if (locName && ll === locName && !(STREET.test(sc) && sc.indexOf(' - ') < 0)) return true;
-    if (sc.indexOf(' - ') >= 0) {
-      var before = sc.split(' - ')[0].trim();
-      var after  = sc.split(' - ').slice(1).join(' - ').replace(/\s*\*.*$/,'').trim().toLowerCase();
-      if (!/^\d/.test(before)) return true;
-      if (AREA.test(after)) return true;
-    }
-    return false;
-  }
-  function wordset(s) {
-    var ws = {};
-    s.toLowerCase().replace(/\s*[-\u2013].*$/,'').split(/\s+/).forEach(function(w){ if(w) ws[w]=1; });
-    return ws;
-  }
-  function isBrandDup(l, tw) {
-    if (!Object.keys(tw).length || STREET.test(l)) return false;
-    var extras = {the:1,a:1,'&':1,and:1,of:1,at:1};
-    var lw = l.toLowerCase().split(/\s+/);
-    return lw.length > 0 && lw.every(function(w){ return tw[w] || extras[w]; });
-  }
-
-  // ── Inject breaks for collapsed text ──
-  function inject(s) {
-    s = s.replace(/([a-zA-Z0-9.,])\s*(C\d*\s*:)\s/g, '$1\n$2 ');
-    s = s.replace(/\s*(Notes\s*:)\s*/g, '\nNotes:\n');
-    s = s.replace(/([a-zA-Z.,])\s*(J\.?\s*Hoffman)/g, '$1\nJ. Hoffman');
-    s = s.replace(/(\w)\s*\((Btw|btw|@\s*[A-Za-z]|Across|Between|Entrance|Corner)/g, '$1\n($2');
-    s = s.replace(/\)\s+([A-Z][a-zA-Z]+,)/g, ')\n$1');
-    s = s.replace(/(\d{5})\s*([A-Za-z])/g, '$1\n$2');
-    s = s.replace(/\(([oc])\)\s*\((\d{3})\)/gi, '($1)\n($2)');
-    s = s.replace(/\(([oc])\)\s+([A-Z])/gi, '($1)\n$2');
-    s = s.replace(/([a-zA-Z\)])\s+([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/g, '$1\n$2');
-    s = s.replace(/\)([a-zA-Z0-9._%+\-]+@)/g, ')\n$1');
-    s = s.replace(/(\.[a-zA-Z]{2,4})\s*(\(?\d{3}[\).\s\-])/g, '$1\n$2');
-    s = s.replace(/(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})\s*([A-Za-z])/g, '$1\n$2');
-    s = s.replace(/(\d{4})\s+(C\d*\s*:)/g, '$1\n$2');
-    s = s.replace(/([a-zA-Z.,;!?])\s+\-([A-Z])/g, '$1\n-$2');
-    s = s.replace(/\.\s*\-([a-zA-Z])/g, '.\n-$1');
-    return s;
-  }
-  function mergePhones(lines) {
-    var out = [], i = 0;
-    while (i < lines.length) {
-      var l = lines[i].trim();
-      if (/^\(\d{3}\)$/.test(l) && i+1 < lines.length && /^\d{3}[-.\s]\d{4}/.test(lines[i+1].trim())) {
-        out.push(l + ' ' + lines[i+1].trim()); i += 2; continue;
-      }
-      out.push(l); i++;
-    }
-    return out;
-  }
-
-  raw = inject(raw);
-  var lines = mergePhones(raw.split('\n'));
-
-  var out = {title:[],addr:[],cross:[],contacts:[],notes:[],
-             italic:[],date:'',hoffman:'',pending:false};
-  var titleWords = {}, titleEnd = 0;
-
-  // ── Pass 1: find title lines ──
-  for (var i = 0; i < lines.length; i++) {
-    var l = lines[i].trim();
-    if (/pending/i.test(l)) l = l.replace(/[\s*]*pending[\s*]*/gi,'').trim();
-    if (!l) continue;
-    var ls = l.replace(/^\*+|\*+$/g,'').trim();
-    if (!ls) continue;
-    if (CMARK.test(ls) || NOTESHDR.test(ls) || HOFFMAN.test(ls) ||
-        BULLET.test(ls) || CITY.test(ls) || CROSS.test(ls) ||
-        PHONE.test(ls) || EMAIL.test(ls)) break;
-    if (STREET.test(ls) && !isTitleLine(ls)) break;  // pure street = addr started
-    if (isTitleLine(ls)) {
-      out.title.push(ls); titleWords = wordset(ls); titleEnd = i+1;
-    } else if (out.title.length && isBrandDup(ls, titleWords)) {
-      out.title.push(ls); titleEnd = i+1;
-    } else if (!out.title.length) {
-      out.title.push(ls); titleWords = wordset(ls); titleEnd = i+1;
-    } else { break; }
-  }
-
-  // ── Pass 2: addr / contact / notes / footer ──
-  var cur = null, state = 'addr';
-  for (var j = 0; j < lines.length; j++) {
-    var l = lines[j].trim();
-    if (/pending/i.test(l)) { out.pending=true; l=l.replace(/[\s*]*pending[\s*]*/gi,'').trim(); }
-    if (!l) continue;
-    if (/^\*[^*]+\*$/.test(l)) { out.italic.push(l.replace(/^\*|\*$/g,'')); continue; }
-    l = l.replace(/^\*+/,'').trim();
-    if (!l || j < titleEnd) continue;
-
-    if (HOFFMAN.test(l)) {
-      if (cur) { out.contacts.push(cur); cur=null; }
-      out.hoffman = l; state='footer'; continue;
-    }
-    if (DATE.test(l)) { out.date = l; continue; }
-    if (NOTESHDR.test(l)) {
-      if (cur) { out.contacts.push(cur); cur=null; }
-      state='notes'; continue;
-    }
-    if (CMARK.test(l)) {
-      if (cur) out.contacts.push(cur);
-      var name = l.replace(/^C\d*\s*:\s*/i,'');
-      var phones=[], emails=[];
-      var pm = PHONE.exec(name);
-      if (pm && pm.index > 0) { phones.push(name.slice(pm.index).trim()); name=name.slice(0,pm.index).trim(); }
-      var em = EMAIL.exec(name);
-      if (em && em.index > 0) { emails.push(em[0]); name=name.slice(0,em.index).trim(); }
-      cur={name:name,phones:phones,emails:emails}; state='contact'; continue;
-    }
-
-    if (state==='footer') continue;
-    if (state==='notes') { out.notes.push(l); continue; }
-    if (state==='contact' && cur) {
-      var em2 = EMAIL.exec(l);
-      if (em2) { cur.emails.push(em2[0]); continue; }
-      if (PHONE.test(l)) { cur.phones.push(l); continue; }
-      if (!cur.phones.length && !cur.emails.length &&
-          !CITY.test(l) && !CROSS.test(l) && !BULLET.test(l)) {
-        cur.name += '\n'+l; continue;
-      }
-      out.contacts.push(cur); cur=null; state='addr';
-    }
-
-    // Addr state
-    if (BULLET.test(l) || l.charAt(0)==='\u2022') {
-      if (cur) { out.contacts.push(cur); cur=null; }
-      out.notes.push(l); state='notes'; continue;
-    }
-    if (CROSS.test(l)) { out.cross.push(l); continue; }
-    if (CITY.test(l.trim())) {
-      var cp = l.split(',')[0].trim().toLowerCase();
-      if (!(locCity && cp===locCity)) out.addr.push(l);
-      continue;
-    }
-    if (isBrandDup(l, titleWords)) { out.title.push(l); continue; }
-    out.addr.push(l);
-  }
-  if (cur) out.contacts.push(cur);
-
-  // ── Render ──
-  var S = {
-    italic: 'font-size:11px;color:var(--accent);font-style:italic;display:block;margin-bottom:6px',
-    cross:  'font-size:11px;color:var(--text3);font-style:italic;display:block;margin-top:2px',
-    sec:    'border-top:1px solid var(--border);padding-top:8px;margin-top:8px',
-    lbl:    'font-size:8px;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px',
-    cName:  'font-size:12px;font-weight:500;color:var(--text);white-space:pre-line',
-    cInfo:  'font-size:11px;color:var(--text2)',
-    cEmail: 'font-size:11px;color:var(--accent);text-decoration:none',
-    bullet: 'font-size:12px;color:var(--text2);padding-left:10px;margin-bottom:2px',
-    prose:  'font-size:12px;color:var(--text2);margin-bottom:2px',
-    foot:   "font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:10px"
-  };
-  var html = '';
-
-  out.italic.forEach(function(l){ html += '<span style="'+S.italic+'">'+l+'</span>'; });
-
-  if (out.cross.length) {
-    out.cross.forEach(function(l){ html += '<span style="'+S.cross+'">'+l+'</span>'; });
-  }
-
-  if (out.contacts.length) {
-    html += '<div style="'+S.sec+'">';
-    html += '<div style="'+S.lbl+'">Contact</div>';
-    out.contacts.forEach(function(c, ci) {
-      if (ci>0) html += '<div style="height:6px"></div>';
-      html += '<div style="'+S.cName+'">'+c.name+'</div>';
-      c.phones.forEach(function(p){ html += '<div style="'+S.cInfo+'">'+p+'</div>'; });
-      c.emails.forEach(function(e){
-        html += '<a href="mailto:'+e+'" style="'+S.cEmail+'">'+e+'</a>';
-      });
-    });
-    html += '</div>';
-  }
-
-  if (out.notes.length) {
-    html += '<div style="'+S.sec+'">';
-    html += '<div style="'+S.lbl+'">Notes</div>';
-    var inUpdate = false;
-    out.notes.forEach(function(l){
-      if (!l) return;
-      if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}/.test(l) || /^update[:\s]/i.test(l)) {
-        var ud = l.replace(/^update[:\s]*/i,'').trim();
-        html += '<div style="margin-top:10px;margin-bottom:4px;display:flex;align-items:center;gap:8px">';
-        html += '<span style="font-size:9px;letter-spacing:.1em;color:var(--amber);font-family:\'DM Mono\',monospace;text-transform:uppercase;border:1px solid var(--amber);padding:1px 7px;border-radius:3px">UPDATE</span>';
-        if (ud) html += '<span style="font-size:10px;color:var(--text3);font-family:\'DM Mono\',monospace">'+ud+'</span>';
-        html += '</div>';
-        inUpdate = true; return;
-      }
-      var bc = inUpdate ? ';color:var(--amber)' : '';
-      if (/^[-\u2022\u2013]\s*/.test(l) || l.charAt(0)==='\u2022')
-        html += '<div style="'+S.bullet+bc+'">&bull; '+l.replace(/^[-\u2022\u2013]\s*/,'')+'</div>';
-      else
-        html += '<div style="'+S.prose+'">'+l+'</div>';
-    });
-    html += '</div>';
-  }
-
-  if (out.hoffman || out.date) {
-    html += '<div style="'+S.foot+'">';
-    html += out.hoffman && out.date
-      ? out.hoffman+' &nbsp;&middot;&nbsp; '+out.date
-      : (out.hoffman||out.date);
-    html += '</div>';
-  }
-
-  return html || '';
-}
-
-
-// ── Edit Panel ──
-var editingLoc = null;
-
-function openEditPanel(loc) {
-  if (!loc) return;
-  editingLoc = loc;
-  document.getElementById('edit-name').value = loc.name || '';
-  document.getElementById('edit-address').value = loc.address || '';
-  document.getElementById('edit-city').value = loc.city || '';
-  document.getElementById('edit-notes').value = loc.notes || '';
-  document.getElementById('edit-panel').style.display = 'flex';
-}
-
-function closeEditPanel() {
-  document.getElementById('edit-panel').style.display = 'none';
-  editingLoc = null;
-}
-
-async function saveEdit() {
-  if (!editingLoc) return;
-  var btn = document.getElementById('edit-save-btn');
-  btn.textContent = 'Saving...'; btn.disabled = true;
-  var updates = {
-    name:           document.getElementById('edit-name').value.trim(),
-    address:        document.getElementById('edit-address').value.trim(),
-    city:           document.getElementById('edit-city').value.trim(),
-    notes:          document.getElementById('edit-notes').value,
-    notes_override: true
-  };
-  try {
-    await fetch(SB_URL+'/rest/v1/locations?id=eq.'+editingLoc.id, {
-      method:'PATCH',
-      headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
-      body:JSON.stringify(updates)
-    });
-    Object.assign(editingLoc, updates);
-    try {
-      var cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY)||'null');
-      if (cached && cached.data) {
-        var li = cached.data.findIndex(function(l){return l.id===editingLoc.id;});
-        if (li>=0) Object.assign(cached.data[li], updates);
-        localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
-      }
-    } catch(e) {}
-    closeEditPanel();
-    openDetail(editingLoc);
-    toast('Saved','ok');
-  } catch(e) { toast('Save failed: '+e.message,'err'); }
-  btn.textContent = 'Save'; btn.disabled = false;
-}
-
-function showRawNotes(loc) {
-  if (!loc) return;
-  document.getElementById('raw-notes-content').textContent = loc.notes || '(no notes)';
-  document.getElementById('raw-notes-modal').style.display = 'flex';
-}
-
-// ── Lightbox ──
-function openLightbox(url) {
-  document.getElementById('lb-img').src = smXL(url);
-  document.getElementById('lightbox').classList.add('open');
-  updateLbCounter();
-}
-function closeLightbox() {
-  document.getElementById('lightbox').classList.remove('open');
-  document.getElementById('lb-img').src = '';
-}
-function updateLbCounter() {
-  var el = document.getElementById('lb-counter');
-  if (dpImages.length > 1) el.textContent = (dpIndex+1) + ' / ' + dpImages.length;
-  else el.textContent = '';
-}
-
-// ── Zone ──
-function toggleZone() {
-  zoneOn = !zoneOn;
-  document.getElementById('zone-btn').classList.toggle('on', zoneOn);
-  if (zoneOn) drawZone(); else if (zoneCircle) { zoneCircle.setMap(null); zoneCircle = null; }
-  // Red button only shows/hides the visual circle — does NOT affect pins or library
-}
-var satOn = false;
-function toggleSatellite() {
-  satOn = !satOn;
-  var btn = document.getElementById('sat-btn');
-  if (satOn) {
-    gmap.setMapTypeId('hybrid');
-    btn.style.borderColor = 'var(--accent2)';
-    btn.style.color = 'var(--accent)';
-    btn.style.background = 'var(--accentd)';
-  } else {
-    gmap.setMapTypeId('roadmap');
-    btn.style.borderColor = 'var(--border2)';
-    btn.style.color = 'var(--text2)';
-    btn.style.background = 'rgba(0,0,0,.5)';
-  }
-}
-function drawZone() {
-  if (!gmap) return;
-  if (zoneCircle) zoneCircle.setMap(null);
-  zoneCircle = new google.maps.Circle({map:gmap,center:COLUMBUS,radius:ZONE_M,strokeColor:'#c26060',strokeOpacity:.6,strokeWeight:1.5,fillColor:'#c26060',fillOpacity:.03,clickable:false});
-}
-
-// ── SmugMug Dock ──
-function toggleDock() {
-  dockOpen = !dockOpen;
-  var da = document.getElementById('dock-actions');
-  da.style.display = dockOpen ? 'flex' : 'none';
-  posNavStatus();
-}
-function posNavStatus() {
-  var nr = document.getElementById('nav-right');
-  var ns = document.getElementById('nav-status');
-  if (!nr || !ns) return;
-  var nrRect = nr.getBoundingClientRect();
-  // Status ends 12px before left edge of nav-right
-  ns.style.right = (window.innerWidth - nrRect.left + 12) + 'px';
-  ns.style.maxWidth = Math.max(60, nrRect.left - 220) + 'px';
-}
-function closeDock() { dockOpen = false; document.getElementById('dock-actions').style.display='none'; }
-
-function signOutSmugMug() {
-  if (!confirm('Sign out of SmugMug? You can reconnect anytime to re-sync.')) return;
-  smTokens = null;
-  localStorage.removeItem('sm_tokens');
-  updateAuthUI(false);
-  closeDock();
-  toast('Signed out of SmugMug', 'inf');
-}
-
-function checkAuth() {
-  var hash = window.location.hash;
-  if (hash.indexOf('sm_auth=') >= 0) {
-    try {
-      smTokens = JSON.parse(decodeURIComponent(hash.split('sm_auth=')[1]));
-      localStorage.setItem('sm_tokens', JSON.stringify(smTokens));
-      window.location.hash = ''; toast('SmugMug connected!'); updateAuthUI(true); return;
-    } catch(e) {}
-  }
-  var s = localStorage.getItem('sm_tokens');
-  if (s) try { smTokens = JSON.parse(s); updateAuthUI(true); } catch(e) {}
-}
-
-function updateAuthUI(ok) {
-  var lbl = document.getElementById('dock-sm-label');
-  var btn = document.getElementById('dock-sm-btn');
-  var ab = document.getElementById('dock-auth-btn');
-  var sb = document.getElementById('dock-sync-btn');
-  var so = document.getElementById('dock-signout-btn');
-  if (ok) {
-    lbl.textContent = 'smugmug ✓'; btn.classList.remove('unconnected');
-    if(ab)ab.style.display='none'; if(sb)sb.style.display='flex'; if(so)so.style.display='flex';
-  } else {
-    lbl.textContent = 'smugmug'; btn.classList.add('unconnected');
-    if(ab)ab.style.display='flex'; if(sb)sb.style.display='none'; if(so)so.style.display='none';
-  }
-}
-
-async function checkSyncStatus() {
-  try {
-    var r = await db('sync_log?id=eq.1&select=*');
-    if (r && r[0] && r[0].last_sync) {
-      var d = new Date(r[0].last_sync);
-      var ns = document.getElementById('nav-status');
-      if (ns) ns.textContent = 'synced ' + d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' · ' + (r[0].images_count||0) + ' photos';
-    }
-  } catch(e) {}
-  setTimeout(posNavStatus, 50);
-}
-
-async function doAuth() {
-  var btn = document.getElementById('dock-auth-btn');
-  btn.textContent = 'connecting...'; btn.disabled = true;
-  try {
-    var d = await (await fetch(SM_BASE+'/api/smugmug?action=auth')).json();
-    if (d.authUrl) window.location.href = d.authUrl;
-    else throw new Error('No auth URL');
-  } catch(e) { toast('Auth failed','err'); btn.textContent='authorize ↗'; btn.disabled=false; }
-}
-
-// ── Full Sync ──
-async function startFullSync() {
-  if (!smTokens) { toast('Connect SmugMug first','err'); return; }
-  closeDock();
-  var lbl = document.getElementById('dock-sync-label');
-  var btn = document.getElementById('dock-sync-btn');
-  var ns  = document.getElementById('nav-status');
-  var tb  = btoa(JSON.stringify(smTokens));
-  lbl.textContent = '⟳ syncing...'; btn.disabled = true;
-
-  try {
-    if (ns) ns.textContent = 'crawling SmugMug...';
-    var library = (await (await fetch(SM_BASE+'/api/smugmug?action=crawl',{headers:{Authorization:'Bearer '+tb}})).json()).library;
-    var smAlbums = library.albums || [];
-    var smUrls = new Set(smAlbums.map(function(a){return a.url;}).filter(Boolean));
-    if (ns) ns.textContent = 'found ' + smAlbums.length + ' albums — syncing structure...';
-
-    // Sync structure
-    await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library:{folders:library.folders||[],albums:smAlbums,images:[]}})});
-
-    // Handle removals
-    var dbAlbums = await db('smugmug_albums?select=sm_key,name,web_url');
-    var orphaned = 0, deleted = 0;
-    for (var i = 0; i < dbAlbums.length; i++) {
-      var a = dbAlbums[i];
-      if (!a.web_url || smUrls.has(a.web_url)) continue;
-      var hasImgs = await db('smugmug_images?album_key=eq.'+a.sm_key+'&select=sm_key&limit=1');
-      if (hasImgs && hasImgs.length) {
-        await fetch(SB_URL+'/rest/v1/smugmug_albums?sm_key=eq.'+a.sm_key,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({path:'Master-Library/Orphans'})});
-        orphaned++;
-      } else {
-        await fetch(SB_URL+'/rest/v1/smugmug_albums?sm_key=eq.'+a.sm_key,{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
-        await fetch(SB_URL+'/rest/v1/locations?smugmug_album_key=eq.'+a.sm_key+'&address=is.null&notes=is.null',{method:'DELETE',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'return=minimal'}});
-        deleted++;
-      }
-    }
-    if (orphaned > 0) {
-      await fetch(SB_URL+'/rest/v1/smugmug_folders',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({sm_id:'orphans',name:'Orphans',path:'Master-Library/Orphans',synced_at:new Date().toISOString()})});
-    }
-
-    // Sync missing images
-    var allAlbums = await db('smugmug_albums?select=sm_key,name');
-    var syncedKeys = new Set((await db('smugmug_images?select=album_key')).map(function(i){return i.album_key;}));
-    var missing = allAlbums.filter(function(a){return !syncedKeys.has(a.sm_key);});
-    if (ns) ns.textContent = missing.length + ' albums need images...';
-
-    // Load checkpoint from localStorage
-    var ckptKey = 'sync_checkpoint';
-    var ckpt = {};
-    try { ckpt = JSON.parse(localStorage.getItem(ckptKey)||'{}'); } catch(e) {}
-    // Skip already completed albums from previous interrupted sync
-    var remaining = missing.filter(function(a){ return !ckpt[a.sm_key]; });
-    if (remaining.length < missing.length) {
-      toast((missing.length - remaining.length) + ' albums resumed from checkpoint', 'inf');
-    }
-
-    var imgDone = 0;
-    for (var j = 0; j < remaining.length; j++) {
-      var alb = remaining[j];
-      if (ns) ns.textContent = 'images ' + (j+1) + '/' + remaining.length + ' — ' + alb.name;
-      try {
-        // Fetch images and album description in parallel
-        var imgResp = (await (await fetch(SM_BASE+'/api/smugmug?action=album-images&albumKey='+alb.sm_key,{headers:{Authorization:'Bearer '+tb}})).json());
-        var imgs = imgResp.images || [];
-        var albDesc = imgResp.description || '';
-        if (imgs.length) {
-          await fetch(SM_BASE+'/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({library:{folders:[],albums:[],images:imgs}})});
-          var firstThumb = imgs[0] && imgs[0].thumbUrl;
-          var loc = locations.find(function(l){return l.smugmug_album_key===alb.sm_key;});
-          if (loc) {
-            var locUpdate = {};
-            if (firstThumb && !loc.cover_photo_url) {
-              locUpdate.cover_photo_url = firstThumb;
-              loc.cover_photo_url = firstThumb;
-            }
-            // Write album description to notes — unless user has manually overridden
-            if (albDesc && !loc.notes_override) {
-              locUpdate.notes = albDesc;
-              loc.notes = albDesc;
-            }
-            if (Object.keys(locUpdate).length) {
-              await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(locUpdate)});
-            }
-          }
-          imgDone++;
-        }
-        // Save checkpoint so sync can resume if interrupted
-        ckpt[alb.sm_key] = true;
-        try { localStorage.setItem(ckptKey, JSON.stringify(ckpt)); } catch(e) {}
-      } catch(e) { console.error('img:', e.message); }
-      await new Promise(function(r){setTimeout(r,150);});
-    }
-    // Clear checkpoint on successful completion
-    try { localStorage.removeItem(ckptKey); } catch(e) {}
-
-    // Second pass: fetch album descriptions for locations that already had images
-    // (skipped in the image loop above because they were in syncedKeys)
-    var noNotes = locations.filter(function(l){
-      return l.smugmug_album_key && !l.notes_override &&
-             (!l.notes || /^[•\-]/.test((l.notes||'').trim()));
-    });
-    if (noNotes.length && ns) ns.textContent = 'fetching notes for ' + noNotes.length + ' locations...';
-    for (var k = 0; k < noNotes.length; k++) {
-      var nl = noNotes[k];
-      try {
-        var aResp = await (await fetch(SM_BASE+'/api/smugmug?action=album-description&albumKey='+nl.smugmug_album_key,
-          {headers:{Authorization:'Bearer '+tb}})).json();
-        var desc = aResp.description || '';
-        if (desc && desc.trim()) {
-          await fetch(SB_URL+'/rest/v1/locations?id=eq.'+nl.id,{
-            method:'PATCH',
-            headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
-            body:JSON.stringify({notes:desc})
-          });
-          nl.notes = desc;
-        }
-      } catch(e) {}
-      await new Promise(function(r){setTimeout(r,120);});
-    }
-
-    await loadLocations(true); // force fresh after sync
-    if (gmap) refreshPins();
-    libLoaded = false;
-    checkSyncStatus();
-    var msg = 'Sync complete';
-    if (deleted) msg += ' · ' + deleted + ' removed';
-    if (orphaned) msg += ' · ' + orphaned + ' orphaned';
-    if (imgDone) msg += ' · ' + imgDone + ' new image sets';
-    toast(msg, 'ok');
-    if (ns) ns.textContent = 'synced just now';
-
-  } catch(e) {
-    toast('Sync error: ' + e.message, 'err');
-    if (ns) ns.textContent = 'sync error';
-  }
-
-  // Auto-geocode new locations
-  await autoGeocode();
-  // Refresh category data
-  mapFolders = []; mapAlbums = [];
-  await Promise.all([
-    db('smugmug_albums?select=sm_key,name,web_url').then(function(r){mapAlbums=r;}),
-    db('smugmug_folders?select=name,path&order=path.asc').then(function(r){mapFolders=r;})
-  ]);
-  buildLeftPanel();
-  lbl.textContent = '⟳ sync'; btn.disabled = false;
-}
-
-async function checkAutoSync() {
-  if (!smTokens) return;
-  try {
-    var r = await db('sync_log?id=eq.1&select=last_sync');
-    if (!r || !r[0] || !r[0].last_sync) return;
-    var hrs = (Date.now() - new Date(r[0].last_sync).getTime()) / 3600000;
-    if (hrs > 24) { document.getElementById('nav-status').textContent = 'auto-syncing...'; startFullSync(); }
-  } catch(e) {}
-}
-
-// ── Auto-geocode ──
-async function autoGeocode() {
-  var toGeo = locations.filter(function(l){return !hasCoords(l);});
-  if (!toGeo.length) return;
-  var ns = document.getElementById('nav-status');
-  for (var i = 0; i < toGeo.length; i++) {
-    var loc = toGeo[i];
-    if (ns) ns.textContent = 'geocoding ' + (i+1) + '/' + toGeo.length;
-    try {
-      var d = await (await fetch(SM_BASE+'/api/geocode?address='+encodeURIComponent((loc.geocode_query||loc.name)+' NY'))).json();
-      if (d.ok && d.lat) {
-        await fetch(SB_URL+'/rest/v1/locations?id=eq.'+loc.id,{method:'PATCH',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({lat:d.lat,lng:d.lng})});
-        loc.lat = d.lat; loc.lng = d.lng;
-      }
-    } catch(e) {}
-    await new Promise(function(r){setTimeout(r,150);});
-  }
-  if (gmap) refreshPins();
-}
-
-// ── Left Panel ──
-function buildLeftPanel() {
-  var cats = {};
-  mapFolders.forEach(function(f) {
-    if (!f.path) return;
-    var parts = f.path.split('/');
-    if (parts.length===2&&parts[0]==='Master-Library') {
-      var ck=parts[1]; if(!cats[ck])cats[ck]={name:f.name||ck.replace(/-/g,' '),areas:{}};
-    }
-    if (parts.length===3&&parts[0]==='Master-Library') {
-      var ck2=parts[1],ak=parts[2];
-      if(!cats[ck2])cats[ck2]={name:ck2.replace(/-/g,' '),areas:{}};
-      cats[ck2].areas[ak]={name:f.name||ak.replace(/-/g,' ')};
-    }
-  });
-  var body=document.getElementById('lp-body');
-  body.innerHTML='';
-  var anyColored=Object.keys(catPinColors).length>0;
-
-  Object.keys(cats).sort().forEach(function(ck){
-    var cat=cats[ck];
-    var isColored=!!catPinColors[ck];
-    var isCatOpen=highlightedCat===ck;
-    var catDiv=document.createElement('div'); catDiv.className='lp-cat';
-    var catRow=document.createElement('div'); catRow.className='lp-cat-row';
-    if(isCatOpen)catRow.style.background='var(--bg3)';
-
-    // Color dot — click = color picker
-    var dot=document.createElement('div'); dot.className='lp-col'; dot.id='lp-dot-'+ck;
-    var savedCol=savedCatColors[ck]||null;
-    dot.style.background=isColored?catPinColors[ck]:(savedCol?savedCol:'var(--border2)');
-    dot.style.borderColor=isColored?catPinColors[ck]:(savedCol?savedCol+'88':'transparent');
-    dot.style.opacity=isColored?'1':(savedCol?'0.45':'1');
-    if(isColored)dot.classList.add('active');
-    dot.title='click to assign pin color';
-    (function(catKey){
-      dot.addEventListener('click',function(e){
-        e.stopPropagation();
-        if(catPinColors[catKey]){
-          // Remove from active but remember color
-          savedCatColors[catKey]=catPinColors[catKey];
-          try{localStorage.setItem('savedCatColors',JSON.stringify(savedCatColors));}catch(e2){}
-          var next=Object.assign({},catPinColors); delete next[catKey]; setPinColors(next);
-        }else{
-          // Reactivate with saved color or open picker
-          if(savedCatColors[catKey]){
-            var next=Object.assign({},catPinColors); next[catKey]=savedCatColors[catKey]; setPinColors(next);
-          }else{
-            showColorPicker(catKey,e.clientX,e.clientY,function(color){
-              savedCatColors[catKey]=color;
-              try{localStorage.setItem('savedCatColors',JSON.stringify(savedCatColors));}catch(e2){}
-              var next=Object.assign({},catPinColors); next[catKey]=color; setPinColors(next);
-            });
-          }
-        }
-      });
-    })(ck);
-
-    // Category name — click = open/close tree + select all cat pins
-    var lbl=document.createElement('span'); lbl.className='lp-cat-name';
-    lbl.textContent=cat.name;
-    if(isColored)lbl.style.color=catPinColors[ck];
-    if(isCatOpen)lbl.classList.add('active');
-    else if(anyColored&&!isColored)lbl.classList.add('dimmed');
-
-    var hasAreas=Object.keys(cat.areas).length>0;
-    var areasDiv=document.createElement('div'); areasDiv.className='lp-areas';
-    if(isCatOpen)areasDiv.classList.add('open');
-
-    var tog=null;
-    if(hasAreas){
-      tog=document.createElement('span'); tog.className='lp-tog'; tog.textContent='›';
-      if(isCatOpen)tog.classList.add('open');
-    }
-
-    (function(catKey, arDiv, togEl){
-      lbl.addEventListener('click',function(e){
-        e.stopPropagation();
-        pushNav();
-        if(highlightedCat===catKey){
-          // Toggle off: close tree, clear selection
-          highlightedCat=null; selectedAreas=new Set();
-        }else{
-          // Close any other open cat
-          highlightedCat=catKey; selectedAreas=new Set();
-        }
-        buildLeftPanel();
-        updatePinHighlights();
-      });
-      catRow.addEventListener('click',function(e){
-        e.stopPropagation();
-        lbl.click();
-      });
-    })(ck, areasDiv, tog);
-
-    catRow.appendChild(dot); catRow.appendChild(lbl);
-    if(tog)catRow.appendChild(tog);
-    catDiv.appendChild(catRow);
-
-    if(hasAreas){
-      Object.keys(cat.areas).sort().forEach(function(ak){
-        var area=cat.areas[ak];
-        var aKey=ck+'/'+ak;
-        var isAreaSel=selectedAreas.has(aKey);
-        var aRow=document.createElement('div'); aRow.className='lp-area-row';
-        if(isAreaSel)aRow.style.background='var(--bg3)';
-
-        var adot=document.createElement('div'); adot.className='lp-area-dot';
-        adot.style.background=isColored?catPinColors[ck]:'var(--border2)';
-        if(isAreaSel){adot.classList.add('active');if(isColored)adot.style.boxShadow='0 0 5px '+catPinColors[ck];}
-
-        var albl=document.createElement('span'); albl.className='lp-area-name'; albl.textContent=area.name;
-        if(isAreaSel)albl.classList.add('active');
-
-        (function(areaKey, areaDiv){
-          function handleAreaClick(e){
-            e.stopPropagation();
-            pushNav();
-            if(selectedAreas.has(areaKey)){
-              selectedAreas.delete(areaKey);
-            }else{
-              selectedAreas.add(areaKey);
-            }
-            highlightedCat=ck; // keep parent open
-            buildLeftPanel();
-            updatePinHighlights();
-          }
-          aRow.addEventListener('click',handleAreaClick);
-        })(aKey);
-
-        aRow.appendChild(adot); aRow.appendChild(albl);
-        areasDiv.appendChild(aRow);
-      });
-      catDiv.appendChild(areasDiv);
-    }
-    body.appendChild(catDiv);
-  });
-}
-
-function lpToggleAll(){catPinColors={};highlightedCat=null;selectedAreas=new Set();savePinColors();buildLeftPanel();refreshPins();}
-function makeToggler(a,b){return function(e){e.stopPropagation();var o=a.classList.toggle('open');b.classList.toggle('open',o);};}
-
-
-
-
-
-// ── Color Picker ──
-function showColorPicker(ck, x, y, onPick) {
-  var ex=document.getElementById('cat-color-picker'); if(ex)ex.remove();
-  var p=document.createElement('div'); p.id='cat-color-picker';
-
-  var t=document.createElement('div'); t.className='ccp-title';
-  t.textContent=ck.replace(/-/g,' '); p.appendChild(t);
-
-  // Big color wheel input at top
-  var wheelRow=document.createElement('div');
-  wheelRow.style.cssText='display:flex;align-items:center;gap:10px;margin-bottom:10px';
-  var wheel=document.createElement('input'); wheel.type='color';
-  wheel.value=catPinColors[ck]||CAT_PALETTE[0];
-  wheel.style.cssText='width:48px;height:48px;border:none;background:none;cursor:pointer;padding:0;border-radius:8px';
-  var wheelLbl=document.createElement('div');
-  wheelLbl.style.cssText='font-size:9px;font-family:DM Mono,monospace;color:var(--text3);line-height:1.5';
-  wheelLbl.innerHTML='color wheel<br><span style="color:var(--text2)" id="ccp-hex">'+(catPinColors[ck]||CAT_PALETTE[0])+'</span>';
-  wheel.addEventListener('input',function(){wheelLbl.querySelector('#ccp-hex').textContent=this.value;});
-  wheel.addEventListener('change',function(){p.remove();if(onPick)onPick(this.value);});
-  wheelRow.appendChild(wheel); wheelRow.appendChild(wheelLbl);
-  p.appendChild(wheelRow);
-
-  // Palette swatches
-  var g=document.createElement('div'); g.className='ccp-grid';
-  CAT_PALETTE.forEach(function(col){
-    var sw=document.createElement('div'); sw.className='ccp-swatch'; sw.style.background=col;
-    if(catPinColors[ck]===col)sw.classList.add('active');
-    sw.addEventListener('click',function(){p.remove();if(onPick)onPick(col);});
-    g.appendChild(sw);
-  });
-  p.appendChild(g);
-
-  // Position smart
-  var px=Math.min(x, window.innerWidth-220);
-  var py=Math.min(y, window.innerHeight-340);
-  if(py<60)py=60;
-  p.style.left=px+'px'; p.style.top=py+'px';
-  document.body.appendChild(p);
-  setTimeout(function(){
-    document.addEventListener('click',function cls(e){
-      if(!p.contains(e.target)){p.remove();document.removeEventListener('click',cls);}
-    });
-  },10);
-}
-
-// ── Library ──
-async function libInit() {
-  if (libLoaded) { libRender(); return; }
-  document.getElementById('lib-grid').innerHTML = '<div class="empty"><div class="spin"></div><span>loading library...</span></div>';
-  try {
-    libFolders = await db('smugmug_folders?select=name,path&order=path.asc');
-    libAlbums  = await db('smugmug_albums?select=sm_key,name,path,web_url,image_count,highlight_url&order=name.asc');
-    libLoaded = true; libStack = [];
-    libRender();
-  } catch(e) {
-    document.getElementById('lib-grid').innerHTML = '<div class="empty">Error: '+e.message+'</div>';
-  }
-}
-
-function albumParentPath(a) {
-  if (a.web_url) {
-    var parts = a.web_url.replace('https://jordanhoffman.smugmug.com/','').split('/').filter(Boolean);
-    return parts.length > 1 ? parts.slice(0,-1).join('/') : parts[0] || '';
-  }
-  return a.path || '';
-}
-
-function libGridClick(e) { if (e.target===document.getElementById('lib-grid')) closeDetail(); }
-
-function libBrowse(path, label) {
-  pushNav();
-  document.getElementById('lib-q').value = '';
-  document.getElementById('lib-status-sel').value = '';
-  if (path === null) { libRedoStack = libStack.slice().reverse(); libStack = []; }
-  else {
-    var ex = libStack.findIndex(function(s){return s.path===path;});
-    if (ex >= 0) { libRedoStack = libStack.slice(ex+1).reverse(); libStack = libStack.slice(0,ex+1); }
-    else { libRedoStack = []; libStack.push({path:path,label:label||path.split('/').pop().replace(/-/g,' ')}); }
-  }
-  libRender();
-}
-
-function libRender() {
-  var grid = document.getElementById('lib-grid');
-  var bc   = document.getElementById('lib-bc');
-  var currentPath = libStack.length ? libStack[libStack.length-1].path : null;
-  var targetPath  = currentPath || 'Master-Library';
-
-  // Breadcrumb
-  var bcHtml = '<span class="lib-bc-seg'+(currentPath?'':' cur')+'" onclick="libBrowse(null)">Master Library</span>';
-  libStack.forEach(function(s,i) {
-    var cur = i === libStack.length-1;
-    bcHtml += '<span class="lib-bc-sep"> / </span>';
-    bcHtml += cur ? '<span class="lib-bc-seg cur">'+s.label+'</span>'
-                  : '<span class="lib-bc-seg" data-p="'+s.path+'" data-l="'+s.label+'" onclick="libFolderClick(this)">'+s.label+'</span>';
-  });
-  bc.innerHTML = bcHtml;
-
-  var allowed = buildAllowedAlbumKeys();
-
-  var subFolders = libFolders.filter(function(f) {
-    if (!f.path || f.path.indexOf(targetPath+'/') < 0) return false;
-    return f.path.slice(targetPath.length+1).indexOf('/') < 0;
-  });
-
-  var directAlbums = libAlbums.filter(function(a) {
-    if (albumParentPath(a) !== targetPath) return false;
-    if (allowed && !allowed.has(a.sm_key)) return false;
-    var loc = locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url;});
-    if (loc && !locPassesGlobalFilter(loc)) return false;
-    return true;
-  });
-
-  var cards = '';
-
-  subFolders.forEach(function(f) {
-    var children = libAlbums.filter(function(a) {
-      var p = albumParentPath(a);
-      if (p !== f.path && p.indexOf(f.path+'/') !== 0) return false;
-      if (allowed && !allowed.has(a.sm_key)) return false;
-      var loc = locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url;});
-      return !loc || locPassesGlobalFilter(loc);
-    });
-    if (!children.length) return;
-    var name = f.name || f.path.split('/').pop().replace(/-/g,' ');
-    var thumb = '';
-    for (var i = 0; i < children.length; i++) {
-      var ca = children[i];
-      var loc = locations.find(function(l){return l.smugmug_album_key===ca.sm_key||l.smugmug_gallery_url===ca.web_url;});
-      if (loc && loc.cover_photo_url) { thumb = loc.cover_photo_url; break; }
-    }
-    // Glow: find cat from folder path
-    var fCat=f.path?f.path.split('/')[1]:'';
-    var fGlow=(catPinColors[fCat]||savedCatColors[fCat])?'box-shadow:'+glowStyleForAlbum('https://jordanhoffman.smugmug.com/'+f.path+'/x'):'';
-    cards += '<div class="gcard" data-p="'+f.path+'" data-l="'+name+'" onclick="libFolderClick(this)" style="'+fGlow+'">';
-    cards += '<div class="gcard-tw">';
-    if (thumb) cards += '<img class="gcard-img" src="'+smMedium(thumb)+'" loading="lazy" onerror="hideOnError(this)">';
-    cards += '<div class="gcard-ph">▤</div>';
-    cards += '<div class="gcard-overlay">'+name+'</div></div>';
-    cards += '<div class="gcard-meta"><span>'+children.length+' location'+(children.length!==1?'s':'')+'</span></div></div>';
-  });
-
-  directAlbums.forEach(function(a) {
-    var loc = locations.find(function(l){return l.smugmug_album_key===a.sm_key||l.smugmug_gallery_url===a.web_url;});
-    var thumb = (loc && loc.cover_photo_url) || a.highlight_url || '';
-    var sl = loc ? SL[loc.status]||SL.identified : null;
-    var isSelected = currentDetailLoc && loc && currentDetailLoc.id === loc.id;
-    var aGlow=glowStyleForAlbum(a.web_url);
-    cards += '<div class="gcard'+(isSelected?' gcard-selected':'')+'" data-locid="'+(loc?loc.id:'')+'" data-smurl="'+(a.web_url||'#')+'" onclick="libCardClick(this)" style="'+(aGlow?'box-shadow:'+aGlow:'')+'">';
-    cards += '<div class="gcard-tw">';
-    if (thumb) cards += '<img class="gcard-img" src="'+smMedium(thumb)+'" loading="lazy" onerror="hideOnError(this)">';
-    cards += '<div class="gcard-ph">◻</div>';
-    cards += '<div class="gcard-overlay">'+a.name+'</div></div>';
-    cards += '<div class="gcard-meta">';
-    if (sl) cards += '<span style="color:'+sl.c+'">'+loc.status+'</span>';
-    cards += '<span style="color:var(--text3)">'+(a.image_count||0)+' photos</span>';
-    cards += '</div></div>';
-  });
-
-  grid.innerHTML = cards || '<div class="empty">No locations here</div>';
-}
-
-function libCardClick(el) {
-  var locId = el.dataset.locid;
-  if (locId) { var loc=locations.find(function(l){return l.id===locId;}); if(loc){openDetail(loc);return;} }
-  if (el.dataset.smurl && el.dataset.smurl !== '#') window.open(el.dataset.smurl,'_blank');
-}
-function libFolderClick(el) { var p=el.getAttribute('data-p'),l=el.getAttribute('data-l'); if(p)libBrowse(p,l); }
-
-function libSearch() {
-  var q = document.getElementById('lib-q').value.toLowerCase();
-  var status = document.getElementById('lib-status-sel').value;
-  if (!q && !status) { libRender(); return; }
-  var grid = document.getElementById('lib-grid'), bc = document.getElementById('lib-bc');
-  var f = locations.filter(function(l) {
-    if (status && l.status !== status) return false;
-    if (q) { var h=[l.name,l.address,l.city,l.notes].concat(l.tags||[]).join(' ').toLowerCase(); if(h.indexOf(q)<0)return false; }
-    return true;
-  });
-  bc.innerHTML = '<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span><span class="lib-bc-sep"> / </span><span class="lib-bc-seg cur">search ('+f.length+')</span>';
-  if (!f.length) { grid.innerHTML = '<div class="empty">No results for "'+q+'"</div>'; return; }
-  grid.innerHTML = f.map(function(l) {
-    var sl = SL[l.status]||SL.identified;
-    var sGlow=''; if(l.smugmug_album_key){var sa=libAlbums.find(function(a){return a.sm_key===l.smugmug_album_key;});if(sa)sGlow=glowStyleForAlbum(sa.web_url);}
-    return '<div class="gcard" data-locid="'+l.id+'" onclick="libCardClick(this)" style="'+(sGlow?'box-shadow:'+sGlow:'')+'">'
-      +'<div class="gcard-tw">'+(l.cover_photo_url?'<img class="gcard-img" src="'+smMedium(l.cover_photo_url)+'" loading="lazy" onerror="hideOnError(this)">':'')
-      +'<div class="gcard-ph">◻</div><div class="gcard-overlay">'+l.name+'</div></div>'
-      +'<div class="gcard-meta"><span style="color:'+sl.c+'">'+l.status+'</span><span style="color:var(--text3)">'
-      +([l.city,l.state_code].filter(Boolean).join(', ')||'—')+'</span></div></div>';
-  }).join('');
-}
-
-function hideOnError(el) { el.style.display='none'; }
-
-// ── Settings persistence ──
-function saveFilterSettings() {
-  var s = {};
-  ['ny','nj','ct','pa','approved','scouted','pending','identified'].forEach(function(id) {
-    var el=document.getElementById('f-'+id); if(el) s['f-'+id]=el.checked;
-  });
-  try { localStorage.setItem('mapFilters', JSON.stringify(s)); } catch(e) {}
-}
-function loadFilterSettings() {
-  try {
-    var s = JSON.parse(localStorage.getItem('mapFilters')||'{}');
-    ['ny','nj','ct','pa','approved','scouted','pending','identified'].forEach(function(id) {
-      var el=document.getElementById('f-'+id); if(el&&s.hasOwnProperty('f-'+id))el.checked=s['f-'+id];
-    });
-  } catch(e) {}
-}
-
-// ── Keyboard ──
-document.addEventListener('keydown', function(e) {
-  var tag = e.target.tagName;
-  if (tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
-
-  var lbOpen    = document.getElementById('lightbox').classList.contains('open');
-  var panelOpen = document.getElementById('detail-panel').classList.contains('open');
-  var libActive = document.getElementById('library-page').classList.contains('active');
-
-  // Undo / Redo navigation & selection (up to 50 steps)
-  if ((e.metaKey||e.ctrlKey) && e.key==='z') {
-    e.preventDefault();
-    if (e.shiftKey) redoNav(); else undoNav();
-    return;
-  }
-  if ((e.metaKey||e.ctrlKey) && (e.key==='y')) {
-    e.preventDefault(); redoNav(); return;
-  }
-
-  if (e.key === 'Escape') {
-    if (lbOpen) { closeLightbox(); return; }
-    if (dockOpen) { closeDock(); return; }
-    if (panelOpen) { closeDetail(); return; }
-    document.getElementById('hcard').classList.remove('show');
-    return;
-  }
-
-  if (e.key === ' ') {
-    e.preventDefault();
-    if (lbOpen) { closeLightbox(); return; }
-    if (panelOpen) {
-      var src = document.getElementById('dp-viewer-img').src;
-      if (src && src !== window.location.href) openLightbox(src);
-      return;
-    }
-    // Map: open hcard image
-    var hci = document.querySelector('#hcard-media .hcard-img');
-    if (hci && hci.src) openLightbox(hci.src);
-    return;
-  }
-
-  if (e.key === 'Enter' && panelOpen && currentDetailLoc) {
-    e.preventDefault();
-    var homeActive = document.getElementById('home-page').classList.contains('active');
-    if (homeActive) {
-      // Home → Library (show album context)
-      var libBtn = document.querySelectorAll('.nav-btn')[1];
-      showPage('library', libBtn);
-      if (currentDetailLoc.smugmug_album_key) {
-        var ta = libAlbums.find(function(a){return a.sm_key===currentDetailLoc.smugmug_album_key;});
-        if (ta) {
-          var pp = albumParentPath(ta), parts = pp.split('/').filter(Boolean);
-          libStack = []; var cum = '';
-          parts.forEach(function(p){cum=cum?cum+'/'+p:p; libStack.push({path:cum,label:p.replace(/-/g,' ')});});
-          libRender();
-        }
-      }
-      setTimeout(function(){ openDetail(currentDetailLoc); }, 50);
-    } else {
-      // Library → Home (zoom to pin)
-      var homeBtn = document.querySelectorAll('.nav-btn')[0];
-      showPage('home', homeBtn);
-      setTimeout(function(){ openDetail(currentDetailLoc); }, 150);
-    }
-    return;
-  }
-
-  if (e.key==='ArrowRight'||e.key==='ArrowDown'||e.key==='ArrowLeft'||e.key==='ArrowUp') {
-    e.preventDefault();
-    var fwd = e.key==='ArrowRight'||e.key==='ArrowDown';
-    if (lbOpen || panelOpen) {
-      if (dpImages.length) {
-        dpIndex = fwd ? (dpIndex+1)%dpImages.length : (dpIndex-1+dpImages.length)%dpImages.length;
-        dpUpdateViewer();
-        if (lbOpen) {
-          document.getElementById('lb-img').src = smXL(dpImages[dpIndex]);
-          updateLbCounter();
-        }
-      }
-      return;
-    }
-    if (libActive) {
-      if (!fwd && libStack.length) { libRedoStack.push(libStack.pop()); libRender(); }
-      if (fwd && libRedoStack.length) { libStack.push(libRedoStack.pop()); libRender(); }
-    }
-  }
-});
-
-document.addEventListener('click', function(e) {
-  var smBtn = document.getElementById('dock-sm-btn');
-  var smAct = document.getElementById('dock-actions');
-  if (dockOpen && smBtn && !smBtn.contains(e.target) && smAct && !smAct.contains(e.target)) closeDock();
-});
-
-// ── Init ──
-(async function() {
-  // Version-gate color palette cache
-  if (localStorage.getItem('paletteV') !== '3') {
-    Object.keys(localStorage).filter(function(k){return k.startsWith('cc:');}).forEach(function(k){localStorage.removeItem(k);});
-    localStorage.setItem('paletteV','3');
-  }
-  loadFilterSettings();
-  loadPinColors();
-  checkAuth();
-  await loadLocations();
-  loadMapScript();
-  await checkAutoSync();
-  setTimeout(posNavStatus, 100);
-})();
-</script>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- Scripts: parser first (shared with server), then app -->
+<script src="/parser.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>
