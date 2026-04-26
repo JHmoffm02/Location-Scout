@@ -244,8 +244,38 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .org-card-suggest .sg-conf.low{color:var(--red);border-color:rgba(194,96,96,.4)}
 .org-card-suggest .sg-reason{margin-top:3px;color:var(--text3);font-style:italic;font-size:10px}
 .org-card-suggest .sg-tags{margin-top:5px;display:flex;flex-wrap:wrap;gap:4px}
-.org-card-suggest .sg-tag{font-size:9px;padding:1px 6px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text3)}
+.org-card-suggest .sg-tag{
+  font-size:9px;padding:1px 6px 1px 6px;background:var(--bg3);
+  border:1px solid var(--border);border-radius:3px;color:var(--text3);
+  cursor:pointer;display:inline-flex;align-items:center;gap:3px;
+  transition:all .12s;user-select:none;
+}
+.org-card-suggest .sg-tag:hover{
+  border-color:var(--red);color:var(--red);background:rgba(194,96,96,.06);
+}
+.org-card-suggest .sg-tag .sg-tag-x{
+  font-size:8px;opacity:0.5;
+}
+.org-card-suggest .sg-tag:hover .sg-tag-x{
+  opacity:1;
+}
 .org-card-suggest .sg-tags-label{margin-top:6px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;letter-spacing:.04em}
+.org-card-suggest .sg-rejected-label{
+  margin-top:5px;font-size:9px;color:var(--red);font-style:italic;
+  display:flex;align-items:center;gap:6px;
+}
+.org-card-suggest .sg-restore{
+  font-size:9px;padding:1px 6px;background:transparent;
+  border:1px solid var(--border2);border-radius:3px;color:var(--text3);
+  cursor:pointer;font-family:'DM Mono',monospace;
+}
+.org-card-suggest .sg-restore:hover{border-color:var(--accent2);color:var(--accent)}
+.org-feedback{
+  font-size:9px;font-family:'DM Mono',monospace;color:var(--accent);
+  letter-spacing:.04em;padding:3px 9px;
+  border:1px solid var(--accent2);border-radius:10px;
+  background:var(--accentd);
+}
 .org-card-suggest .sg-model{font-size:8px;font-family:'DM Mono',monospace;color:var(--text3);margin-top:4px;letter-spacing:.06em;opacity:.7}
 .org-card-actions{display:flex;flex-direction:column;gap:5px;align-items:stretch}
 .org-card-actions .org-btn{padding:5px 8px;font-size:9px;text-align:center}
@@ -429,6 +459,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
     <div class="page" id="organize-page">
       <div class="org-header">
         <div class="org-title">Organize <span id="org-count" class="org-count"></span></div>
+        <span id="org-feedback" class="org-feedback" title="Past corrections that inform classification" style="display:none"></span>
         <div class="org-actions">
           <button class="org-btn" id="org-classify-btn" onclick="orgClassifyAll()">⚡ Classify all</button>
           <button class="org-btn" id="org-apply-btn" onclick="orgApplyMoves()" disabled>Apply moves</button>
