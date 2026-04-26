@@ -221,39 +221,64 @@
     }
 
     // ── Phase B: address block — collect contiguous street/cross/city ─────────
-    // We look ahead a bit; address parts can appear in any of these orders:
-    // street → cross → city, or street → city, or just city, or just street.
+    // Allow other prose/italic between street and city, captured as `extras`
+    // so detail panel can render them BELOW the address lines.
     const ADDR_TYPES = new Set(['street', 'cross', 'city_state_zip', 'empty']);
+    const STOP_TYPES = new Set(['contact_header', 'notes_header', 'signature',
+                                'bullet', 'update', 'phone', 'email']);
     let addrStart = i;
     let addrStreet = '', addrCross = '', addrCity = '', addrState = '', addrZip = '';
+    const addrExtras = [];
 
-    // Scan forward up to 6 tokens for address parts; bail at first non-addr type
     let scanned = 0;
-    while (i < tokens.length && scanned < 6 && ADDR_TYPES.has(tokens[i].type)) {
+    while (i < tokens.length && scanned < 10) {
       const t = tokens[i];
+      if (STOP_TYPES.has(t.type)) break;
+      if (t.type === 'empty') { i++; scanned++; continue; }
+
       if (t.type === 'street') {
         // Prefer cleaner street (without " - " separator) over title-style
         if (!addrStreet || (addrStreet.indexOf(' - ') >= 0 && t.text.indexOf(' - ') < 0)) {
           addrStreet = t.text;
         }
+        i++; scanned++; continue;
       }
-      else if (t.type === 'cross' && !addrCross) addrCross = t.text;
-      else if (t.type === 'city_state_zip' && !addrCity) {
+      if (t.type === 'cross') {
+        if (!addrCross) addrCross = t.text;
+        else addrExtras.push({ kind: 'cross', text: t.text });
+        i++; scanned++; continue;
+      }
+      if (t.type === 'city_state_zip' && !addrCity) {
         addrCity = t.city; addrState = t.state; addrZip = t.zip;
+        i++; scanned++;
+        break;  // city/state/zip is the end of an address block
       }
-      i++; scanned++;
+
+      // Prose/italic appearing between address lines → extras
+      if (addrStreet || addrCity || addrCross) {
+        if (t.type === 'italic') addrExtras.push({ kind: 'italic', text: t.text });
+        else if (t.type === 'prose') addrExtras.push({ kind: 'prose', text: t.text });
+        else { /* unknown — stop the block */ break; }
+        i++; scanned++; continue;
+      }
+
+      // Nothing started yet, non-address content → not an address block
+      break;
     }
 
     if (addrStreet || (addrCity && addrState)) {
-      out.address = { street: addrStreet, cross: addrCross, city: addrCity, state: addrState, zip: addrZip };
-      // Build a primary candidate
+      out.address = {
+        street: addrStreet, cross: addrCross,
+        city: addrCity, state: addrState, zip: addrZip,
+        extras: addrExtras
+      };
       out.addressCandidates.push({
         confidence: addrStreet && addrCity ? 'high' : (addrStreet || addrCity ? 'medium' : 'low'),
         street: addrStreet, cross: addrCross, city: addrCity, state: addrState, zip: addrZip,
         query: [addrStreet, addrCity, addrState, addrZip].filter(Boolean).join(', ')
       });
     } else {
-      // No address found in expected position — rewind so we don't lose data
+      // No address found — rewind so the orphan tokens get processed in Phase C
       i = addrStart;
     }
 
