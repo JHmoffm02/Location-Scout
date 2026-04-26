@@ -1348,7 +1348,7 @@ async function loadDetailGallery(loc) {
   if (!loc.smugmug_album_key) return;
   var savedLoc = loc;
   try {
-    var imgs = await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url,position&order=position.asc');
+    var imgs = await db('smugmug_images?album_key=eq.'+loc.smugmug_album_key+'&select=thumb_url');
     // Only update if this loc is still current
     if (currentDetailLoc !== savedLoc) return;
     if (!imgs || !imgs.length) return;
