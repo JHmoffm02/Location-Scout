@@ -801,11 +801,43 @@ function showPage(page, btn) {
 }
 
 // ── Data ──
-async function loadLocations() {
+var LOC_CACHE_KEY = 'loc_cache';
+var LOC_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+async function loadLocations(forceRefresh) {
+  // Try cache first
+  if (!forceRefresh) {
+    try {
+      var cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+      if (cached && cached.ts && Date.now() - cached.ts < LOC_CACHE_TTL && cached.data && cached.data.length) {
+        locations = cached.data;
+        // Refresh in background without blocking
+        setTimeout(function() { refreshLocationsBackground(); }, 100);
+        return locations;
+      }
+    } catch(e) {}
+  }
+  return await fetchLocations();
+}
+
+async function fetchLocations() {
   try {
-    locations = await db('locations?select=*&order=name.asc');
+    var data = await db('locations?select=id,name,lat,lng,status,state_code,city,address,smugmug_album_key,smugmug_gallery_url,cover_photo_url,notes,tags,scout_name,scout_date&order=name.asc');
+    locations = data;
+    try { localStorage.setItem(LOC_CACHE_KEY, JSON.stringify({ts: Date.now(), data: data})); } catch(e) {}
     return locations;
   } catch(e) { toast('DB error', 'err'); return []; }
+}
+
+async function refreshLocationsBackground() {
+  try {
+    var data = await db('locations?select=id,name,lat,lng,status,state_code,city,address,smugmug_album_key,smugmug_gallery_url,cover_photo_url,notes,tags,scout_name,scout_date&order=name.asc');
+    if (!data || !data.length) return;
+    locations = data;
+    try { localStorage.setItem(LOC_CACHE_KEY, JSON.stringify({ts: Date.now(), data: data})); } catch(e) {}
+    // Quietly refresh pins if map is ready
+    if (gmap) refreshPins();
+  } catch(e) {}
 }
 
 function hasCoords(l) { return l.lat && l.lng && !(l.lat === 0 && l.lng === 0); }
@@ -851,8 +883,35 @@ window.initMap = async function() {
   });
   gmap.addListener('click', function() {
     document.getElementById('hcard').classList.remove('show');
-    // Only close detail if clicking away from a selected pin
     if (currentDetailLoc) closeDetail();
+  });
+
+  // Reduce zoom lag: batch pin scale updates on zoom_changed using idle
+  var zoomPending = false;
+  gmap.addListener('zoom_changed', function() {
+    zoomPending = true;
+  });
+  gmap.addListener('idle', function() {
+    if (zoomPending) {
+      zoomPending = false;
+      var zoom = gmap.getZoom();
+      var scale = zoom >= 14 ? 9 : zoom >= 12 ? 7 : 5;
+      var strokeW = zoom >= 14 ? 1.5 : 1;
+      markerPool.forEach(function(m) {
+        if (!m.getVisible()) return;
+        var icon = m.getIcon();
+        if (icon && icon.scale !== scale) {
+          m.setIcon({
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: scale,
+            fillColor: m._col,
+            fillOpacity: .9,
+            strokeColor: 'rgba(0,0,0,.5)',
+            strokeWeight: strokeW
+          });
+        }
+      });
+    }
   });
   await loadLocations();
   // Load map albums in parallel with left panel build
@@ -1353,7 +1412,7 @@ async function startFullSync() {
       await new Promise(function(r){setTimeout(r,150);});
     }
 
-    await loadLocations();
+    await loadLocations(true); // force fresh after sync
     if (gmap) refreshPins();
     libLoaded = false;
     checkSyncStatus();
