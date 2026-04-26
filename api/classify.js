@@ -27,6 +27,41 @@ const ALLOWED_ORIGINS = new Set([
 function smThumb(url)  { return url ? url.replace(/\/(Ti|S|M|L|XL)\//, '/Th/') : ''; }
 function smLarge(url)  { return url ? url.replace(/\/(Th|Ti|S|M)\//, '/L/') : ''; }
 
+// ── Image fetching: SmugMug blocks Anthropic via robots.txt, so we proxy ──
+async function fetchImageAsBase64(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs || 8000);
+  try {
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: {
+        // Be a polite client. SmugMug serves images to browsers; pretending to be one is fine.
+        'User-Agent': 'Mozilla/5.0 (compatible; LocationScoutApp/1.0)'
+      }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const ct = (res.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+    // Anthropic supports image/jpeg, image/png, image/gif, image/webp
+    const supported = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const media_type = supported.includes(ct) ? ct : 'image/jpeg';
+    return { type: 'base64', media_type, data: buf.toString('base64') };
+  } finally { clearTimeout(timer); }
+}
+
+async function fetchImagesAsBase64(urls, timeoutMs) {
+  // Parallel fetch with per-image error containment
+  return Promise.all(urls.map(async url => {
+    if (!url) return null;
+    try {
+      return await fetchImageAsBase64(url, timeoutMs);
+    } catch (e) {
+      console.error('Image fetch failed:', url, e.message);
+      return null;
+    }
+  }));
+}
+
 // ── Bounded concurrency ────────────────────────────────────────────────────
 async function pmap(items, fn, concurrency) {
   const results = new Array(items.length);
@@ -118,7 +153,7 @@ OUTPUT: Return ONLY a JSON object, no prose, no markdown fences. Schema:
 }`;
 }
 
-function buildAlbumMessage(album, imageUrls) {
+function buildAlbumMessage(album, imageSources) {
   const parts = [];
   const lines = [];
   lines.push(`Name: ${album.name || '(unnamed)'}`);
@@ -137,21 +172,25 @@ function buildAlbumMessage(album, imageUrls) {
   }
   parts.push({ type: 'text', text: lines.join('\n') });
 
-  imageUrls.forEach((url, i) => {
+  imageSources.forEach((src, i) => {
+    if (!src) return;  // skip failed fetches
     parts.push({ type: 'text', text: `Image ${i}:` });
-    parts.push({ type: 'image', source: { type: 'url', url } });
+    parts.push({ type: 'image', source: src });
   });
   return parts;
 }
 
-function buildSelectionMessage(imageUrls, targetCount) {
+function buildSelectionMessage(imageSources, targetCount) {
+  // Filter out nulls (failed fetches) for the count message
+  const valid = imageSources.filter(Boolean);
   const parts = [{
     type: 'text',
-    text: `Pick the ${targetCount} most representative images from these ${imageUrls.length} photos.`
+    text: `Pick the ${targetCount} most representative images from these ${valid.length} photos.`
   }];
-  imageUrls.forEach((url, i) => {
+  imageSources.forEach((src, i) => {
+    if (!src) return;
     parts.push({ type: 'text', text: `Image ${i}:` });
-    parts.push({ type: 'image', source: { type: 'url', url } });
+    parts.push({ type: 'image', source: src });
   });
   return parts;
 }
@@ -206,18 +245,27 @@ async function curateImages(allUrls, apiKey) {
     return { indices: allUrls.map((_, i) => i), curationReasoning: '(skipped: ≤8 images)', usedCuration: false };
   }
 
-  // Sample evenly if album is huge (>60 photos)
+  // Sample evenly if album is huge
   const sampledIndices = sampleEvenly(allUrls.length, MAX_THUMBS_PER_PASS1);
-  const sampledThumbs = sampledIndices.map(i => smThumb(allUrls[i]));
+  const sampledThumbUrls = sampledIndices.map(i => smThumb(allUrls[i]));
+
+  // Fetch all thumbnails as base64 (SmugMug blocks Anthropic's URL fetcher)
+  const thumbSources = await fetchImagesAsBase64(sampledThumbUrls, 6000);
+  const validCount = thumbSources.filter(Boolean).length;
+  if (validCount === 0) {
+    // All failed — fall back to just using the first TARGET_COUNT indices
+    return { indices: sampledIndices.slice(0, TARGET_COUNT), curationReasoning: '(thumbnail fetch failed; using first ' + TARGET_COUNT + ')', usedCuration: false };
+  }
 
   const sys = buildSelectionSystemPrompt(TARGET_COUNT);
-  const userParts = buildSelectionMessage(sampledThumbs, TARGET_COUNT);
-  const r = await callClaude(HAIKU, sys, userParts, apiKey, 300);
+  const userParts = buildSelectionMessage(thumbSources, TARGET_COUNT);
+  const r = await callClaude(HAIKU, sys, userParts, apiKey, 400);
   const parsed = parseJSON(r.text);
 
   // Map sampled indices back to original indices in allUrls
   const selected = (parsed.selected || [])
     .filter(i => Number.isInteger(i) && i >= 0 && i < sampledIndices.length)
+    .filter(i => thumbSources[i])  // skip indices whose fetch failed
     .slice(0, TARGET_COUNT)
     .map(i => sampledIndices[i]);
 
@@ -228,20 +276,12 @@ async function curateImages(allUrls, apiKey) {
   return { indices: selected, curationReasoning: parsed.reasoning || '', usedCuration: true };
 }
 
-// ── Pass 2: Classify ──────────────────────────────────────────────────────
-async function classifyWithImages(album, taxonomy, imageUrls, model, apiKey) {
-  const sys = buildClassifySystemPrompt(taxonomy);
-  const userParts = buildAlbumMessage(album, imageUrls);
-  const r = await callClaude(model, sys, userParts, apiKey, 1000);
-  return parseJSON(r.text);
-}
-
 // ── Top-level: classify a single album ────────────────────────────────────
 async function classifyOne(album, taxonomy, apiKey) {
   const allImages = (album.image_urls || []).filter(Boolean);
 
   if (allImages.length === 0) {
-    // Text-only fallback uses Haiku (cheap, no images to analyze)
+    // Text-only fallback
     const sys = buildClassifySystemPrompt(taxonomy);
     const userParts = buildAlbumMessage(album, []);
     const r = await callClaude(HAIKU, sys, userParts, apiKey, 1000);
@@ -249,18 +289,36 @@ async function classifyOne(album, taxonomy, apiKey) {
     return { ...result, key: album.key, model: HAIKU, _images_used: 0, _curation: 'none' };
   }
 
-  // Pass 1: curate (or skip if ≤8 images)
+  // Pass 1: curate
   const { indices, curationReasoning, usedCuration } = await curateImages(allImages, apiKey);
-  const curatedUrls = indices.map(i => smLarge(allImages[i]));
 
-  // Pass 2: Sonnet on curated set
-  const result = await classifyWithImages(album, taxonomy, curatedUrls, SONNET, apiKey);
+  // Pass 2: fetch large versions of the curated set, then run Sonnet
+  const curatedLargeUrls = indices.map(i => smLarge(allImages[i]));
+  const largeSources = await fetchImagesAsBase64(curatedLargeUrls, 10000);
+  const validLarge = largeSources.filter(Boolean);
+
+  if (validLarge.length === 0) {
+    // All large fetches failed → text-only
+    const sys = buildClassifySystemPrompt(taxonomy);
+    const userParts = buildAlbumMessage(album, []);
+    const r = await callClaude(HAIKU, sys, userParts, apiKey, 1000);
+    const result = parseJSON(r.text);
+    return {
+      ...result, key: album.key, model: HAIKU, _images_used: 0,
+      _curation: 'failed-large-fetch'
+    };
+  }
+
+  const sys = buildClassifySystemPrompt(taxonomy);
+  const userParts = buildAlbumMessage(album, largeSources);
+  const r = await callClaude(SONNET, sys, userParts, apiKey, 1000);
+  const result = parseJSON(r.text);
 
   return {
     ...result,
     key: album.key,
     model: SONNET,
-    _images_used: curatedUrls.length,
+    _images_used: validLarge.length,
     _curation: usedCuration ? 'haiku' : 'all',
     _curation_reasoning: curationReasoning,
     _curated_indices: indices
