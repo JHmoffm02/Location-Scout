@@ -1151,7 +1151,7 @@ function panToVisible(loc) {
 // ── Hover card ──
 function showHcard(loc, ev) {
   currentHoverLoc = loc;
-  document.getElementById('hcard-name').textContent = loc.name;
+  document.getElementById('hcard-name').textContent = loc.name.replace(/[\s*]*pending[\s*]*/gi,'').trim();
   var cat = getCatForLoc(loc);
   var col = cat ? catColorByKey(cat) : SL[loc.status]?.c || '#888';
   document.getElementById('hcard-cat-dot').style.background = col;
@@ -1193,7 +1193,8 @@ function openDetail(loc) {
   document.body.focus();
 
   // Header
-  document.getElementById('dp-name').textContent = loc.name;
+  var displayName = loc.name.replace(/[\s*]*pending[\s*]*/gi,'').trim();
+  document.getElementById('dp-name').textContent = displayName;
   var cat = getCatForLoc(loc);
   var col = cat ? catColorByKey(cat) : '';
   var pill = document.getElementById('dp-cat-pill');
@@ -1218,12 +1219,15 @@ function openDetail(loc) {
   html += '<span class="dp-badge" style="background:'+sl.bg+';color:'+sl.c+'">'+loc.status+'</span>';
   html += '</div>';
   if (loc.address || loc.city) {
+    var mapsQ = encodeURIComponent([loc.address,loc.city,loc.state_code].filter(Boolean).join(', '));
+    var mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + mapsQ;
     html += '<div class="dp-section"><div class="dp-label">Address</div>';
     html += '<div class="dp-val" style="line-height:1.7">';
+    html += '<a href="'+mapsUrl+'" target="_blank" style="color:var(--text);text-decoration:none;border-bottom:1px solid var(--border2)">';
     if (loc.address) html += loc.address + '<br>';
     var cityState = [loc.city, loc.state_code].filter(Boolean).join(', ');
     if (cityState) html += cityState;
-    html += '</div></div>';
+    html += '</a></div></div>';
   }
   if (loc.notes) {
     html += '<div class="dp-section">';
@@ -1239,8 +1243,6 @@ function openDetail(loc) {
     html += '<div class="dp-val">'+(loc.scout_name||'')+(loc.scout_date?' · '+loc.scout_date:'')+'</div></div>';
   }
   html += '<div class="dp-actions">';
-  if (loc.smugmug_gallery_url) html += '<button class="dp-btn pri" onclick="window.open(this.dataset.u,\'_blank\')" data-u="'+loc.smugmug_gallery_url+'">gallery ↗</button>';
-  if (hasCoords(loc)) html += '<button class="dp-btn" onclick="window.open(this.dataset.u,\'_blank\')" data-u="https://www.google.com/maps?q='+loc.lat+','+loc.lng+'">maps ↗</button>';
   html += '</div>';
   document.getElementById('dp-body').innerHTML = html;
 
@@ -1307,165 +1309,215 @@ async function loadDetailGallery(loc) {
 function formatNotes(raw, loc) {
   if (!raw) return '';
 
-  // 1. Strip markdown links → plain email
-  raw = raw.replace(/\[([^\]]+)\]\(mailto:([^)]+)\)/g, '$2');
+  // Decode HTML entities
+  raw = raw.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+  raw = raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
 
-  // 2. Expand collapsed text
-  raw = raw.replace(/(\w)\(Btw /g, '$1\n(Btw ');
-  raw = raw.replace(/(\w)\(Entrance/g, '$1\n(Entrance');
-  raw = raw.replace(/\)(\w)/g, ')\n$1');
-  raw = raw.replace(/(\d{5})(C\d*:)/g, '$1\n$2');
-  raw = raw.replace(/ (C\d*:) /g, '\n$1 ');
-  raw = raw.replace(/(Notes:)/g, '\n$1\n');
-  raw = raw.replace(/\n{3,}/g, '\n\n');
+  // Strip markdown links → bare email
+  raw = raw.replace(/\[([^\]]+)\]\(mailto:([^)]+)\)/g,'$2');
 
-  var lines = raw.split('\n').map(function(l){ return l.trim(); });
+  // Inject line breaks before key transitions
+  function injectBreaks(s) {
+    // Before C: / Notes: / J. Hoffman
+    s = s.replace(/([a-zA-Z0-9])(C\d*\s*:)\s/g,'$1\n$2 ');
+    s = s.replace(/([a-zA-Z0-9])(Notes\s*:)/g,'$1\nNotes:');
+    s = s.replace(/([a-zA-Z0-9])(J\.?\s+Hoffman)/g,'$1\nJ. Hoffman');
+    // After ) before UpperCase or long digit run
+    s = s.replace(/\)([A-Z][a-z])/g,')\n$1');
+    s = s.replace(/\)(\d{3,})/g,')\n$1');
+    // Before (Btw / (@ / (Across etc
+    s = s.replace(/(\w)\((Btw|btw|@\s|Across|Between|Entrance|Corner)/g,'$1\n($2');
+    // ZIP then text
+    s = s.replace(/(\d{5})([A-Za-z])/g,'$1\n$2');
+    // Date then text
+    s = s.replace(/(\d{1,2}[\/]\d{1,2}[\/]\d{2,4})([A-Za-z])/g,'$1\n$2');
+    // Email run into phone: letters@domain.comDIGITS
+    s = s.replace(/(\.[a-z]{2,4})(\d{3})/gi,'$1\n$2');
+    // Phone run into text: 1234567890Text
+    s = s.replace(/(\d{4})([A-Z][a-z])/g,'$1\n$2');
+    return s;
+  }
 
-  var titleLines=[], addrLines=[], crossLine='', contacts=[], noteLines=[];
-  var italicLines=[], inNotes=false, currentContact=null, addrDone=false;
-  var dateStr='', hoffmanStr='';
+  raw = injectBreaks(raw);
+  var lines = raw.split('\n').map(function(l){return l.trim();}).filter(Boolean);
 
-  var locName = loc && loc.name ? loc.name.toLowerCase().trim() : '';
-  var locCity = loc && loc.city ? loc.city.toLowerCase().trim() : '';
-  var knownCities = ['manhattan','brooklyn','queens','bronx','the bronx','staten island',
-    'jersey city','hoboken','newark','yonkers','nyc','new york','long island city',
-    'astoria','flushing','jamaica','harlem','bronxville','pleasantville','mt kisco',
-    'white plains','tarrytown','nyack','malverne','bayside','forest hills',
-    'kew gardens','ozone park','city island','new rochelle'];
+  var result = {titleLines:[],addrLines:[],crossLines:[],contacts:[],
+                noteLines:[],italicLines:[],dateStr:'',hoffmanStr:'',pendingFlag:false};
+  var currentContact = null;
+  var state = 'title';
+  var titleBrandWords = {};
+
+  var locName = (loc && loc.name ? loc.name : '').toLowerCase().trim();
+  var locCity = (loc && loc.city ? loc.city : '').toLowerCase().trim();
+
+  function isPhone(s) { return /\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/.test(s); }
+  function isEmail(s) { return /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(s); }
+  function isCross(s) { return s.charAt(0)==='(' && /(Btw|btw|@\s|Across|Between|Entrance|Corner)/i.test(s); }
+  function isCity(s)  { return /^[A-Za-z][A-Za-z\s.]+,\s*[A-Z]{2}(\s+\d{5})?$/.test(s.trim()); }
+  function isDate(s)  { return /^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}$/.test(s); }
+  function isHoffman(s){ return /^J\.?\s+Hoffman/i.test(s); }
+  function isNoteHdr(s){ return /^notes?\s*:?\s*$/i.test(s); }
+  function isContact(s){ return /^C\d*\s*:/i.test(s); }
+  function isTitleLike(s) {
+    var clean = s.replace(/\s*\*[^*]*\*\s*/g,' ').trim();
+    if (clean.indexOf(' - ') >= 0) {
+      var before = clean.split(' - ')[0].trim();
+      var after  = clean.split(' - ').slice(1).join(' - ').replace(/\s*\*.*$/,'').trim().toLowerCase();
+      if (!/^\d/.test(before)) return true;
+      if (/manhattan|brooklyn|queens|bronx|the bronx|staten island|jersey|hoboken|newark|yonkers|nyc|new york|nolita|soho|tribeca|midtown|harlem|pleasantville|mt kisco|white plains|tarrytown|nyack|malverne|bayside|upper west|upper east|midtown east|downtown|greenpoint|williamsburg|astoria|flushing/.test(after)) return true;
+    }
+    return false;
+  }
+  function wordSet(s) {
+    var ws = {}; s.toLowerCase().split(/\s+/).forEach(function(w){ws[w]=1;}); return ws;
+  }
+  function isSubset(small, big) {
+    return Object.keys(small).every(function(w){ return big[w] || w==='the'||w==='a'||w==='&'||w==='and'; });
+  }
 
   for (var i = 0; i < lines.length; i++) {
     var l = lines[i];
+
+    // Pending detection
+    if (/pending/i.test(l)) {
+      result.pendingFlag = true;
+      l = l.replace(/[\s*]*pending[\s*]*/gi,'').trim();
+    }
     if (!l) continue;
 
-    // Italic *note* lines (standalone)
+    // Standalone italic *note*
     if (/^\*[^*]+\*$/.test(l)) {
-      italicLines.push(l.replace(/^\*|\*$/g,'')); continue;
+      result.italicLines.push(l.replace(/^\*|\*$/g,'')); continue;
     }
 
-    // Strip leading/trailing asterisks and inline *annotation* suffix
-    var stripped = l.replace(/^\*+|\*+$/g,'').trim();
-    stripped = stripped.replace(/\s*\*[^*]+\*\s*$/, '').trim();
-    var lLow = stripped.toLowerCase();
+    var clean = l.trim();
+    var cleanLow = clean.toLowerCase();
 
-    // Title detection (before any address/contact)
-    if (!addrDone && !inNotes && !currentContact) {
-      // Exact match with loc name
-      if (lLow === locName) { titleLines.push(l); continue; }
-
-      // First non-address line: no digits = business/location name
-      if (titleLines.length === 0 && !/\d/.test(stripped) &&
-          !stripped.startsWith('(') && !/^C\d*:/i.test(stripped) &&
-          !/^notes?/i.test(stripped)) {
-        titleLines.push(l); continue;
-      }
-
-      // Duplicate of title brand name e.g. "Phillips 66" after "Phillips 66 - Pleasantville"
-      if (titleLines.length > 0) {
-        var titleBrand = titleLines[0].replace(/^\*+|\*+$/g,'').replace(/\s*\*[^*]+\*\s*$/,'')
-          .replace(/\s*-.*$/,'').trim().toLowerCase();
-        if (lLow === titleBrand || (titleBrand.length > 3 && titleBrand.startsWith(lLow) && !/\d/.test(lLow))) {
-          titleLines.push(l); continue;
-        }
-      }
-
-      // "Name - Town" pattern
-      if (/ - /.test(stripped) && stripped.length < 130 &&
-          !/^C\d*:/i.test(stripped) && !stripped.startsWith('(')) {
-        var beforeDash = stripped.split(' - ')[0].trim();
-        var afterDash = stripped.split(' - ').slice(1).join(' - ')
-          .replace(/\s*\*.*$/,'').trim().toLowerCase();
-        var looksLikeStreet = /^\d/.test(beforeDash);
-        if (!looksLikeStreet) { titleLines.push(l); continue; }
-        var isKnownCity = knownCities.some(function(c){
-          return afterDash === c || afterDash.indexOf(c) === 0;
-        });
-        if (isKnownCity || locCity && afterDash.indexOf(locCity) === 0) {
-          titleLines.push(l); continue;
-        }
-      }
+    // Universal detectors (run regardless of state)
+    if (isHoffman(clean)) {
+      if (currentContact) { result.contacts.push(currentContact); currentContact=null; }
+      result.hoffmanStr = clean; state='footer'; continue;
     }
-
-    // J. Hoffman footer
-    if (/^J\.?\s+Hoffman/i.test(l)) { hoffmanStr = l; continue; }
-
-    // Date line
-    if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}$/.test(l)) {
-      var dp = l.split(/[-\/]/);
-      dateStr = dp[0] + '/' + dp[1] + '/' + dp[2]; continue;
+    if (isDate(clean)) {
+      var dp = clean.split(/[-\/]/);
+      result.dateStr = dp[0]+'/'+dp[1]+'/'+dp[2]; continue;
     }
-
-    // Notes section
-    if (/^notes?\s*:?\s*$/i.test(l)) { inNotes=true; addrDone=true; continue; }
-    if (inNotes) { noteLines.push(l); continue; }
-
-    // Contact line
-    if (/^C\d*\s*:/i.test(l)) {
-      addrDone = true;
-      if (currentContact) contacts.push(currentContact);
-      currentContact = { name: l.replace(/^C\d*\s*:\s*/i,''), phones:[], emails:[] };
+    if (isNoteHdr(clean)) {
+      if (currentContact) { result.contacts.push(currentContact); currentContact=null; }
+      state='notes'; continue;
+    }
+    if (isContact(clean)) {
+      if (currentContact) result.contacts.push(currentContact);
+      state='contact';
+      currentContact = {name:clean.replace(/^C\d*\s*:\s*/i,''),phones:[],emails:[]};
       continue;
     }
 
-    // Inside contact block
-    if (currentContact) {
-      if (/@/.test(l)) { currentContact.emails.push(l.trim()); }
-      else if (/\d{3}[\s.-]?\d{3}[\s.-]?\d{4}/.test(l)) { currentContact.phones.push(l); }
-      else if (!currentContact.phones.length && !currentContact.emails.length) {
-        currentContact.name += '\n' + l;
-      } else { noteLines.push(l); }
+    if (state==='notes') { result.noteLines.push(l); continue; }
+    if (state==='footer') { continue; }
+
+    if (state==='contact' && currentContact) {
+      if (isEmail(clean)) {
+        var em = clean.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+        if (em) currentContact.emails.push(em[0]);
+      } else if (isPhone(clean)) {
+        currentContact.phones.push(clean);
+      } else if (!currentContact.phones.length && !currentContact.emails.length) {
+        currentContact.name += '\n' + clean;
+      } else {
+        result.noteLines.push(l);
+      }
       continue;
     }
 
-    // Address
-    if (/^\(/.test(l)) {
-      crossLine = l;
+    // Title state
+    if (state==='title') {
+      if (cleanLow === locName) {
+        result.titleLines.push(clean);
+        titleBrandWords = wordSet(clean.replace(/\s*-.*$/,'').replace(/\s*\*[^*]*\*\s*/g,''));
+        state='addr'; continue;
+      }
+      // Brand name dup (no digits, words subset of title brand)
+      if (result.titleLines.length && !/\d/.test(clean)) {
+        if (isSubset(wordSet(clean), titleBrandWords)) {
+          result.titleLines.push(clean); continue;
+        }
+      }
+      if (isTitleLike(clean)) {
+        result.titleLines.push(clean);
+        titleBrandWords = wordSet(clean.replace(/\s*-.*$/,'').replace(/\s*\*[^*]*\*\s*/g,''));
+        state='addr'; continue;
+      }
+      // First line, no digits = business name
+      if (!result.titleLines.length && !/\d/.test(clean) &&
+          !isCross(clean) && !isContact(clean) && !isNoteHdr(clean)) {
+        result.titleLines.push(clean);
+        titleBrandWords = wordSet(clean);
+        state='addr'; continue;
+      }
+      state='addr'; // fall through to addr
+    }
+
+    // Addr state
+    if (isCross(clean)) {
+      result.crossLines.push(clean);
+    } else if (isCity(clean)) {
+      var cp = clean.split(',')[0].trim().toLowerCase();
+      if (!(locCity && cp === locCity)) result.addrLines.push(clean);
+    } else if (result.titleLines.length && !/\d/.test(clean)) {
+      // No digits in addr = possible brand dup
+      if (isSubset(wordSet(clean), titleBrandWords)) {
+        result.titleLines.push(clean); // confirmed brand dup
+      } else {
+        result.addrLines.push(clean); // other non-address text
+      }
     } else {
-      var cityPart = l.toLowerCase().split(',')[0].trim();
-      if (!(locCity && cityPart === locCity)) {
-        addrLines.push(l);
-      }
+      result.addrLines.push(clean);
     }
   }
-  if (currentContact) contacts.push(currentContact);
 
-  // Build HTML
+  if (currentContact) result.contacts.push(currentContact);
+
+  // ── Render ──
   var S = {
-    cross:  'font-size:11px;color:var(--text3);font-style:italic;display:block;margin-top:2px',
     italic: 'font-size:11px;color:var(--accent);font-style:italic;display:block;margin-bottom:6px',
+    addr:   'font-size:13px;color:var(--text);display:block',
+    cross:  'font-size:11px;color:var(--text3);font-style:italic;display:block;margin-top:2px',
     sec:    'border-top:1px solid var(--border);padding-top:8px;margin-top:8px',
     lbl:    'font-size:8px;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px',
-    addr:   'font-size:13px;color:var(--text);display:block',
     cName:  'font-size:12px;font-weight:500;color:var(--text);white-space:pre-line',
     cInfo:  'font-size:11px;color:var(--text2)',
     cEmail: 'font-size:11px;color:var(--accent);text-decoration:none',
-    note:   'font-size:12px;color:var(--text2);padding-left:10px;margin-bottom:2px',
-    noteP:  'font-size:12px;color:var(--text2);margin-bottom:2px',
-    foot:   'font-size:10px;color:var(--text3);font-family:\'DM Mono\',monospace;margin-top:10px'
+    bullet: 'font-size:12px;color:var(--text2);padding-left:10px;margin-bottom:2px',
+    prose:  'font-size:12px;color:var(--text2);margin-bottom:2px',
+    foot:   "font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:10px"
   };
 
   var html = '';
 
-  // Italic context lines
-  italicLines.forEach(function(l){
+  // Italic context lines at top
+  result.italicLines.forEach(function(l){
     html += '<span style="'+S.italic+'">'+l+'</span>';
   });
 
   // Address block
-  if (addrLines.length || crossLine) {
+  if (result.addrLines.length || result.crossLines.length) {
     html += '<div style="margin-bottom:8px">';
-    addrLines.forEach(function(l){
+    result.addrLines.forEach(function(l){
       html += '<span style="'+S.addr+'">'+l+'</span>';
     });
-    if (crossLine) html += '<span style="'+S.cross+'">'+crossLine+'</span>';
+    result.crossLines.forEach(function(l){
+      html += '<span style="'+S.cross+'">'+l+'</span>';
+    });
     html += '</div>';
   }
 
   // Contacts
-  if (contacts.length) {
+  if (result.contacts.length) {
     html += '<div style="'+S.sec+'">';
     html += '<div style="'+S.lbl+'">Contact</div>';
-    contacts.forEach(function(c, ci) {
-      if (ci > 0) html += '<div style="height:5px"></div>';
+    result.contacts.forEach(function(c, ci) {
+      if (ci > 0) html += '<div style="height:6px"></div>';
       html += '<div style="'+S.cName+'">'+c.name+'</div>';
       c.phones.forEach(function(p){ html += '<div style="'+S.cInfo+'">'+p+'</div>'; });
       c.emails.forEach(function(e){
@@ -1476,27 +1528,29 @@ function formatNotes(raw, loc) {
   }
 
   // Notes
-  if (noteLines.length) {
+  if (result.noteLines.length) {
     html += '<div style="'+S.sec+'">';
     html += '<div style="'+S.lbl+'">Notes</div>';
-    noteLines.forEach(function(l){
+    result.noteLines.forEach(function(l){
       if (!l) return;
       if (/^[-•]\s*/.test(l))
-        html += '<div style="'+S.note+'">&bull; '+l.replace(/^[-•]\s*/,'')+'</div>';
+        html += '<div style="'+S.bullet+'">&bull; '+l.replace(/^[-•]\s*/,'')+'</div>';
       else
-        html += '<div style="'+S.noteP+'">'+l+'</div>';
+        html += '<div style="'+S.prose+'">'+l+'</div>';
     });
     html += '</div>';
   }
 
   // Footer
-  if (hoffmanStr || dateStr) {
+  if (result.hoffmanStr || result.dateStr) {
     html += '<div style="'+S.foot+'">';
-    html += hoffmanStr && dateStr ? hoffmanStr+' &nbsp;&middot;&nbsp; '+dateStr : (hoffmanStr||dateStr);
+    html += result.hoffmanStr && result.dateStr
+      ? result.hoffmanStr+' &nbsp;&middot;&nbsp; '+result.dateStr
+      : (result.hoffmanStr || result.dateStr);
     html += '</div>';
   }
 
-  return html || '<div style="font-size:12px;color:var(--text2)">'+raw+'</div>';
+  return html || ('<div style="font-size:12px;color:var(--text2)">'+raw+'</div>');
 }
 
 
