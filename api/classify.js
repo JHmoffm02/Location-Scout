@@ -1,17 +1,21 @@
-// api/classify.js — image-aware album classifier with model escalation
+// api/classify.js — two-pass image-aware classifier
 //
-// Strategy:
-//   Pass 1: Haiku 4.5 + 6 medium images + name/notes/address.
-//   If confidence < 0.70 → Pass 2: Sonnet 4.6 + most diagnostic image + 2 unused, all large.
+// PASS 1 (Haiku, thumbnails): curate the best 8 representative images from the album.
+//   Skips blurry/dark/redundant/logistic shots. Prefers diversity (exterior, multiple rooms).
+// PASS 2 (Sonnet, 8 large images): rich classification + extensive descriptive tagging.
 //
-// Request: POST { albums: [{key, name, notes, address, city, state, image_urls}], taxonomy: [...paths] }
+// Albums with ≤8 photos skip Pass 1 — Sonnet sees all of them directly.
+// Per-album cost target: ~$0.04 with curated 8.
+//
+// Request: POST { albums: [{key, name, notes, address, image_urls}], taxonomy: [...paths] }
 // Response: { results: [{key, path, confidence, reasoning, model, tags, ...}] }
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU = 'claude-haiku-4-5';
 const SONNET = 'claude-sonnet-4-6';
-const CONFIDENCE_THRESHOLD = 0.70;
-const PARALLEL = 3;  // concurrent classifications
+const TARGET_COUNT = 8;          // images to curate for Pass 2
+const MAX_THUMBS_PER_PASS1 = 100; // hard cap on Pass 1 input size
+const PARALLEL = 3;              // concurrent classifications
 
 const ALLOWED_ORIGINS = new Set([
   'https://location-scout-sand.vercel.app',
@@ -20,10 +24,10 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 // SmugMug image size transforms
-function smMedium(url) { return url ? url.replace(/\/(Th|Ti|S)\//, '/M/') : ''; }
+function smThumb(url)  { return url ? url.replace(/\/(Ti|S|M|L|XL)\//, '/Th/') : ''; }
 function smLarge(url)  { return url ? url.replace(/\/(Th|Ti|S|M)\//, '/L/') : ''; }
 
-// ── Bounded-concurrency map ────────────────────────────────────────────────
+// ── Bounded concurrency ────────────────────────────────────────────────────
 async function pmap(items, fn, concurrency) {
   const results = new Array(items.length);
   let cursor = 0;
@@ -39,32 +43,77 @@ async function pmap(items, fn, concurrency) {
   return results;
 }
 
-// ── Build the prompt ───────────────────────────────────────────────────────
-function buildSystemPrompt(taxonomy) {
+// Sample evenly across an array (for albums with > MAX_THUMBS_PER_PASS1 photos)
+function sampleEvenly(total, count) {
+  if (total <= count) return Array.from({ length: total }, (_, i) => i);
+  const step = total / count;
+  const indices = [];
+  for (let i = 0; i < count; i++) indices.push(Math.floor(i * step));
+  return indices;
+}
+
+// ── Prompts ────────────────────────────────────────────────────────────────
+function buildSelectionSystemPrompt(targetCount) {
+  return `You curate photos for a film/TV location scout. The scout's album has multiple photos. Your job: pick the ${targetCount} most useful images for understanding what this location is and what's distinctive about it.
+
+SELECTION CRITERIA:
+- DIVERSITY > redundancy. Avoid 5 photos of the same room. Pick ONE that best represents each distinct space.
+- COVER DIFFERENT SPACES: if the album has exterior, multiple interior rooms, distinctive details — include one of each.
+- SPREAD ACROSS THE ALBUM. Photos are ordered as the scout shot them. Often the first cluster is one room (e.g. exterior shots), the next cluster another room, etc. Your ${targetCount} picks should be drawn from across the FULL range of indices — don't bunch them up. If the album has 80 photos, your selections should NOT all be from images 0-15; they should span the album. Different sections of the album typically capture different spaces.
+- PREFER ESTABLISHING SHOTS over close-ups. Wide angles showing architecture and layout > tight crops.
+- AVOID: blurry images, dark/underexposed shots, accidental shots, logistic photos (closeup of a doorbell, parking lot ground, plain hallway walls, isolated stairs without context, signage-only shots).
+- INCLUDE: photos showing distinctive features (period details, materials, mood, lighting), exterior if available, the main usable rooms/spaces.
+- ORDER MATTERS in your output: list selections in importance order — the most representative photo first.
+
+Return ONLY this JSON, no prose, no markdown fences:
+{
+  "selected": [0, 5, 12, ...],
+  "reasoning": "brief note on what types of images you picked AND what spread of the album they came from"
+}`;
+}
+
+function buildClassifySystemPrompt(taxonomy) {
   const taxList = (taxonomy && taxonomy.length)
     ? taxonomy.map(p => '  - ' + p).join('\n')
     : '  (no existing categories — propose appropriate ones)';
 
-  return `You classify locations for a film/TV scout's photo library. Your job is to assign each location to a category path that matches how a scout would intuitively organize them.
+  return `You classify locations for a film/TV scout's photo library AND extract rich, searchable visual descriptors that help the scout find this place later.
 
 EXISTING TAXONOMY (prefer these paths when they fit):
 ${taxList}
 
-GUIDELINES:
+PATH GUIDELINES:
 - Use existing paths when an album fits one well, even loosely
 - Propose NEW paths only when nothing existing fits — keep them lowercase, hyphenated, hierarchical (e.g. "residences/brownstones", "commercial/warehouses")
 - Common patterns: residences/{houses|apartments|mansions|lofts|brownstones|townhouses}, restaurants/{casual|fine-dining|diners|cafes}, bars, hotels, hospitals, schools, offices, industrial/{warehouses|factories|garages}, religious, public/{libraries|courthouses|museums}, retail/{shops|malls}
-- Confidence rubric: 0.95+ = images clearly show the type, 0.85 = name + 1 image confirm, 0.70 = strong textual evidence only, <0.70 = ambiguous
-- "most_diagnostic_image" is the 0-indexed image that most strongly informed your decision (so we can re-use it if we re-classify)
-- "tags" should be 3-7 concrete descriptors (e.g. "industrial", "exposed-brick", "rooftop-access") — useful for search
+
+CONFIDENCE RUBRIC:
+- 0.95+ = images clearly show the type
+- 0.85 = name + 1 image confirm
+- 0.70 = strong textual evidence only
+- <0.70 = ambiguous
+
+TAG GUIDELINES — extract 8-18 concrete descriptive tags FROM THE IMAGES that would help a scout search this location later. Cover as many of these dimensions as apply:
+
+  ARCHITECTURE / STYLE: victorian, art-deco, mid-century-modern, brutalist, neoclassical, industrial, tudor, colonial, gothic, beaux-arts, federal, craftsman, ranch, contemporary, postmodern
+  PERIOD / ERA FEEL: pre-war, 1920s, 1950s, 70s-era, modern, period-accurate, anachronistic, timeless, historical
+  MATERIALS / FINISHES: wood-paneling, exposed-brick, marble-floors, stained-glass, hardwood, concrete, tile, stone, metal, plaster, wallpaper, terrazzo, linoleum, drywall
+  LIGHT / WINDOWS: lots-of-windows, natural-light, skylights, floor-to-ceiling-windows, dim-lighting, fluorescent, harsh-overhead, warm-lighting, sconces, chandeliers, no-windows, basement-light
+  MOOD / TONE: creepy, fancy, elegant, homey, sterile, warm, cold, ornate, minimal, cluttered, abandoned-feel, lived-in, polished, raw, intimate, grand
+  SCALE / SIZE: cavernous, cramped, expansive, narrow, double-height-ceilings, low-ceilings, vaulted-ceilings, intimate
+  CONDITION: pristine, weathered, renovated, decrepit, well-maintained, deteriorating, restored, original, distressed
+  DISTINCTIVE FEATURES: spiral-staircase, rooftop-access, courtyard, fireplace, exposed-pipes, exposed-beams, columns, arches, balcony, terrace, basement, attic, kitchen-island
+  COLOR PALETTE: white-walls, dark-wood, jewel-tones, pastel, monochrome, colorful, neutral, black-and-white
+  CINEMATIC NOTES: shootable-360, hard-to-light, single-window-room, multiple-rooms, open-plan, character-rich, blank-canvas
+
+Pick whichever genuinely apply based on what you see in the photos. Prefer specific over generic. Multi-word tags use hyphens. Do NOT include the location name or generic words like "interior" / "exterior" / "building".
 
 OUTPUT: Return ONLY a JSON object, no prose, no markdown fences. Schema:
 {
   "path": "category/subcategory",
   "confidence": 0.0-1.0,
-  "reasoning": "one short sentence",
-  "most_diagnostic_image": 0,
-  "tags": ["tag1", "tag2"],
+  "reasoning": "one short sentence describing what you see",
+  "tags": ["tag1", "tag2", ...],
   "alternative_paths": [{"path": "...", "confidence": 0.6}]
 }`;
 }
@@ -92,14 +141,25 @@ function buildAlbumMessage(album, imageUrls) {
     parts.push({ type: 'text', text: `Image ${i}:` });
     parts.push({ type: 'image', source: { type: 'url', url } });
   });
-
   return parts;
 }
 
-// ── Call Anthropic API ─────────────────────────────────────────────────────
-async function callClaude(model, systemPrompt, userContent, apiKey) {
+function buildSelectionMessage(imageUrls, targetCount) {
+  const parts = [{
+    type: 'text',
+    text: `Pick the ${targetCount} most representative images from these ${imageUrls.length} photos.`
+  }];
+  imageUrls.forEach((url, i) => {
+    parts.push({ type: 'text', text: `Image ${i}:` });
+    parts.push({ type: 'image', source: { type: 'url', url } });
+  });
+  return parts;
+}
+
+// ── Anthropic API call ─────────────────────────────────────────────────────
+async function callClaude(model, systemPrompt, userContent, apiKey, maxTokens) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000);
+  const timer = setTimeout(() => ctrl.abort(), 90000);
   try {
     const res = await fetch(ANTHROPIC_URL, {
       method: 'POST',
@@ -110,16 +170,14 @@ async function callClaude(model, systemPrompt, userContent, apiKey) {
       },
       body: JSON.stringify({
         model,
-        max_tokens: 600,
+        max_tokens: maxTokens || 900,
         system: [
-          // Cacheable system block — first call pays full, rest get 90% off
           { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }
         ],
         messages: [{ role: 'user', content: userContent }]
       }),
       signal: ctrl.signal
     });
-
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`Anthropic ${res.status}: ${errText.slice(0, 300)}`);
@@ -133,67 +191,80 @@ async function callClaude(model, systemPrompt, userContent, apiKey) {
   }
 }
 
-// ── Parse JSON from model output (forgiving) ──────────────────────────────
-function parseClassification(text) {
+function parseJSON(text) {
   let cleaned = text.trim();
-  // Strip ```json or ``` fences if Claude includes them despite instructions
   cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
-  // Find first { ... last }
   const first = cleaned.indexOf('{');
   const last = cleaned.lastIndexOf('}');
-  if (first < 0 || last < 0) throw new Error('No JSON object in response: ' + cleaned.slice(0, 100));
-  const json = cleaned.slice(first, last + 1);
-  return JSON.parse(json);
+  if (first < 0 || last < 0) throw new Error('No JSON in: ' + cleaned.slice(0, 100));
+  return JSON.parse(cleaned.slice(first, last + 1));
 }
 
-// ── Classify a single album with escalation ────────────────────────────────
+// ── Pass 1: Curate images ─────────────────────────────────────────────────
+async function curateImages(allUrls, apiKey) {
+  if (allUrls.length <= TARGET_COUNT) {
+    return { indices: allUrls.map((_, i) => i), curationReasoning: '(skipped: ≤8 images)', usedCuration: false };
+  }
+
+  // Sample evenly if album is huge (>60 photos)
+  const sampledIndices = sampleEvenly(allUrls.length, MAX_THUMBS_PER_PASS1);
+  const sampledThumbs = sampledIndices.map(i => smThumb(allUrls[i]));
+
+  const sys = buildSelectionSystemPrompt(TARGET_COUNT);
+  const userParts = buildSelectionMessage(sampledThumbs, TARGET_COUNT);
+  const r = await callClaude(HAIKU, sys, userParts, apiKey, 300);
+  const parsed = parseJSON(r.text);
+
+  // Map sampled indices back to original indices in allUrls
+  const selected = (parsed.selected || [])
+    .filter(i => Number.isInteger(i) && i >= 0 && i < sampledIndices.length)
+    .slice(0, TARGET_COUNT)
+    .map(i => sampledIndices[i]);
+
+  if (selected.length === 0) {
+    return { indices: sampledIndices.slice(0, TARGET_COUNT), curationReasoning: '(fallback: no valid selection returned)', usedCuration: false };
+  }
+
+  return { indices: selected, curationReasoning: parsed.reasoning || '', usedCuration: true };
+}
+
+// ── Pass 2: Classify ──────────────────────────────────────────────────────
+async function classifyWithImages(album, taxonomy, imageUrls, model, apiKey) {
+  const sys = buildClassifySystemPrompt(taxonomy);
+  const userParts = buildAlbumMessage(album, imageUrls);
+  const r = await callClaude(model, sys, userParts, apiKey, 1000);
+  return parseJSON(r.text);
+}
+
+// ── Top-level: classify a single album ────────────────────────────────────
 async function classifyOne(album, taxonomy, apiKey) {
   const allImages = (album.image_urls || []).filter(Boolean);
+
   if (allImages.length === 0) {
-    // No images = text-only Haiku call
-    const sys = buildSystemPrompt(taxonomy);
+    // Text-only fallback uses Haiku (cheap, no images to analyze)
+    const sys = buildClassifySystemPrompt(taxonomy);
     const userParts = buildAlbumMessage(album, []);
-    const r = await callClaude(HAIKU, sys, userParts, apiKey);
-    const result = parseClassification(r.text);
-    return { ...result, key: album.key, model: HAIKU, escalated: false, _images_used: 0 };
+    const r = await callClaude(HAIKU, sys, userParts, apiKey, 1000);
+    const result = parseJSON(r.text);
+    return { ...result, key: album.key, model: HAIKU, _images_used: 0, _curation: 'none' };
   }
 
-  // ── Pass 1: Haiku with up to 6 medium images ──
-  const pass1Images = allImages.slice(0, 6).map(smMedium);
-  const sys = buildSystemPrompt(taxonomy);
-  const userParts1 = buildAlbumMessage(album, pass1Images);
-  const r1 = await callClaude(HAIKU, sys, userParts1, apiKey);
-  let result = parseClassification(r1.text);
-  result.key = album.key;
-  result.model = HAIKU;
-  result.escalated = false;
-  result._images_used = pass1Images.length;
+  // Pass 1: curate (or skip if ≤8 images)
+  const { indices, curationReasoning, usedCuration } = await curateImages(allImages, apiKey);
+  const curatedUrls = indices.map(i => smLarge(allImages[i]));
 
-  // ── Pass 2: escalate to Sonnet for low-confidence ──
-  if (result.confidence != null && result.confidence < CONFIDENCE_THRESHOLD) {
-    const diagIdx = Math.max(0, Math.min(5, result.most_diagnostic_image || 0));
-    const diagImg = allImages[diagIdx];
-    // Pick 2 unused images (not the diagnostic one)
-    const unused = allImages.filter((_, i) => i !== diagIdx);
-    const pass2Images = [diagImg, unused[6] || unused[0], unused[7] || unused[1]]
-      .filter(Boolean)
-      .slice(0, 3)
-      .map(smLarge);
+  // Pass 2: Sonnet on curated set
+  const result = await classifyWithImages(album, taxonomy, curatedUrls, SONNET, apiKey);
 
-    const userParts2 = buildAlbumMessage(album, pass2Images);
-    try {
-      const r2 = await callClaude(SONNET, sys, userParts2, apiKey);
-      const result2 = parseClassification(r2.text);
-      result = { ...result2, key: album.key, model: SONNET, escalated: true,
-                 haiku_path: result.path, haiku_confidence: result.confidence,
-                 _images_used: pass1Images.length + pass2Images.length };
-    } catch (e) {
-      // If Sonnet fails, keep Haiku result and flag
-      result.escalation_error = e.message;
-    }
-  }
-
-  return result;
+  return {
+    ...result,
+    key: album.key,
+    model: SONNET,
+    _images_used: curatedUrls.length,
+    _curation: usedCuration ? 'haiku' : 'all',
+    _curation_reasoning: curationReasoning,
+    _curated_indices: indices
+  };
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────
@@ -208,29 +279,22 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'method not allowed' });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not configured' });
-  }
+  if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not configured' });
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const albums = Array.isArray(body && body.albums) ? body.albums : [];
     const taxonomy = Array.isArray(body && body.taxonomy) ? body.taxonomy : [];
-    if (albums.length === 0) {
-      return res.status(400).json({ ok: false, error: 'no albums in request' });
-    }
-    if (albums.length > 50) {
-      return res.status(400).json({ ok: false, error: 'max 50 albums per request' });
-    }
+    if (albums.length === 0) return res.status(400).json({ ok: false, error: 'no albums in request' });
+    // Cap at 25 — each album is 2 LLM calls so a batch of 25 is up to 50 API calls
+    if (albums.length > 25) return res.status(400).json({ ok: false, error: 'max 25 albums per request' });
 
     const results = await pmap(albums, a => classifyOne(a, taxonomy, apiKey), PARALLEL);
 
-    // Surface errors to the caller per-album, but don't fail the whole batch
     const cleaned = results.map((r, i) => {
       if (r && r.error) return { key: albums[i].key, error: r.error };
       return r;
     });
-
     return res.json({ ok: true, results: cleaned });
   } catch (e) {
     console.error('classify error:', e);
