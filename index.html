@@ -1332,6 +1332,7 @@ function formatNotes(raw, loc) {
   var noteLines = [];
   var italicLines = [];  // *note* context lines
   var dateStr = '';
+  var hoffmanStr = '';
   var inNotes = false;
   var currentContact = null;
   var addrDone = false;
@@ -1348,8 +1349,16 @@ function formatNotes(raw, loc) {
     if (!addrDone && !inNotes && !currentContact) {
       var stripped = l.replace(/^\*+|\*+$/g, '').trim();
       var lLow = stripped.toLowerCase();
-      // Exact match with location name
+      // Exact match with location name (case-insensitive)
       if (lLow === locName) { titleLines.push(l); continue; }
+      // Non-address first line: no digits, not a cross-street, not empty
+      // e.g. "St. Ann & the Holy Trinity Church"
+      if (titleLines.length === 0 && !/\d/.test(stripped) && 
+          !stripped.startsWith('(') && !/^C\d*:/i.test(stripped) &&
+          !/^notes?/i.test(stripped) && stripped.length > 0) {
+        // Looks like a business/location name line — skip it
+        titleLines.push(l); continue;
+      }
       // "X - Town" pattern — only skip if the part before " - " is NOT a street address
       // Street addresses start with a number followed by spaces then street name
       // Title lines: "Bourbon Street - Bayside" (no leading number)
@@ -1380,10 +1389,9 @@ function formatNotes(raw, loc) {
       continue;
     }
 
-    // Date line: J. Hoffman / date
-    if (/^J\.?\s+Hoffman/i.test(l)) { continue; }
+    // Footer: J. Hoffman + date — keep both
+    if (/^J\.?\s+Hoffman/i.test(l)) { hoffmanStr = l; continue; }
     if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}$/.test(l)) {
-      // Reformat date nicely
       var parts = l.split(/[-\/]/);
       dateStr = parts[0] + '/' + parts[1] + '/' + parts[2];
       continue;
@@ -1418,16 +1426,13 @@ function formatNotes(raw, loc) {
 
     // Address lines
     if (/^\(/.test(l)) {
-      crossLine = l; // cross-street
+      crossLine = l; // cross-street (@, Btw, At, etc)
     } else {
-      // Skip if this line duplicates loc.address or loc.city exactly
+      // Skip city/state line e.g. "Brooklyn, NY 11201" when locCity="brooklyn"
       var lLow2 = l.toLowerCase();
-      var isDupAddr = locAddr && lLow2 === locAddr;
-      // Skip city/state line if it starts with loc.city (e.g. "The Bronx, NY 10454")
-      // Skip city/state line: "The Bronx, NY 10454" when locCity="the bronx"
       var cityPart = lLow2.split(',')[0].trim();
-      var isDupCity = locCity && cityPart === locCity && addrLines.length > 0;
-      if (!isDupAddr && !isDupCity) {
+      var isDupCity = locCity && cityPart === locCity;
+      if (!isDupCity) {
         addrLines.push(l);
       }
     }
@@ -1460,10 +1465,7 @@ function formatNotes(raw, loc) {
   }
 
   // Address block — only show if we have address lines beyond what's in structured fields
-  var extraAddrLines = addrLines.filter(function(l) {
-    var cityPart2 = l.toLowerCase().split(',')[0].trim();
-    return !(locCity && cityPart2 === locCity);
-  });
+  var extraAddrLines = addrLines; // city already filtered during parse
   if (extraAddrLines.length || crossLine) {
     html += '<div style="'+s.addr+'">';
     extraAddrLines.forEach(function(l) {
@@ -1505,9 +1507,12 @@ function formatNotes(raw, loc) {
     html += '</div>';
   }
 
-  // Date
-  if (dateStr) {
-    html += '<div style="'+s.date+'">'+dateStr+'</div>';
+  // Scout credit + date
+  if (hoffmanStr || dateStr) {
+    html += '<div style="'+s.date+'">';
+    if (hoffmanStr && dateStr) html += hoffmanStr + ' &nbsp;·&nbsp; ' + dateStr;
+    else html += hoffmanStr || dateStr;
+    html += '</div>';
   }
 
   return html || '<div style="font-size:12px;color:var(--text2)">'+raw+'</div>';
