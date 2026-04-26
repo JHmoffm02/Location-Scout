@@ -1878,44 +1878,154 @@ window.showPage = function (page, btn) {
 // ══════════════════════════════════════════════════════════════════════════
 const ORG_CONFIDENCE_HIGH = 0.85;
 const ORG_CONFIDENCE_MED  = 0.70;
-const ORG_BATCH_SIZE      = 6;    // albums per /api/classify call (each does 2 LLM calls)
-const ORG_HISTORY_KEY     = 'org_corrections_v1';
-const ORG_HISTORY_MAX     = 60;   // keep this many corrections; we send the most useful 12
+const ORG_BATCH_SIZE      = 4;     // each album = 2 LLM calls; keep batches small
+const BLUR_THRESHOLD      = 30;    // Laplacian variance below this = treated as blurry
 
-// Persistent correction history (local — informs future classifications)
-function loadOrgHistory() {
-  try { return JSON.parse(localStorage.getItem(ORG_HISTORY_KEY) || '[]'); }
-  catch (e) { return []; }
-}
-function saveOrgHistoryEntry(entry) {
+// In-memory mirror of Supabase org_corrections (loaded on Organize tab open)
+let orgCorrectionsCache = [];
+let orgRunsCache = {};   // {album_key: {selected_image_keys, per_image_tags, ...}}
+
+async function loadOrgHistory() {
   try {
-    const all = loadOrgHistory();
-    // Replace any existing entry for the same album
-    const filtered = all.filter(h => h.album_key !== entry.album_key);
-    filtered.unshift({ ...entry, ts: Date.now() });
-    const trimmed = filtered.slice(0, ORG_HISTORY_MAX);
-    localStorage.setItem(ORG_HISTORY_KEY, JSON.stringify(trimmed));
-  } catch (e) {}
+    const r = await db('org_corrections?select=album_key,album_name,ai_path,applied_path,ai_tags,applied_tags,rejected_tags,added_tags,ai_model,created_at&order=created_at.desc&limit=200');
+    orgCorrectionsCache = Array.isArray(r) ? r : [];
+  } catch (e) {
+    console.warn('org_corrections load failed (run migration_2_organize.sql?):', e);
+    orgCorrectionsCache = [];
+  }
+  return orgCorrectionsCache;
 }
+
+async function loadOrgRuns() {
+  try {
+    const r = await db('org_album_runs?select=album_key,classified_path,classified_tags,selected_image_keys,per_image_tags,ai_model,classified_at');
+    orgRunsCache = {};
+    (Array.isArray(r) ? r : []).forEach(row => { orgRunsCache[row.album_key] = row; });
+  } catch (e) {
+    console.warn('org_album_runs load failed (run migration_2_organize.sql?):', e);
+    orgRunsCache = {};
+  }
+  return orgRunsCache;
+}
+
+async function saveOrgCorrection(entry) {
+  try {
+    await fetch(`${SB_URL}/rest/v1/org_corrections`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json', Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({
+        album_key:    entry.album_key,
+        album_name:   entry.album_name,
+        ai_path:      entry.ai_path,
+        applied_path: entry.applied_path,
+        ai_tags:      entry.ai_tags || [],
+        applied_tags: entry.applied_tags || [],
+        rejected_tags: entry.rejected_tags || [],
+        added_tags:   entry.added_tags || [],
+        ai_model:     entry.ai_model || ''
+      })
+    });
+    orgCorrectionsCache.unshift(entry);
+  } catch (e) { console.warn('Save correction failed:', e); }
+}
+
+async function saveOrgRun(album_key, run) {
+  try {
+    await fetch(`${SB_URL}/rest/v1/org_album_runs?on_conflict=album_key`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify({
+        album_key,
+        album_name:           run.album_name,
+        classified_path:      run.classified_path,
+        classified_tags:      run.classified_tags || [],
+        selected_image_keys:  run.selected_image_keys || [],
+        per_image_tags:       run.per_image_tags || {},
+        ai_model:             run.ai_model || '',
+        classified_at:        new Date().toISOString()
+      })
+    });
+    orgRunsCache[album_key] = run;
+  } catch (e) { console.warn('Save run failed:', e); }
+}
+
 // Pick the most useful corrections to send — prefer ones where user changed something
 function selectCorrectionsForPrompt(history, max) {
   if (!history || !history.length) return [];
-  // Score: path correction (3 points), tag rejection (2), tag addition (1), recency tiebreak
   const scored = history.map(h => {
     let score = 0;
     if (h.applied_path && h.ai_path && h.applied_path !== h.ai_path) score += 3;
     if (h.rejected_tags && h.rejected_tags.length) score += 2;
     if (h.added_tags && h.added_tags.length) score += 1;
     return { h, score };
-  }).filter(s => s.score > 0)  // skip pure-accept entries (no learning signal)
-    .sort((a, b) => b.score - a.score || (b.h.ts || 0) - (a.h.ts || 0))
+  }).filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score || (new Date(b.h.created_at).getTime() - new Date(a.h.created_at).getTime()))
     .slice(0, max)
     .map(s => s.h);
   return scored;
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// BLUR DETECTION (client-side, Laplacian variance on thumbnails)
+// ══════════════════════════════════════════════════════════════════════════
+async function detectBlur(url) {
+  return new Promise(resolve => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; resolve(null); } }, 5000);
+    img.onload = () => {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      try {
+        const w = Math.min(img.naturalWidth, 100);
+        const h = Math.min(img.naturalHeight, 75);
+        if (w < 8 || h < 8) return resolve(null);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const data = ctx.getImageData(0, 0, w, h).data;
+        let sum = 0, sumSq = 0, count = 0;
+        for (let y = 1; y < h - 1; y++) {
+          for (let x = 1; x < w - 1; x++) {
+            const i = (y * w + x) * 4;
+            const cur = (data[i] + data[i+1] + data[i+2]) / 3;
+            const up = (data[i - w*4] + data[i - w*4 + 1] + data[i - w*4 + 2]) / 3;
+            const dn = (data[i + w*4] + data[i + w*4 + 1] + data[i + w*4 + 2]) / 3;
+            const lf = (data[i - 4] + data[i - 3] + data[i - 2]) / 3;
+            const rt = (data[i + 4] + data[i + 5] + data[i + 6]) / 3;
+            const lap = 4 * cur - up - dn - lf - rt;
+            sum += lap;
+            sumSq += lap * lap;
+            count++;
+          }
+        }
+        if (count === 0) return resolve(null);
+        const mean = sum / count;
+        resolve(sumSq / count - mean * mean);
+      } catch (e) {
+        // Likely CORS — silently skip blur detection for this image
+        resolve(null);
+      }
+    };
+    img.onerror = () => { if (!done) { done = true; clearTimeout(timer); resolve(null); } };
+    img.src = url;
+  });
+}
+
 async function orgInit() {
   renderTaxonomyTree();
+  // Fetch corrections + runs in parallel
+  await Promise.all([loadOrgHistory(), loadOrgRuns()]);
   updateFeedbackBadge();
   if (!S.orgLoaded) await orgLoadUploads();
   else orgRender();
@@ -1924,11 +2034,21 @@ async function orgInit() {
 function updateFeedbackBadge() {
   const el = $('org-feedback');
   if (!el) return;
-  const corrections = selectCorrectionsForPrompt(loadOrgHistory(), 12);
+  const corrections = selectCorrectionsForPrompt(orgCorrectionsCache, 12);
   el.textContent = corrections.length
     ? `${corrections.length} learned correction${corrections.length !== 1 ? 's' : ''}`
     : '';
   el.style.display = corrections.length ? 'inline-flex' : 'none';
+}
+
+// ── Pull all album image data (urls + keys) ──
+async function orgFetchAlbumImageData(sm_key) {
+  try {
+    const imgs = await db(`smugmug_images?album_key=eq.${sm_key}&select=sm_key,thumb_url&limit=200`);
+    return imgs
+      .filter(i => i.thumb_url)
+      .map(i => ({ key: i.sm_key, thumb_url: i.thumb_url }));
+  } catch (e) { return []; }
 }
 
 // Build the existing taxonomy from smugmug_folders
@@ -2032,8 +2152,11 @@ function orgRender() {
 
 function orgRenderCard(album) {
   const c = S.orgClassifications[album.sm_key] || {};
-  const thumb = album.highlight_url ? smMedium(album.highlight_url) : '';
-  const desc = (album.description || '').slice(0, 200);
+  // Always show a real thumbnail. Prefer highlight_url; fall back to first synced image we know.
+  let mainThumb = album.highlight_url ? smMedium(album.highlight_url) : '';
+  if (!mainThumb && c.selectedThumbs && c.selectedThumbs.length) {
+    mainThumb = smMedium(c.selectedThumbs[0]);
+  }
   const status = c.status || '';
   const cls = ['org-card'];
   if (status === 'skipped') cls.push('skipped');
@@ -2054,9 +2177,20 @@ function orgRenderCard(album) {
       <div class="sg-model">${E(c.model || '')}${c.imagesUsed ? ` · ${c.imagesUsed} img${c.curation === 'haiku' ? ' (curated)' : ''}` : ''}${c.curationReasoning && c.curation === 'haiku' ? ` · ${E(c.curationReasoning)}` : ''}</div>
     </div>`;
   } else if (status === 'classifying') {
-    suggestHtml = `<div class="org-card-suggest"><div class="spin" style="margin-right:6px"></div>classifying…</div>`;
+    suggestHtml = `<div class="org-card-suggest"><div class="spin" style="margin-right:6px;display:inline-block"></div>classifying…</div>`;
   } else if (status === 'error') {
     suggestHtml = `<div class="org-card-suggest" style="border-color:var(--red);color:var(--red)">${E(c.error || 'Error')}</div>`;
+  }
+
+  // Selected-image strip — shown after classification
+  let stripHtml = '';
+  if (c.selectedThumbs && c.selectedThumbs.length) {
+    stripHtml = `<div class="org-strip">
+      <div class="org-strip-label">Selected (${c.selectedThumbs.length}) — click to lightbox</div>
+      <div class="org-strip-row">${c.selectedThumbs.map((t, i) =>
+        `<img src="${E(smMedium(t))}" alt="" loading="lazy" onclick="orgOpenLightbox('${E(album.sm_key)}', ${i})" onerror="this.style.display='none'">`
+      ).join('')}</div>
+    </div>`;
   }
 
   let actionsHtml = '';
@@ -2079,17 +2213,34 @@ function orgRenderCard(album) {
       <button class="org-btn" onclick="orgSkip('${E(album.sm_key)}')">skip</button>`;
   }
 
+  const thumbHtml = mainThumb
+    ? `<img src="${E(mainThumb)}" loading="lazy" onerror="this.style.display='none'" onclick="orgOpenLightbox('${E(album.sm_key)}', 0)">`
+    : `<div class="org-thumb-placeholder">no preview</div>`;
+
   return `<div class="${cls.join(' ')}" data-key="${E(album.sm_key)}">
-    <div class="org-card-thumb">${thumb ? `<img src="${E(thumb)}" loading="lazy" onerror="this.style.display='none'">` : ''}</div>
+    <div class="org-card-thumb">${thumbHtml}</div>
     <div class="org-card-body">
       <div class="org-card-name">${E(album.name)}</div>
       <div class="org-card-meta">${album.image_count || 0} photos</div>
-      ${desc ? `<div class="org-card-notes">${E(desc)}</div>` : ''}
+      ${album.description ? `<div class="org-card-notes">${E((album.description || '').slice(0, 200))}</div>` : ''}
       ${suggestHtml}
+      ${stripHtml}
     </div>
     <div class="org-card-actions">${actionsHtml}</div>
   </div>`;
 }
+
+// ── Lightbox for selected images ──
+window.orgOpenLightbox = function (sm_key, startIdx) {
+  const c = S.orgClassifications[sm_key];
+  if (!c || !c.selectedThumbs || !c.selectedThumbs.length) return;
+  // Reuse the existing lightbox by populating dpImages
+  S.dpImages = c.selectedThumbs.slice();
+  S.dpIndex = Math.max(0, Math.min(startIdx || 0, S.dpImages.length - 1));
+  $('lb-img').src = smXL(S.dpImages[S.dpIndex]);
+  $('lightbox').classList.add('open');
+  updateLbCounter();
+};
 
 // ── Classification ──
 async function orgFetchAlbumImages(sm_key) {
@@ -2103,19 +2254,31 @@ async function orgFetchAlbumImages(sm_key) {
 async function orgClassifyBatch(albums) {
   if (!albums.length) return;
   const taxonomy = buildTaxonomyPaths();
-  const corrections = selectCorrectionsForPrompt(loadOrgHistory(), 12);
+  const corrections = selectCorrectionsForPrompt(orgCorrectionsCache, 12);
 
-  // Fetch images for each album in parallel
+  // For each album: fetch images, run blur detection, take every other sharp one
   const albumsWithImages = await Promise.all(albums.map(async a => {
-    const images = await orgFetchAlbumImages(a.sm_key);
+    const allImgs = await orgFetchAlbumImageData(a.sm_key);
+    let prepared = [];
+
+    if (allImgs.length === 0) {
+      // No synced images — fall back to highlight only
+      if (a.highlight_url) prepared = [{ key: null, thumb_url: a.highlight_url }];
+    } else {
+      // Run blur detection in parallel
+      const blurScores = await Promise.all(allImgs.map(i => detectBlur(i.thumb_url)));
+      const sharp = allImgs.filter((_, i) => blurScores[i] === null || blurScores[i] >= BLUR_THRESHOLD);
+      // If blur detection failed for ALL (CORS issue), use everything
+      const filtered = sharp.length ? sharp : allImgs;
+      // Take every other to reduce cost on the cheap pass
+      prepared = filtered.filter((_, i) => i % 2 === 0);
+      // Safety: if we filtered too aggressively, fall back to filtered set
+      if (prepared.length < 8 && filtered.length > prepared.length) prepared = filtered;
+    }
+
     return {
-      key: a.sm_key,
-      name: a.name,
-      notes: a.description || '',
-      address: '',
-      city: '',
-      state: '',
-      image_urls: images.length ? images : (a.highlight_url ? [a.highlight_url] : [])
+      album: a,
+      prepared
     };
   }));
 
@@ -2126,18 +2289,43 @@ async function orgClassifyBatch(albums) {
   orgRender();
 
   try {
+    const apiAlbums = albumsWithImages.map(({ album, prepared }) => ({
+      key: album.sm_key,
+      name: album.name,
+      notes: album.description || '',
+      address: '',
+      city: '',
+      state: '',
+      image_urls: prepared.map(p => p.thumb_url),
+      image_keys: prepared.map(p => p.key)  // parallel array
+    }));
+
     const r = await fetch(`${SM_BASE}/api/classify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ albums: albumsWithImages, taxonomy, corrections })
+      body: JSON.stringify({ albums: apiAlbums, taxonomy, corrections })
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'classify failed');
+
+    // Build a lookup from album_key → prepared list (for thumb URLs)
+    const prepLookup = {};
+    albumsWithImages.forEach(({ album, prepared }) => {
+      prepLookup[album.sm_key] = prepared;
+    });
+
     (data.results || []).forEach(res => {
       if (!res || !res.key) return;
       if (res.error) {
         S.orgClassifications[res.key] = { status: 'error', error: res.error };
       } else {
+        const prepared = prepLookup[res.key] || [];
+        // Map selected_image_keys back to thumb URLs (for display)
+        const selectedThumbs = (res.selected_image_keys || [])
+          .map(k => prepared.find(p => p.key === k))
+          .filter(Boolean)
+          .map(p => p.thumb_url);
+
         S.orgClassifications[res.key] = {
           classified: true,
           status: '',
@@ -2145,15 +2333,17 @@ async function orgClassifyBatch(albums) {
           confidence: res.confidence,
           reasoning: res.reasoning,
           tags: res.tags || [],
-          aiTags: res.tags || [],     // remember what AI suggested (for diff on accept)
-          aiPath: res.path,            // remember original AI path
-          rejectedTags: [],            // user-rejected (will populate via UI)
+          aiTags: res.tags || [],
+          aiPath: res.path,
+          rejectedTags: [],
           model: res.model || '',
           alternatives: res.alternative_paths || [],
           imagesUsed: res._images_used || 0,
           curation: res._curation || '',
           curationReasoning: res._curation_reasoning || '',
-          curatedIndices: res._curated_indices || []
+          selectedKeys: res.selected_image_keys || [],
+          selectedThumbs: selectedThumbs,
+          perImageTags: res.per_image_tags_by_key || {}
         };
       }
     });
@@ -2173,7 +2363,7 @@ window.orgClassifyAll = async function () {
     return !c || (!c.classified && c.status !== 'applied' && c.status !== 'skipped' && c.status !== 'queued');
   });
   if (!todo.length) { toast('All albums already classified', 'inf'); return; }
-  if (!confirm(`Classify ${todo.length} album${todo.length !== 1 ? 's' : ''}?\n\nFlow: Haiku curates 8 best photos, then Sonnet does rich classification + tagging.\nApprox cost: ~$${(todo.length * 0.04).toFixed(2)} (~4¢/album).`)) return;
+  if (!confirm(`Classify ${todo.length} album${todo.length !== 1 ? 's' : ''}?\n\nFlow per album:\n  1. Blur detection (free, client-side)\n  2. Cheap pass (Haiku) on every-other sharp photo → picks top 15\n  3. Deep pass (Sonnet) on those 15 with per-image tagging\n\nApprox cost: ~$${(todo.length * 0.07).toFixed(2)} (~7¢/album).`)) return;
 
   S.orgClassifying = true;
   $('org-classify-btn').disabled = true;
@@ -2330,8 +2520,8 @@ window.orgApplyMoves = async function () {
             }
           } catch (e) {}
         }
-        // ── Save to correction history (informs future classifications) ──
-        saveOrgHistoryEntry({
+        // ── Save to correction history (Supabase, cross-device) ──
+        await saveOrgCorrection({
           album_key: album.sm_key,
           album_name: album.name,
           ai_path: c.aiPath || c.path,
@@ -2339,7 +2529,16 @@ window.orgApplyMoves = async function () {
           ai_tags: c.aiTags || [],
           applied_tags: c.tags || [],
           rejected_tags: c.rejectedTags || [],
-          added_tags: [],  // (no UI yet for adding tags — placeholder)
+          added_tags: [],
+          ai_model: c.model || ''
+        });
+        // ── Save the run record (selected images + per-image tags) ──
+        await saveOrgRun(album.sm_key, {
+          album_name: album.name,
+          classified_path: c.targetPath,
+          classified_tags: c.tags || [],
+          selected_image_keys: c.selectedKeys || [],
+          per_image_tags: c.perImageTags || {},
           ai_model: c.model || ''
         });
         S.orgClassifications[album.sm_key] = { ...c, status: 'applied' };
