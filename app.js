@@ -31,9 +31,11 @@ const CAT_PALETTE = [
 ];
 
 const NAV_HISTORY_MAX = 50;
-const LOC_CACHE_KEY = 'loc_cache_v2';
+const LOC_CACHE_KEY = 'loc_cache_v2_1';
 const LOC_CACHE_TTL = 15 * 60 * 1000;
 const LOC_SELECT = 'id,name,lat,lng,status,state_code,city,address,address_cross,zip,address_verified,address_candidates,smugmug_album_key,smugmug_gallery_url,cover_photo_url,notes,notes_override,tags,scout_name,scout_date';
+// Pre-migration schema (no address_cross, zip, address_verified, address_candidates)
+const LOC_SELECT_LEGACY = 'id,name,lat,lng,status,state_code,city,address,smugmug_album_key,smugmug_gallery_url,cover_photo_url,notes,notes_override,tags,scout_name,scout_date';
 
 // ══════════════════════════════════════════════════════════════════════════
 // STATE (single object — no scattered globals)
@@ -47,7 +49,7 @@ const S = {
   // Map
   gmap: null, mapReady: false, markers: [], markerPool: new Map(),
   clusterer: null, selectionOverlay: null, zoneCircle: null,
-  zoneOn: false, satOn: false, miniMap: null, miniMarker: null,
+  zoneOn: false, satOn: false,
   // Filters
   catPinColors: {}, savedCatColors: {},
   highlightedCat: null, selectedAreas: new Set(),
@@ -55,8 +57,9 @@ const S = {
   currentHoverLoc: null, currentDetailLoc: null,
   dpImages: [], dpIndex: 0, dpRequestToken: 0,
   smTokens: null, dockOpen: false,
-  editingLoc: null, addrEditing: false,
-  navHistory: [], navFuture: []
+  editingLoc: null,
+  navHistory: [], navFuture: [],
+  migrationRan: true   // set false if locations query falls back to legacy schema
 };
 window.S = S;  // expose for HTML inline handlers
 
@@ -135,18 +138,51 @@ async function loadLocations(forceRefresh) {
 }
 
 async function fetchLocations() {
+  // Try v2 schema first (post-migration)
   try {
     const data = await db(`locations?select=${LOC_SELECT}&order=name.asc`);
     S.locations = data;
     rebuildLookups();
     try { localStorage.setItem(LOC_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch (e) {}
     return S.locations;
-  } catch (e) { toast('DB error', 'err'); return []; }
+  } catch (e1) {
+    // Fall back to legacy schema (pre-migration)
+    console.warn('v2 schema failed, trying legacy:', e1.message || e1);
+    try {
+      const data = await db(`locations?select=${LOC_SELECT_LEGACY}&order=name.asc`);
+      // Backfill missing fields with defaults so the rest of the app works
+      S.locations = data.map(l => Object.assign({
+        address_verified: false,
+        address_candidates: null,
+        address_cross: null,
+        zip: null
+      }, l));
+      S.migrationRan = false;   // suppress verification UI in legacy mode
+      rebuildLookups();
+      try { localStorage.setItem(LOC_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: S.locations })); } catch (e) {}
+      toast('⚠ Migration not run — run migration.sql for full features', 'err');
+      return S.locations;
+    } catch (e2) {
+      const msg = (e2 && e2.message) || (e1 && e1.message) || 'unknown';
+      console.error('Both location queries failed:', e2);
+      toast('DB error: ' + msg, 'err');
+      return [];
+    }
+  }
 }
 
 async function refreshLocationsBackground() {
   try {
-    const data = await db(`locations?select=${LOC_SELECT}&order=name.asc`);
+    let data;
+    try {
+      data = await db(`locations?select=${LOC_SELECT}&order=name.asc`);
+    } catch (e1) {
+      data = await db(`locations?select=${LOC_SELECT_LEGACY}&order=name.asc`);
+      data = data.map(l => Object.assign({
+        address_verified: false, address_candidates: null,
+        address_cross: null, zip: null
+      }, l));
+    }
     if (!data || !data.length) return;
     S.locations = data;
     rebuildLookups();
@@ -305,7 +341,8 @@ window.initMap = async function () {
     zoom: 11, center: { lat: 40.73, lng: -73.97 },
     backgroundColor: '#08090b',
     disableDefaultUI: true, gestureHandling: 'greedy',
-    isFractionalZoomEnabled: true, styles: MAP_STYLE
+    isFractionalZoomEnabled: false,  // integer zoom only — much smoother
+    styles: MAP_STYLE
   });
   S.gmap.addListener('click', () => {
     $('hcard').classList.remove('show');
@@ -324,14 +361,28 @@ window.initMap = async function () {
   google.maps.event.addListenerOnce(S.gmap, 'idle', refreshPins);
 };
 
+// Memoize icon objects so 500 gray pins share the same icon (huge perf win).
+// Using URL-based SVG (vs SymbolPath) so Google Maps can canvas-optimize them.
+const _iconCache = new Map();
 function makeIcon(col, scale, stroke, opacity, sw) {
-  return {
-    path: google.maps.SymbolPath.CIRCLE,
-    scale: scale || 8, fillColor: col,
-    fillOpacity: opacity || 0.9,
-    strokeColor: stroke || 'rgba(0,0,0,.5)',
-    strokeWeight: sw || 1.5
-  };
+  const _scale = scale || 8;
+  const _stroke = stroke || 'rgba(0,0,0,.5)';
+  const _opacity = opacity != null ? opacity : 0.9;
+  const _sw = sw != null ? sw : 1.5;
+  const key = col + '|' + _scale + '|' + _stroke + '|' + _opacity + '|' + _sw;
+  let icon = _iconCache.get(key);
+  if (!icon) {
+    const total = Math.ceil((_scale + _sw) * 2 + 2);
+    const cx = total / 2;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${total}"><circle cx="${cx}" cy="${cx}" r="${_scale}" fill="${col}" fill-opacity="${_opacity}" stroke="${_stroke}" stroke-width="${_sw}"/></svg>`;
+    icon = {
+      url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+      scaledSize: new google.maps.Size(total, total),
+      anchor: new google.maps.Point(cx, cx)
+    };
+    _iconCache.set(key, icon);
+  }
+  return icon;
 }
 
 function refreshPins() {
@@ -400,6 +451,26 @@ function refreshPins() {
   if (S.currentDetailLoc) highlightPin(S.currentDetailLoc);
 }
 
+const _clusterIconCache = new Map();
+function makeClusterIcon(clusterColor, count) {
+  const key = (clusterColor || 'gray') + ':' + count;
+  let icon = _clusterIconCache.get(key);
+  if (icon) return icon;
+  const fill   = clusterColor ? clusterColor + '22' : '#1c1e22';
+  const stroke = clusterColor || 'rgba(255,255,255,0.12)';
+  const text   = clusterColor || '#e6e4de';
+  const size = count > 99 ? 48 : count > 9 ? 42 : 36;
+  const r = size / 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${r}" cy="${r}" r="${r-2}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/><text x="${r}" y="${r+4}" text-anchor="middle" font-family="DM Mono,monospace" font-size="11" fill="${text}">${count}</text></svg>`;
+  icon = {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(size, size),
+    anchor: new google.maps.Point(r, r)
+  };
+  _clusterIconCache.set(key, icon);
+  return icon;
+}
+
 function clusterRender(cluster) {
   const count = cluster.count;
   const catCounts = {};
@@ -413,19 +484,9 @@ function clusterRender(cluster) {
   let topCat = null, topCount = 0;
   Object.keys(catCounts).forEach(c => { if (catCounts[c] > topCount) { topCount = catCounts[c]; topCat = c; } });
   const clusterColor = topCat ? S.catPinColors[topCat] : null;
-  const fill   = clusterColor ? clusterColor + '22' : '#1c1e22';
-  const stroke = clusterColor || 'rgba(255,255,255,0.12)';
-  const text   = clusterColor || '#e6e4de';
-  const size = count > 99 ? 48 : count > 9 ? 42 : 36;
-  const r = size / 2;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${r}" cy="${r}" r="${r-2}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/><text x="${r}" y="${r+4}" text-anchor="middle" font-family="DM Mono,monospace" font-size="11" fill="${text}">${count}</text></svg>`;
   return new google.maps.Marker({
     position: cluster.position,
-    icon: {
-      url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-      scaledSize: new google.maps.Size(size, size),
-      anchor: new google.maps.Point(r, r)
-    },
+    icon: makeClusterIcon(clusterColor, count),
     zIndex: 900 + count
   });
 }
@@ -594,32 +655,54 @@ window.openDetail = function (loc) {
 
   let html = '';
 
-  // Address verification widget (top of body if unverified)
-  const needsVerify = !loc.address_verified;
-  if (needsVerify) {
-    html += renderVerifyWidget(loc, parsed);
-  }
-
   // Status badge
   html += `<div class="dp-status-row"><span class="dp-badge" style="background:${sl.bg};color:${sl.c}">${E(loc.status)}</span></div>`;
 
-  // Saved address (if verified or has data)
-  if ((loc.address_verified && loc.address) || loc.address || loc.city) {
-    const addrPart = (loc.address || '').trim();
-    const cityPart = (loc.city || '').trim();
-    const statePart = (loc.state_code || '').trim();
-    const zipPart = (loc.zip || '').trim();
-    const cleanCity = cityPart && addrPart.toLowerCase().indexOf(cityPart.toLowerCase()) >= 0 ? '' : cityPart;
+  // ── Address section: 2-line address + extras + Street View thumbnail ──
+  const addrPart = (loc.address || '').trim();
+  const cityPart = (loc.city || '').trim();
+  const statePart = (loc.state_code || '').trim();
+  const zipPart = (loc.zip || '').trim();
+  const crossPart = (loc.address_cross || '').trim();
+  // Drop city if it's already inside the street string (avoid duplicates)
+  const cleanCity = cityPart && addrPart.toLowerCase().indexOf(cityPart.toLowerCase()) >= 0 ? '' : cityPart;
+  const line2 = [cleanCity, statePart].filter(Boolean).join(', ') + (zipPart ? ' ' + zipPart : '');
+
+  // Extras = parser-detected stuff that lived between street and city in the notes
+  const extras = (parsed && parsed.address && parsed.address.extras) ? parsed.address.extras : [];
+  // Filter: don't repeat the cross-street if it's already shown via address_cross
+  const filteredExtras = extras.filter(x => !(x.kind === 'cross' && crossPart && x.text === crossPart));
+
+  if (addrPart || line2) {
     const mapsQ = encodeURIComponent([addrPart, cleanCity, statePart, zipPart].filter(Boolean).join(' '));
     const mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + mapsQ;
-    html += `<div class="dp-section"><div class="dp-label">Address</div><div class="dp-val" style="line-height:1.8"><a href="${mapsUrl}" target="_blank" rel="noopener" style="color:var(--text);text-decoration:none;border-bottom:1px solid var(--border2)">`;
-    if (addrPart) html += E(addrPart);
-    const cityState = [E(cleanCity), E(statePart)].filter(Boolean).join(', ');
-    if (addrPart && cityState) html += '<br>';
-    if (cityState) html += cityState;
-    if (zipPart) html += ' ' + E(zipPart);
+    const svUrl = hasCoords(loc)
+      ? `https://maps.googleapis.com/maps/api/streetview?size=160x160&location=${loc.lat},${loc.lng}&fov=80&key=${GM_KEY}`
+      : null;
+    const svClick = hasCoords(loc)
+      ? `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${loc.lat},${loc.lng}`
+      : null;
+
+    html += '<div class="dp-section"><div class="dp-label">Address</div>';
+    html += '<div class="dp-addr-wrap">';
+    html += '<div class="dp-addr-text">';
+    html += `<a href="${mapsUrl}" target="_blank" rel="noopener" class="dp-addr-link">`;
+    if (addrPart) html += `<div class="dp-addr-l1">${E(addrPart)}</div>`;
+    if (line2)    html += `<div class="dp-addr-l2">${E(line2)}</div>`;
     html += '</a>';
-    if (loc.address_cross) html += `<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:4px">${E(loc.address_cross)}</div>`;
+    // Additional info (cross-street + any extras between original address lines)
+    if (crossPart) html += `<div class="dp-addr-extra">${E(crossPart)}</div>`;
+    filteredExtras.forEach(x => {
+      const cls = x.kind === 'italic' ? 'dp-addr-extra' : 'dp-addr-extra';
+      html += `<div class="${cls}">${E(x.text)}</div>`;
+    });
+    html += '</div>';
+    if (svUrl) {
+      html += `<a href="${svClick}" target="_blank" rel="noopener" class="dp-sv-thumb" title="Open Street View" aria-label="Open Street View">`;
+      html += `<img src="${E(svUrl)}" alt="Street View" loading="lazy" onerror="this.parentNode.style.display='none'">`;
+      html += `<span class="dp-sv-icon">↗</span>`;
+      html += '</a>';
+    }
     html += '</div></div>';
   }
 
@@ -656,9 +739,6 @@ window.openDetail = function (loc) {
   $('detail-panel').classList.add('open');
   $('dp-scroll').scrollTop = 0;
 
-  // Initialize the mini map preview if widget is showing
-  if (needsVerify) setTimeout(() => initVerifyMiniMap(loc, parsed), 100);
-
   if ($('home-page').classList.contains('active')) {
     highlightPin(loc);
     setTimeout(() => panToVisible(loc), 300);
@@ -670,247 +750,8 @@ window.closeDetail = function () {
   $('detail-panel').classList.remove('open');
   S.currentDetailLoc = null;
   if (S.selectionOverlay) { S.selectionOverlay.setMap(null); S.selectionOverlay = null; }
-  S.miniMap = null; S.miniMarker = null;
 };
 
-// ── Address verification widget ────────────────────────────────────────────
-function renderVerifyWidget(loc, parsed) {
-  // Determine candidates: parsed candidates + saved candidates from DB
-  const dbCandidates = Array.isArray(loc.address_candidates) ? loc.address_candidates : [];
-  const parsedCandidates = (parsed && parsed.addressCandidates) || [];
-  const candidates = parsedCandidates.length ? parsedCandidates : dbCandidates;
-  const primary = candidates[0] || null;
-
-  const street = primary ? (primary.street || loc.address || '') : (loc.address || '');
-  const cross  = primary ? (primary.cross  || loc.address_cross || '') : (loc.address_cross || '');
-  const city   = primary ? (primary.city   || loc.city || '') : (loc.city || '');
-  const state  = primary ? (primary.state  || loc.state_code || '') : (loc.state_code || '');
-  const zip    = primary ? (primary.zip    || loc.zip || '') : (loc.zip || '');
-
-  const hasAny = street || city;
-  if (!hasAny && !loc.notes) return '';  // nothing to verify, nothing parsed
-
-  let html = '<div class="addr-verify" id="addr-verify-widget">';
-  html += '<div class="av-header"><span class="av-icon">⚠</span><span>Address needs verification</span></div>';
-
-  if (hasAny) {
-    html += '<div class="av-body">';
-    html += '<div class="av-suggest" id="av-suggest">';
-    html += `<div class="av-row av-street" id="av-street">${E(street || '(no street)')}</div>`;
-    if (cross) html += `<div class="av-row av-cross">${E(cross)}</div>`;
-    const cityLine = [city, state].filter(Boolean).join(', ') + (zip ? ' ' + zip : '');
-    html += `<div class="av-row av-city" id="av-city">${E(cityLine || '(no city)')}</div>`;
-    html += '</div>';
-    html += '<div class="av-map" id="av-mini-map"><div class="av-map-placeholder">geocoding…</div></div>';
-    html += '</div>';
-    html += '<div class="av-actions">';
-    html += '<button class="av-btn" onclick="addrEdit()" aria-label="Edit address">✏ edit</button>';
-    if (candidates.length > 1) {
-      html += '<button class="av-btn" onclick="addrCycleAlternate()" aria-label="Try alternate">↻ alternate</button>';
-    }
-    html += '<button class="av-btn av-primary" onclick="addrApprove()" aria-label="Approve address">✓ approve</button>';
-    html += '</div>';
-  } else {
-    html += '<div class="av-body"><div class="av-suggest"><div class="av-row" style="color:var(--text3)">No address found in notes — please enter one manually.</div></div></div>';
-    html += '<div class="av-actions"><button class="av-btn av-primary" onclick="addrEdit()">+ add address</button></div>';
-  }
-
-  html += '</div>';
-  return html;
-}
-
-// Initialize a mini Google Map showing the geocoded address
-async function initVerifyMiniMap(loc, parsed) {
-  const container = $('av-mini-map');
-  if (!container || !window.google || !google.maps) return;
-
-  const candidates = (parsed && parsed.addressCandidates) || [];
-  const primary = candidates[0] || {};
-  const query = primary.query || [loc.address, loc.city, loc.state_code, loc.zip].filter(Boolean).join(', ');
-
-  if (!query) {
-    container.innerHTML = '<div class="av-map-placeholder">no address to preview</div>';
-    return;
-  }
-
-  // Use existing lat/lng if available, otherwise geocode
-  let lat = loc.lat, lng = loc.lng;
-  if (!hasCoords(loc)) {
-    try {
-      const url = `${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${loc.state_code ? '&state=' + loc.state_code : ''}`;
-      const r = await fetch(url);
-      const d = await r.json();
-      if (d.ok) { lat = d.lat; lng = d.lng; }
-      else throw new Error(d.error || 'geocode failed');
-    } catch (e) {
-      container.innerHTML = `<div class="av-map-placeholder" style="color:var(--red)">geocoding failed</div>`;
-      return;
-    }
-  }
-
-  if (!lat || !lng) {
-    container.innerHTML = '<div class="av-map-placeholder">no coordinates</div>';
-    return;
-  }
-
-  container.innerHTML = '';
-  S.miniMap = new google.maps.Map(container, {
-    zoom: 16, center: { lat: Number(lat), lng: Number(lng) },
-    backgroundColor: '#08090b',
-    disableDefaultUI: true, gestureHandling: 'cooperative',
-    styles: MAP_STYLE
-  });
-  S.miniMarker = new google.maps.Marker({
-    map: S.miniMap, position: { lat: Number(lat), lng: Number(lng) },
-    icon: makeIcon('#c8a96e', 12, '#fff', 1, 2.5)
-  });
-  // Store geocoded coords for approve
-  S.miniMap._geocodedLat = lat;
-  S.miniMap._geocodedLng = lng;
-}
-
-window.addrEdit = function () {
-  if (!S.currentDetailLoc) return;
-  const loc = S.currentDetailLoc;
-  const widget = $('addr-verify-widget');
-  if (!widget) return;
-  const candidates = Array.isArray(loc.address_candidates) ? loc.address_candidates : [];
-  const primary = candidates[0] || {};
-  const street = (primary.street || loc.address || '').trim();
-  const city   = (primary.city   || loc.city || '').trim();
-  const state  = (primary.state  || loc.state_code || '').trim();
-  const zip    = (primary.zip    || loc.zip || '').trim();
-
-  const editHtml = `
-    <div class="av-edit-row">
-      <input id="ave-street" placeholder="Street address" value="${E(street)}" aria-label="Street address">
-    </div>
-    <div class="av-edit-row" style="display:flex;gap:6px">
-      <input id="ave-city" placeholder="City" value="${E(city)}" aria-label="City" style="flex:2">
-      <input id="ave-state" placeholder="ST" value="${E(state)}" maxlength="2" aria-label="State" style="flex:0 0 50px;text-transform:uppercase">
-      <input id="ave-zip" placeholder="Zip" value="${E(zip)}" maxlength="5" aria-label="Zip" style="flex:0 0 70px">
-    </div>
-    <div class="av-edit-actions">
-      <button class="av-btn" onclick="addrEditCancel()">cancel</button>
-      <button class="av-btn av-primary" onclick="addrEditSaveAndApprove()">✓ save & approve</button>
-    </div>`;
-  qs('.av-suggest', widget).innerHTML = editHtml;
-  qs('.av-actions', widget).style.display = 'none';
-  S.addrEditing = true;
-};
-
-window.addrEditCancel = function () {
-  // Re-render the detail to restore the read-only verify widget
-  if (S.currentDetailLoc) openDetail(S.currentDetailLoc);
-};
-
-window.addrEditSaveAndApprove = async function () {
-  if (!S.currentDetailLoc) return;
-  const street = $('ave-street').value.trim();
-  const city   = $('ave-city').value.trim();
-  const state  = $('ave-state').value.trim().toUpperCase();
-  const zip    = $('ave-zip').value.trim();
-
-  // Geocode the new address
-  const query = [street, city, state, zip].filter(Boolean).join(', ');
-  if (!query) { toast('Enter at least a city or street', 'err'); return; }
-
-  toast('Verifying…', 'inf');
-  let lat = null, lng = null;
-  try {
-    const url = `${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${state ? '&state=' + state : ''}`;
-    const r = await fetch(url);
-    const d = await r.json();
-    if (d.ok) { lat = d.lat; lng = d.lng; }
-  } catch (e) {}
-
-  await saveVerified(S.currentDetailLoc, {
-    address: street || null,
-    city: city || null,
-    state_code: state || null,
-    zip: zip || null,
-    lat: lat, lng: lng
-  });
-};
-
-window.addrApprove = async function () {
-  if (!S.currentDetailLoc) return;
-  const loc = S.currentDetailLoc;
-  const candidates = Array.isArray(loc.address_candidates) ? loc.address_candidates : [];
-  const primary = candidates[0] || {};
-
-  // Use values currently shown in the widget
-  const street = primary.street || loc.address || null;
-  const city   = primary.city   || loc.city || null;
-  const state  = primary.state  || loc.state_code || null;
-  const zip    = primary.zip    || loc.zip || null;
-  const cross  = primary.cross  || loc.address_cross || null;
-
-  let lat = (S.miniMap && S.miniMap._geocodedLat) || loc.lat;
-  let lng = (S.miniMap && S.miniMap._geocodedLng) || loc.lng;
-
-  // If we have no coordinates yet, geocode now
-  if (!lat || !lng) {
-    const query = [street, city, state, zip].filter(Boolean).join(', ');
-    if (query) {
-      try {
-        const url = `${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${state ? '&state=' + state : ''}`;
-        const r = await fetch(url);
-        const d = await r.json();
-        if (d.ok) { lat = d.lat; lng = d.lng; }
-      } catch (e) {}
-    }
-  }
-
-  await saveVerified(loc, {
-    address: street, city: city, state_code: state, zip: zip,
-    address_cross: cross, lat: lat, lng: lng
-  });
-};
-
-window.addrCycleAlternate = function () {
-  if (!S.currentDetailLoc) return;
-  const loc = S.currentDetailLoc;
-  const candidates = Array.isArray(loc.address_candidates) ? loc.address_candidates : [];
-  if (candidates.length < 2) { toast('No alternates', 'inf'); return; }
-  // Rotate: move first to end
-  const rotated = candidates.slice(1).concat(candidates.slice(0, 1));
-  loc.address_candidates = rotated;
-  openDetail(loc);  // re-render
-};
-
-async function saveVerified(loc, fields) {
-  const updates = Object.assign({}, fields, {
-    address_verified: true,
-    updated_at: new Date().toISOString()
-  });
-  try {
-    await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
-      method: 'PATCH',
-      headers: {
-        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
-        'Content-Type': 'application/json', Prefer: 'return=minimal'
-      },
-      body: JSON.stringify(updates)
-    });
-    Object.assign(loc, updates);
-    // Update cache
-    try {
-      const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
-      if (cached && cached.data) {
-        const li = cached.data.findIndex(l => l.id === loc.id);
-        if (li >= 0) Object.assign(cached.data[li], updates);
-        localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
-      }
-    } catch (e) {}
-    rebuildLookups();
-    if (S.gmap) refreshPins();
-    openDetail(loc);  // re-render without verify widget
-    toast('✓ Address verified', 'ok');
-  } catch (e) {
-    toast('Save failed: ' + (e.message || 'unknown error'), 'err');
-  }
-}
 
 // ── Image viewer ────────────────────────────────────────────────────────────
 function dpUpdateViewer() {
@@ -960,6 +801,9 @@ window.openEditPanel = function (loc) {
   $('edit-name').value    = loc.name || '';
   $('edit-address').value = loc.address || '';
   $('edit-city').value    = loc.city || '';
+  $('edit-state').value   = loc.state_code || '';
+  $('edit-zip').value     = loc.zip || '';
+  $('edit-cross').value   = loc.address_cross || '';
   $('edit-notes').value   = loc.notes || '';
   $('edit-panel').style.display = 'flex';
   $('edit-name').focus();
@@ -975,12 +819,34 @@ window.saveEdit = async function () {
   btn.textContent = 'Saving...'; btn.disabled = true;
   const updates = {
     name:           $('edit-name').value.trim(),
-    address:        $('edit-address').value.trim(),
-    city:           $('edit-city').value.trim(),
+    address:        $('edit-address').value.trim() || null,
+    city:           $('edit-city').value.trim() || null,
+    state_code:     $('edit-state').value.trim().toUpperCase() || null,
     notes:          $('edit-notes').value,
-    notes_override: true,
-    address_verified: ($('edit-address').value.trim() ? true : S.editingLoc.address_verified)
+    notes_override: true
   };
+  // Optional fields (only write if migration ran — field exists)
+  if (S.migrationRan) {
+    updates.zip           = $('edit-zip').value.trim() || null;
+    updates.address_cross = $('edit-cross').value.trim() || null;
+  }
+
+  // Re-geocode if address changed and we have coords-able input
+  const addrChanged = updates.address !== (S.editingLoc.address || null) ||
+                      updates.city !== (S.editingLoc.city || null) ||
+                      updates.state_code !== (S.editingLoc.state_code || null);
+  if (addrChanged && (updates.address || updates.city)) {
+    btn.textContent = 'Geocoding...';
+    try {
+      const query = [updates.address, updates.city, updates.state_code, updates.zip].filter(Boolean).join(', ');
+      const stateParam = updates.state_code ? '&state=' + updates.state_code : '';
+      const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
+      const d = await r.json();
+      if (d.ok && d.lat) { updates.lat = d.lat; updates.lng = d.lng; }
+    } catch (e) { /* keep existing coords */ }
+    btn.textContent = 'Saving...';
+  }
+
   try {
     await fetch(`${SB_URL}/rest/v1/locations?id=eq.${S.editingLoc.id}`, {
       method: 'PATCH',
@@ -1000,6 +866,7 @@ window.saveEdit = async function () {
       }
     } catch (e) {}
     rebuildLookups();
+    if (S.gmap) refreshPins();
     closeEditPanel();
     openDetail(S.editingLoc);
     toast('Saved', 'ok');
