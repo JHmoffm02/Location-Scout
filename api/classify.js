@@ -180,7 +180,7 @@ TAG GUIDELINES — extract 8-18 album-level descriptive tags FROM THE IMAGES tha
   CINEMATIC NOTES: shootable-360, hard-to-light, single-window-room, multiple-rooms, open-plan, character-rich, blank-canvas
   ROOM TYPES (use as tags too): kitchen, bathroom, bedroom, living-room, dining-room, foyer, hallway, basement, attic, exterior, backyard, rooftop
 
-PER-IMAGE TAGS — ALSO provide tags for EACH individual image. These are MORE specific than the album tags — they describe what's actually visible in that one shot. A bedroom shot might tag "bedroom, four-poster-bed, hardwood, warm-lighting"; an exterior shot might tag "exterior, tudor, weathered, lots-of-trees". Different rooms typically have different feels — capture that.
+PER-IMAGE TAGS — provide 4-7 tags PER IMAGE (no more — keep them concise). These are MORE specific than the album tags — they describe what's actually visible in that one shot. A bedroom shot might tag "bedroom, four-poster-bed, hardwood, warm-lighting"; an exterior shot might tag "exterior, tudor, weathered, lots-of-trees". Different rooms typically have different feels — capture that.
 
 Pick whichever genuinely apply based on what you see. Prefer specific over generic. Multi-word tags use hyphens. Do NOT include the location name or generic words like "interior"/"building".
 
@@ -255,7 +255,7 @@ async function callClaude(model, systemPrompt, userContent, apiKey, maxTokens) {
       },
       body: JSON.stringify({
         model,
-        max_tokens: maxTokens || 1800,
+        max_tokens: maxTokens || 2400,
         system: [
           { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }
         ],
@@ -280,9 +280,97 @@ function parseJSON(text) {
   let cleaned = text.trim();
   cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
   const first = cleaned.indexOf('{');
-  const last = cleaned.lastIndexOf('}');
-  if (first < 0 || last < 0) throw new Error('No JSON in: ' + cleaned.slice(0, 100));
-  return JSON.parse(cleaned.slice(first, last + 1));
+  if (first < 0) throw new Error('No JSON in: ' + cleaned.slice(0, 120));
+  cleaned = cleaned.slice(first);
+
+  // Strategy 1: direct parse if it ends in '}'
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (lastBrace > 0) {
+    try { return JSON.parse(cleaned.slice(0, lastBrace + 1)); } catch (e) { /* fall through */ }
+  }
+
+  // Strategy 2: scan, tracking depths + the current string's start position
+  let inString = false, escape = false;
+  let braceDepth = 0, bracketDepth = 0;
+  let lastSafeEnd = -1;             // index just past last completion at root depth
+  let lastTokenEnd = -1;            // index just past last completed value (any depth)
+  let currentStringStart = -1;      // position of unmatched " (if we end mid-string)
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const c = cleaned[i];
+    if (escape) { escape = false; continue; }
+    if (inString) {
+      if (c === '\\') escape = true;
+      else if (c === '"') { inString = false; currentStringStart = -1; lastTokenEnd = i + 1; }
+      continue;
+    }
+    if (c === '"') { inString = true; currentStringStart = i; continue; }
+    if (c === '{') braceDepth++;
+    else if (c === '}') {
+      braceDepth--;
+      lastTokenEnd = i + 1;
+      if (braceDepth === 0 && bracketDepth === 0) lastSafeEnd = i + 1;
+    }
+    else if (c === '[') bracketDepth++;
+    else if (c === ']') { bracketDepth--; lastTokenEnd = i + 1; }
+    else if (/[\d\.\-]/.test(c) || /[truefalsn]/i.test(c)) lastTokenEnd = i + 1;
+  }
+
+  if (lastSafeEnd > 0) {
+    try { return JSON.parse(cleaned.slice(0, lastSafeEnd)); } catch (e) {}
+  }
+
+  // Determine cut point for repair
+  let cut;
+  if (inString && currentStringStart >= 0) {
+    // Mid-string truncation: cut to before the opening " of the unclosed string
+    cut = currentStringStart;
+    // Walk back over whitespace, then optional ':' (key separator), then optional key string
+    while (cut > 0 && /\s/.test(cleaned[cut - 1])) cut--;
+    if (cut > 0 && cleaned[cut - 1] === ':') {
+      cut--;
+      while (cut > 0 && /\s/.test(cleaned[cut - 1])) cut--;
+      // Strip the key (string in quotes)
+      if (cut > 0 && cleaned[cut - 1] === '"') {
+        cut--;  // past closing quote of key
+        while (cut > 0 && cleaned[cut - 1] !== '"') cut--;
+        if (cut > 0) cut--;  // past opening quote of key
+      }
+    }
+    // Strip preceding comma + whitespace
+    while (cut > 0 && /[\s,]/.test(cleaned[cut - 1])) cut--;
+  } else {
+    cut = lastTokenEnd > 0 ? lastTokenEnd : cleaned.length;
+    while (cut > 0 && /[\s,]/.test(cleaned[cut - 1])) cut--;
+  }
+
+  // Re-scan up to cut to compute open-bracket/open-brace counts
+  let bd = 0, kd = 0, str = false, esc = false;
+  for (let i = 0; i < cut; i++) {
+    const c = cleaned[i];
+    if (esc) { esc = false; continue; }
+    if (str) {
+      if (c === '\\') esc = true;
+      else if (c === '"') str = false;
+      continue;
+    }
+    if (c === '"') str = true;
+    else if (c === '{') bd++;
+    else if (c === '}') bd--;
+    else if (c === '[') kd++;
+    else if (c === ']') kd--;
+  }
+
+  let candidate = cleaned.slice(0, cut);
+  // Close arrays first (typically inner), then objects
+  for (let i = 0; i < kd; i++) candidate += ']';
+  for (let i = 0; i < bd; i++) candidate += '}';
+  // Strip trailing commas before closers
+  candidate = candidate.replace(/,(\s*[\]}])/g, '$1');
+
+  try { return JSON.parse(candidate); } catch (e) {
+    throw new Error('JSON parse failed (recovery exhausted): ' + e.message + ' | head: ' + cleaned.slice(0, 80));
+  }
 }
 
 // ── Pass 1: Curate images ─────────────────────────────────────────────────
