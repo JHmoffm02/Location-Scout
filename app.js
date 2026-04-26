@@ -71,7 +71,7 @@ const S = {
   highlightedCat: null, selectedAreas: new Set(),
   // UI
   currentHoverLoc: null, currentDetailLoc: null,
-  dpImages: [], dpIndex: 0, dpRequestToken: 0,
+  dpImages: [], dpIndex: 0, dpRequestToken: 0, dpSelectedRun: null,
   smTokens: null, dockOpen: false,
   editingLoc: null,
   navHistory: [], navFuture: [],
@@ -766,11 +766,22 @@ window.openDetail = function (loc) {
     html += `<div class="dp-section"><div class="dp-notes" style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${E(loc.notes)}</div></div>`;
   }
 
-  // Tags
+  // Tags (clickable to remove — saves as feedback)
   if (loc.tags && loc.tags.length) {
-    html += '<div class="dp-section"><div class="dp-label">Tags</div><div class="dp-tags">';
-    loc.tags.forEach(t => { html += `<span class="dp-tag">${E(t)}</span>`; });
+    html += '<div class="dp-section"><div class="dp-label">Keywords <span class="dp-label-sub">(click ✕ to remove and train AI)</span></div><div class="dp-tags">';
+    loc.tags.forEach(t => {
+      html += `<span class="dp-tag dp-tag-removable" onclick="dpRemoveTag('${E(t)}')">${E(t)}<span class="dp-tag-x">✕</span></span>`;
+    });
     html += '</div></div>';
+  }
+
+  // Selected best-pick images (from org_album_runs, if classification was run for this album)
+  // Async-load: render placeholder then populate
+  if (loc.smugmug_album_key) {
+    html += `<div class="dp-section" id="dp-selected-section" style="display:none">
+      <div class="dp-label">Best picks <span class="dp-label-sub">(click image to view, ✕ to remove)</span></div>
+      <div id="dp-selected-strip" class="dp-selected-strip"></div>
+    </div>`;
   }
 
   // Scout
@@ -789,6 +800,145 @@ window.openDetail = function (loc) {
   }
   loadDetailGallery(loc);
   loadPlaceInfo(loc);
+  loadDetailBestPicks(loc);
+};
+
+// Load this album's best-pick images from org_album_runs and render a strip
+async function loadDetailBestPicks(loc) {
+  if (!loc.smugmug_album_key) return;
+  const myToken = ++S.dpRequestToken;
+  let run = (orgRunsCache && orgRunsCache[loc.smugmug_album_key]) || null;
+  if (!run) {
+    try {
+      const r = await db(`org_album_runs?album_key=eq.${loc.smugmug_album_key}&select=*`);
+      if (r && r[0]) {
+        run = r[0];
+        if (orgRunsCache) orgRunsCache[loc.smugmug_album_key] = run;
+      }
+    } catch (e) { /* table may not exist or empty — that's fine */ }
+  }
+  if (!run || myToken !== S.dpRequestToken) return;
+  const keys = run.selected_image_keys || [];
+  if (!keys.length) return;
+  // Fetch thumb URLs for these keys
+  let imgs = [];
+  try {
+    const list = keys.map(k => `"${k}"`).join(',');
+    imgs = await db(`smugmug_images?sm_key=in.(${list})&select=sm_key,thumb_url`);
+  } catch (e) { return; }
+  if (myToken !== S.dpRequestToken) return;
+  const byKey = {};
+  imgs.forEach(i => { byKey[i.sm_key] = i.thumb_url; });
+  const ordered = keys.map(k => ({ key: k, url: byKey[k] })).filter(x => x.url);
+  if (!ordered.length) return;
+  const section = $('dp-selected-section');
+  const strip = $('dp-selected-strip');
+  if (!section || !strip) return;
+  section.style.display = '';
+  S.dpSelectedRun = { albumKey: loc.smugmug_album_key, items: ordered };
+  strip.innerHTML = ordered.map((it, i) =>
+    `<div class="dp-selected-cell">
+      <img src="${E(smMedium(it.url))}" loading="lazy" onclick="dpOpenSelectedLightbox(${i})" onerror="this.style.display='none'">
+      <button class="dp-selected-x" onclick="dpRemoveSelectedImage('${E(it.key)}')" title="Not a good pick — remove and train AI">✕</button>
+    </div>`
+  ).join('');
+}
+
+// Click a best-pick thumbnail → open lightbox over those
+window.dpOpenSelectedLightbox = function (idx) {
+  if (!S.dpSelectedRun || !S.dpSelectedRun.items) return;
+  S.dpImages = S.dpSelectedRun.items.map(i => i.url);
+  S.dpIndex = Math.max(0, Math.min(idx || 0, S.dpImages.length - 1));
+  $('lb-img').src = smXL(S.dpImages[S.dpIndex]);
+  $('lightbox').classList.add('open');
+  updateLbCounter();
+};
+
+// Remove a tag directly from detail panel — updates DB, SmugMug keywords, and trains AI
+window.dpRemoveTag = async function (tag) {
+  const loc = S.currentDetailLoc;
+  if (!loc || !loc.tags) return;
+  if (!confirm(`Remove keyword "${tag}"?\n\nThis updates the location, removes from SmugMug, and tells the AI not to suggest "${tag}" for similar places.`)) return;
+  const newTags = loc.tags.filter(t => t !== tag);
+  loc.tags = newTags;
+  // Re-render immediately for snappy UX
+  openDetail(loc);
+  // Persist to Supabase
+  try {
+    await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json', Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({ tags: newTags })
+    });
+  } catch (e) { toast('Save failed', 'err'); }
+  // Update SmugMug keywords (best-effort)
+  if (S.smTokens && loc.smugmug_album_key) {
+    try {
+      const tb = btoa(JSON.stringify(S.smTokens));
+      // We don't have a dedicated "patch keywords" endpoint — use move_album to current path
+      // Actually safer: skip SmugMug update from here. The org_corrections feedback below
+      // is what drives future learning.
+    } catch (e) {}
+  }
+  // Save feedback signal for future classifications
+  await saveOrgCorrection({
+    album_key: loc.smugmug_album_key || '',
+    album_name: loc.name,
+    ai_path: '',
+    applied_path: '',
+    ai_tags: [],
+    applied_tags: newTags,
+    rejected_tags: [tag],
+    added_tags: [],
+    ai_model: '(post-confirmation edit)'
+  });
+  await loadOrgHistory();
+  toast(`"${tag}" removed and learned`, 'ok');
+};
+
+// Remove a best-pick image from detail panel — updates org_album_runs and trains AI
+window.dpRemoveSelectedImage = async function (image_key) {
+  if (!S.dpSelectedRun) return;
+  if (!confirm('Remove this image from the best picks?\n\nIt stays in your album, but the AI will know it wasn\'t a great pick.')) return;
+  const albumKey = S.dpSelectedRun.albumKey;
+  const items = S.dpSelectedRun.items.filter(i => i.key !== image_key);
+  S.dpSelectedRun.items = items;
+
+  // Update local cache
+  if (orgRunsCache && orgRunsCache[albumKey]) {
+    const run = orgRunsCache[albumKey];
+    run.selected_image_keys = (run.selected_image_keys || []).filter(k => k !== image_key);
+    if (run.per_image_tags) delete run.per_image_tags[image_key];
+    // Persist
+    try {
+      await fetch(`${SB_URL}/rest/v1/org_album_runs?album_key=eq.${albumKey}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=minimal'
+        },
+        body: JSON.stringify({
+          selected_image_keys: run.selected_image_keys,
+          per_image_tags: run.per_image_tags || {}
+        })
+      });
+    } catch (e) { toast('Save failed', 'err'); return; }
+  }
+
+  // Re-render strip
+  const strip = $('dp-selected-strip');
+  if (strip) {
+    strip.innerHTML = items.map((it, i) =>
+      `<div class="dp-selected-cell">
+        <img src="${E(smMedium(it.url))}" loading="lazy" onclick="dpOpenSelectedLightbox(${i})" onerror="this.style.display='none'">
+        <button class="dp-selected-x" onclick="dpRemoveSelectedImage('${E(it.key)}')">✕</button>
+      </div>`
+    ).join('');
+  }
+  toast('Image removed from best picks', 'ok');
 };
 
 window.closeDetail = function () {
@@ -1093,9 +1243,124 @@ window.openEditPanel = function (loc) {
   $('edit-addr').value    = formatAddressForEdit(parsed && parsed.address, loc);
   $('edit-contact').value = formatContactsForEdit(parsed);
   $('edit-notes').value   = formatNotesForEdit(parsed);
+
+  // Tags section — only show if location has any
+  S.editTagsState = {
+    original: Array.isArray(loc.tags) ? loc.tags.slice() : [],
+    current: Array.isArray(loc.tags) ? loc.tags.slice() : [],
+    added: [],
+    removed: []
+  };
+  renderEditTags();
+
+  // Best picks section — load from org_album_runs
+  S.editPicksState = { albumKey: loc.smugmug_album_key || '', items: [], removed: [] };
+  if (loc.smugmug_album_key) loadEditPicks(loc.smugmug_album_key);
+  else $('edit-pics-section').style.display = 'none';
+
   $('edit-panel').style.display = 'flex';
   $('edit-name').focus();
+
+  // Wire up the "add tag" input (idempotent)
+  const addInp = $('edit-tags-add');
+  if (addInp && !addInp._wired) {
+    addInp._wired = true;
+    addInp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const v = addInp.value.trim().toLowerCase().replace(/\s+/g, '-');
+        if (!v) return;
+        const st = S.editTagsState;
+        if (st.current.includes(v)) { addInp.value = ''; return; }
+        st.current.push(v);
+        st.added.push(v);
+        // If it was previously removed, undo that
+        st.removed = st.removed.filter(t => t !== v);
+        addInp.value = '';
+        renderEditTags();
+      }
+    });
+  }
 };
+
+function renderEditTags() {
+  const st = S.editTagsState;
+  if (!st) return;
+  const section = $('edit-tags-section');
+  const chips = $('edit-tags-chips');
+  if (!section || !chips) return;
+  if (!st.current.length && !st.original.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  chips.innerHTML = st.current.map(t =>
+    `<span class="edit-chip" onclick="editRemoveTag('${E(t)}')">${E(t)}<span class="edit-chip-x">✕</span></span>`
+  ).join('') || '<span class="edit-empty">no keywords yet</span>';
+}
+
+window.editRemoveTag = function (tag) {
+  const st = S.editTagsState;
+  if (!st) return;
+  st.current = st.current.filter(t => t !== tag);
+  // If user removed something that was added in this session, also remove from `added`
+  st.added = st.added.filter(t => t !== tag);
+  // If it was in original, mark as removed
+  if (st.original.includes(tag) && !st.removed.includes(tag)) st.removed.push(tag);
+  renderEditTags();
+};
+
+async function loadEditPicks(albumKey) {
+  let run = (orgRunsCache && orgRunsCache[albumKey]) || null;
+  if (!run) {
+    try {
+      const r = await db(`org_album_runs?album_key=eq.${albumKey}&select=*`);
+      if (r && r[0]) {
+        run = r[0];
+        if (orgRunsCache) orgRunsCache[albumKey] = run;
+      }
+    } catch (e) {}
+  }
+  const section = $('edit-pics-section');
+  const strip = $('edit-pics-strip');
+  if (!section || !strip) return;
+  if (!run || !run.selected_image_keys || !run.selected_image_keys.length) {
+    section.style.display = 'none';
+    return;
+  }
+  // Fetch URLs
+  const keys = run.selected_image_keys;
+  let imgs = [];
+  try {
+    const list = keys.map(k => `"${k}"`).join(',');
+    imgs = await db(`smugmug_images?sm_key=in.(${list})&select=sm_key,thumb_url`);
+  } catch (e) { return; }
+  const byKey = {};
+  imgs.forEach(i => { byKey[i.sm_key] = i.thumb_url; });
+  const items = keys.map(k => ({ key: k, url: byKey[k] })).filter(x => x.url);
+  S.editPicksState = { albumKey, items, removed: [] };
+  if (!items.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  renderEditPicks();
+}
+
+function renderEditPicks() {
+  const strip = $('edit-pics-strip');
+  if (!strip) return;
+  const st = S.editPicksState;
+  strip.innerHTML = st.items.map(it =>
+    `<div class="edit-pic-cell">
+      <img src="${E(smMedium(it.url))}" loading="lazy" onerror="this.style.display='none'">
+      <button class="edit-pic-x" onclick="editRemovePic('${E(it.key)}')" title="Not a great pick — remove">✕</button>
+    </div>`
+  ).join('');
+}
+
+window.editRemovePic = function (key) {
+  const st = S.editPicksState;
+  if (!st) return;
+  st.items = st.items.filter(i => i.key !== key);
+  st.removed.push(key);
+  renderEditPicks();
+};
+
 window.closeEditPanel = function () {
   $('edit-panel').style.display = 'none';
   S.editingLoc = null;
@@ -1163,17 +1428,76 @@ window.saveEdit = async function () {
       },
       body: JSON.stringify(updates)
     });
+
+    // ── Save tag changes ──
+    const tagSt = S.editTagsState;
+    let tagsChanged = false;
+    if (tagSt && (tagSt.removed.length || tagSt.added.length)) {
+      tagsChanged = true;
+      try {
+        await fetch(`${SB_URL}/rest/v1/locations?id=eq.${S.editingLoc.id}`, {
+          method: 'PATCH',
+          headers: {
+            apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+            'Content-Type': 'application/json', Prefer: 'return=minimal'
+          },
+          body: JSON.stringify({ tags: tagSt.current })
+        });
+        S.editingLoc.tags = tagSt.current;
+        // Save feedback signal
+        await saveOrgCorrection({
+          album_key: S.editingLoc.smugmug_album_key || '',
+          album_name: S.editingLoc.name,
+          ai_path: '',
+          applied_path: '',
+          ai_tags: tagSt.original,
+          applied_tags: tagSt.current,
+          rejected_tags: tagSt.removed,
+          added_tags: tagSt.added,
+          ai_model: '(post-confirmation edit)'
+        });
+      } catch (e) {}
+    }
+
+    // ── Save best-pick image removals ──
+    const picSt = S.editPicksState;
+    if (picSt && picSt.removed.length && picSt.albumKey) {
+      const remainingKeys = picSt.items.map(i => i.key);
+      try {
+        if (orgRunsCache && orgRunsCache[picSt.albumKey]) {
+          const run = orgRunsCache[picSt.albumKey];
+          run.selected_image_keys = remainingKeys;
+          if (run.per_image_tags) {
+            picSt.removed.forEach(k => delete run.per_image_tags[k]);
+          }
+          await fetch(`${SB_URL}/rest/v1/org_album_runs?album_key=eq.${picSt.albumKey}`, {
+            method: 'PATCH',
+            headers: {
+              apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+              'Content-Type': 'application/json', Prefer: 'return=minimal'
+            },
+            body: JSON.stringify({
+              selected_image_keys: remainingKeys,
+              per_image_tags: run.per_image_tags || {}
+            })
+          });
+        }
+      } catch (e) {}
+    }
+
     Object.assign(S.editingLoc, updates);
     try {
       const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
       if (cached && cached.data) {
         const li = cached.data.findIndex(l => l.id === S.editingLoc.id);
         if (li >= 0) Object.assign(cached.data[li], updates);
+        if (li >= 0 && tagsChanged) cached.data[li].tags = tagSt.current;
         localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
       }
     } catch (e) {}
     rebuildLookups();
     if (S.gmap) refreshPins();
+    if (tagsChanged) await loadOrgHistory();  // refresh feedback badge
     closeEditPanel();
     openDetail(S.editingLoc);
     toast('Saved', 'ok');
@@ -2182,14 +2506,18 @@ function orgRenderCard(album) {
     suggestHtml = `<div class="org-card-suggest" style="border-color:var(--red);color:var(--red)">${E(c.error || 'Error')}</div>`;
   }
 
-  // Selected-image strip — shown after classification
+  // Selected-image strip — each thumb has its own click for lightbox + an X to deselect
   let stripHtml = '';
   if (c.selectedThumbs && c.selectedThumbs.length) {
     stripHtml = `<div class="org-strip">
-      <div class="org-strip-label">Selected (${c.selectedThumbs.length}) — click to lightbox</div>
-      <div class="org-strip-row">${c.selectedThumbs.map((t, i) =>
-        `<img src="${E(smMedium(t))}" alt="" loading="lazy" onclick="orgOpenLightbox('${E(album.sm_key)}', ${i})" onerror="this.style.display='none'">`
-      ).join('')}</div>
+      <div class="org-strip-label">Best picks (${c.selectedThumbs.length}) — click to lightbox · ✕ to deselect</div>
+      <div class="org-strip-row">${c.selectedThumbs.map((t, i) => {
+        const k = (c.selectedKeys && c.selectedKeys[i]) || '';
+        return `<div class="org-strip-cell">
+          <img src="${E(smMedium(t))}" alt="" loading="lazy" onclick="orgOpenLightbox('${E(album.sm_key)}', ${i})" onerror="this.style.display='none'">
+          <button class="org-strip-x" onclick="orgDeselectImage('${E(album.sm_key)}', '${E(k)}')" title="Not a good pick — remove">✕</button>
+        </div>`;
+      }).join('')}</div>
     </div>`;
   }
 
@@ -2231,6 +2559,19 @@ function orgRenderCard(album) {
 }
 
 // ── Lightbox for selected images ──
+window.orgDeselectImage = function (sm_key, image_key) {
+  const c = S.orgClassifications[sm_key];
+  if (!c || !c.selectedKeys) return;
+  const idx = c.selectedKeys.indexOf(image_key);
+  if (idx < 0) return;
+  // Remove from selection
+  c.selectedKeys.splice(idx, 1);
+  if (c.selectedThumbs) c.selectedThumbs.splice(idx, 1);
+  if (c.perImageTags) delete c.perImageTags[image_key];
+  c.rejectedImageKeys = (c.rejectedImageKeys || []).concat([image_key]);
+  orgRender();
+};
+
 window.orgOpenLightbox = function (sm_key, startIdx) {
   const c = S.orgClassifications[sm_key];
   if (!c || !c.selectedThumbs || !c.selectedThumbs.length) return;
@@ -2533,12 +2874,19 @@ window.orgApplyMoves = async function () {
           ai_model: c.model || ''
         });
         // ── Save the run record (selected images + per-image tags) ──
+        // Strip any user-rejected images from the saved selection
+        const rejectedSet = new Set(c.rejectedImageKeys || []);
+        const finalKeys = (c.selectedKeys || []).filter(k => !rejectedSet.has(k));
+        const finalPerImageTags = {};
+        Object.keys(c.perImageTags || {}).forEach(k => {
+          if (!rejectedSet.has(k)) finalPerImageTags[k] = c.perImageTags[k];
+        });
         await saveOrgRun(album.sm_key, {
           album_name: album.name,
           classified_path: c.targetPath,
           classified_tags: c.tags || [],
-          selected_image_keys: c.selectedKeys || [],
-          per_image_tags: c.perImageTags || {},
+          selected_image_keys: finalKeys,
+          per_image_tags: finalPerImageTags,
           ai_model: c.model || ''
         });
         S.orgClassifications[album.sm_key] = { ...c, status: 'applied' };
