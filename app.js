@@ -129,6 +129,59 @@ function hexToRgba(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
+// ── Visibility-aware fetch retry ──
+// Browsers (Chrome especially) suspend network I/O when a tab is hidden,
+// the computer sleeps, or aggressive power-saving kicks in. The error name
+// varies but the symptom is "fetch failed" / NETWORK_IO_SUSPENDED / NETWORK_CHANGED.
+// This helper waits for the tab to become visible again, then retries with
+// exponential backoff. Use it for any long-running sync/upload work.
+
+function awaitVisibility() {
+  if (!document.hidden) return Promise.resolve();
+  return new Promise(resolve => {
+    const handler = () => {
+      if (!document.hidden) {
+        document.removeEventListener('visibilitychange', handler);
+        resolve();
+      }
+    };
+    document.addEventListener('visibilitychange', handler);
+  });
+}
+
+async function fetchRetry(url, opts, maxRetries = 4) {
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      // Wait for tab to be visible (no point retrying while tab is hidden — same suspension will happen)
+      await awaitVisibility();
+    }
+    try {
+      const r = await fetch(url, opts);
+      // Retry on rate-limit and server errors
+      if ((r.status === 429 || r.status >= 500) && attempt < maxRetries) {
+        const wait = 1500 * Math.pow(2, attempt);
+        console.warn(`[fetchRetry] HTTP ${r.status} ${url} — retry ${attempt+1}/${maxRetries} in ${wait}ms`);
+        await new Promise(res => setTimeout(res, wait));
+        continue;
+      }
+      return r;
+    } catch (e) {
+      lastErr = e;
+      const msg = (e && e.message) || '';
+      const isNetwork = /network|fetch|suspended|aborted|failed/i.test(msg);
+      if (attempt < maxRetries && isNetwork) {
+        const wait = 2000 * Math.pow(1.5, attempt);
+        console.warn(`[fetchRetry] network error: ${msg} — retry ${attempt+1}/${maxRetries} in ${wait}ms`);
+        await new Promise(res => setTimeout(res, wait));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr || new Error('fetch failed after retries');
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // DB LAYER
 // ══════════════════════════════════════════════════════════════════════════
@@ -1075,7 +1128,6 @@ async function loadDetailGallery(loc) {
   if (!loc.smugmug_album_key) return;
   const myToken = ++S.dpRequestToken;
 
-  // Indicate we're fetching while user waits
   const ctr = $('dp-counter');
   if (ctr) {
     ctr.style.display = 'block';
@@ -1083,7 +1135,46 @@ async function loadDetailGallery(loc) {
   }
 
   try {
-    // First check the album's expected image count
+    // ── FAST PATH: use the 15 curated best-picks if this album was classified ──
+    // These were already fetched & cached during the AI organizing step. No live SmugMug call needed.
+    let run = (orgRunsCache && orgRunsCache[loc.smugmug_album_key]) || null;
+    if (!run) {
+      try {
+        const r = await db(`org_album_runs?album_key=eq.${loc.smugmug_album_key}&select=selected_image_keys`);
+        if (r && r[0]) {
+          run = r[0];
+          if (orgRunsCache) orgRunsCache[loc.smugmug_album_key] = run;
+        }
+      } catch (e) { /* table might not exist yet — fall through */ }
+    }
+    if (myToken !== S.dpRequestToken) return;
+
+    if (run && Array.isArray(run.selected_image_keys) && run.selected_image_keys.length) {
+      const keys = run.selected_image_keys.filter(Boolean);
+      if (keys.length) {
+        const list = keys.map(k => `"${k}"`).join(',');
+        try {
+          const imgs = await db(`smugmug_images?sm_key=in.(${list})&select=sm_key,thumb_url`);
+          if (myToken !== S.dpRequestToken) return;
+          const byKey = {};
+          imgs.forEach(i => { byKey[i.sm_key] = i.thumb_url; });
+          // Preserve the curated order
+          const orderedThumbs = keys.map(k => byKey[k]).filter(Boolean);
+          if (orderedThumbs.length >= keys.length / 2) {  // got most of them
+            console.log(`[gallery] using ${orderedThumbs.length} curated best-picks (no live-fetch needed)`);
+            const cover = loc.cover_photo_url;
+            S.dpImages = cover && !orderedThumbs.includes(cover)
+              ? [cover].concat(orderedThumbs)
+              : orderedThumbs;
+            dpUpdateViewer();
+            return;
+          }
+          // else: smugmug_images is missing rows — fall through to live-fetch path
+        } catch (e) { /* fall through */ }
+      }
+    }
+
+    // ── SLOW PATH: no classification on this album — fetch all images ──
     let expectedCount = 0;
     try {
       const albs = await db(`smugmug_albums?sm_key=eq.${loc.smugmug_album_key}&select=image_count`);
@@ -1094,8 +1185,6 @@ async function loadDetailGallery(loc) {
     if (myToken !== S.dpRequestToken) return;
     const cacheCount = (imgs && imgs.length) || 0;
 
-    // Trigger live-fetch when we don't have enough cached photos
-    // (e.g. cache has 0 or 1 but album really has 30)
     const needLiveFetch = S.smTokens && (
       cacheCount === 0 ||
       (expectedCount > 1 && cacheCount < Math.min(expectedCount, 3))
@@ -1119,7 +1208,7 @@ async function loadDetailGallery(loc) {
           if (data && data.images && data.images.length) {
             console.log(`[gallery] live-fetched ${data.images.length} images`);
             imgs = data.images.map(i => ({ thumb_url: i.thumbUrl })).filter(i => i.thumb_url);
-            // Cache to Supabase for next time (best-effort)
+            // Cache to Supabase for next time
             (async () => {
               try {
                 const rows = data.images.filter(i => i.id && i.thumbUrl).map(i => ({
@@ -1155,12 +1244,10 @@ async function loadDetailGallery(loc) {
         toast('Photo fetch error: ' + (e.message || 'unknown'), 'err');
       }
     } else if (!S.smTokens && cacheCount <= 1) {
-      // No SmugMug token — can't live-fetch. Tell the user they have to connect.
       console.warn('[gallery] no smTokens — connect SmugMug to load full albums');
     }
 
     if (!imgs || !imgs.length) {
-      // Restore counter to whatever the existing dpImages says
       if (ctr) {
         if (S.dpImages.length) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length;
         else ctr.style.display = 'none';
@@ -2364,10 +2451,11 @@ window.startFullSync = async function () {
   const lbl = $('dock-sync-label'), btn = $('dock-sync-btn'), ns = $('nav-status');
   const tb = btoa(JSON.stringify(S.smTokens));
   lbl.textContent = '⟳ syncing...'; btn.disabled = true;
+  toast('Sync started — keep this tab visible & screen on. It auto-resumes if interrupted.', 'inf');
 
   try {
     if (ns) ns.textContent = 'crawling SmugMug...';
-    const crawlResp = await (await fetch(SM_BASE + '/api/smugmug?action=crawl', {
+    const crawlResp = await (await fetchRetry(SM_BASE + '/api/smugmug?action=crawl', {
       headers: { Authorization: 'Bearer ' + tb }
     })).json();
     const library = crawlResp.library;
@@ -2375,7 +2463,7 @@ window.startFullSync = async function () {
     if (ns) ns.textContent = `found ${smAlbums.length} albums — syncing structure...`;
 
     // Sync structure with mode='full' so server knows it can prune
-    await fetch(SM_BASE + '/api/sync', {
+    await fetchRetry(SM_BASE + '/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode: 'full', library: { folders: library.folders || [], albums: smAlbums, images: [] } })
@@ -2396,17 +2484,19 @@ window.startFullSync = async function () {
     // Parallel batches of 3 (gentle on SmugMug rate limits)
     const BATCH = 3;
     for (let i = 0; i < remaining.length; i += BATCH) {
+      // If user switched tabs / computer slept, wait until they're back before continuing
+      await awaitVisibility();
       const batch = remaining.slice(i, i + BATCH);
       if (ns) ns.textContent = `images ${i+1}-${Math.min(i+BATCH, remaining.length)}/${remaining.length}`;
       await Promise.all(batch.map(async alb => {
         try {
-          const r = await (await fetch(SM_BASE + `/api/smugmug?action=album-images&albumKey=${alb.sm_key}`, {
+          const r = await (await fetchRetry(SM_BASE + `/api/smugmug?action=album-images&albumKey=${alb.sm_key}`, {
             headers: { Authorization: 'Bearer ' + tb }
           })).json();
           const imgs = r.images || [];
           const desc = r.description || '';
           if (imgs.length) {
-            await fetch(SM_BASE + '/api/sync', {
+            await fetchRetry(SM_BASE + '/api/sync', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ library: { folders: [], albums: [], images: imgs } })
