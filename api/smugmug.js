@@ -157,7 +157,7 @@ async function deleteNodeByUri(nodeUri, accessToken, accessTokenSecret) {
   } finally { clearTimeout(timer); }
 }
 
-// Find a folder by path and delete it (must be empty in SmugMug — caller should move children first)
+// Find a folder by path and delete it ONLY if empty (caller must move children first)
 async function deleteFolderByPath(path, accessToken, accessTokenSecret) {
   const segments = String(path || '').split('/').filter(Boolean);
   if (!segments.length) throw new Error('Empty path');
@@ -179,6 +179,14 @@ async function deleteFolderByPath(path, accessToken, accessTokenSecret) {
     });
     if (!match) throw new Error(`Folder segment not found: ${seg}`);
     currentNodeUri = match.Uri;
+  }
+  // SAFETY: list children — refuse to delete if anything is still in there
+  const safeBaseUri = currentNodeUri.split('!')[0];
+  const safetyRes = await smRequest(safeBaseUri + '!children', accessToken, accessTokenSecret, { count: '5' });
+  const safetyChildren = safetyRes.Response?.Node || [];
+  const safetyArr = (Array.isArray(safetyChildren) ? safetyChildren : [safetyChildren]).filter(Boolean);
+  if (safetyArr.length > 0) {
+    throw new Error(`Refusing to delete "${segments.join('/')}" — folder still has ${safetyArr.length} child${safetyArr.length === 1 ? '' : 'ren'} (move them first)`);
   }
   await deleteNodeByUri(currentNodeUri, accessToken, accessTokenSecret);
   return { ok: true, deletedPath: segments.join('/') };
