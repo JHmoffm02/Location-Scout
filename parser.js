@@ -19,7 +19,7 @@
     SIGNATURE: /^J\.?\s*Hoffman/i,
     NOTES_HDR: /^notes?\s*:?\s*$/i,
     CONTACT_HDR: /^(C\d*|Contact|Owner|Manager|Mgr|GM|Chef|Booker|Booking|Agent|Producer|Director|Realtor|Broker|Host)\s*:\s*(.*)$/i,
-    BULLET: /^[-•‣▪]\s|^•/,
+    BULLET: /^[-•‣▪]/,
     CITY_STATE: /^([A-Za-z][A-Za-z\s.'\-]+),\s*([A-Z]{2})(?:\s+(\d{5}))?\s*$/,
     // Street: starts with number(s), maybe a hyphen+number (like "27-20"), then a token.
     // Allows "4401 11th St", "27-20 23rd Ave", "222 Old Country Rd". Letters required *somewhere*.
@@ -460,12 +460,16 @@
       parts.push(`<div style="${css.sec}"><div style="${css.lbl}">Contact</div>`);
       grouped.contacts.forEach((c, idx) => {
         if (idx > 0) parts.push('<div style="height:8px"></div>');
-        const labelTag = c.label && c.label.toUpperCase() !== 'C'
+        // Skip C / C1 / C2 / etc. labels — only show meaningful labels (Owner, Manager, etc.)
+        const labelTag = c.label && !/^C\d*$/i.test(c.label)
           ? `<span style="${css.cLabel}">${E(c.label)}</span>`
           : '';
         if (c.name) parts.push(`<div style="${css.cName}">${labelTag}${E(c.name)}</div>`);
         else if (labelTag) parts.push(`<div>${labelTag}</div>`);
-        c.phones.forEach(p => parts.push(`<div style="${css.cInfo}">${E(p)}</div>`));
+        c.phones.forEach(p => {
+          const tel = String(p).replace(/[^\d+]/g, '');
+          parts.push(`<div style="${css.cInfo}"><a href="tel:${tel}" style="color:inherit;text-decoration:none;border-bottom:1px dotted var(--border2)">${E(p)}</a></div>`);
+        });
         c.emails.forEach(e => parts.push(
           `<a href="mailto:${E(e)}" style="${css.cMail}">${E(e)}</a>`
         ));
@@ -482,16 +486,13 @@
           parts.push(`<div style="${css.upd}"><span style="${css.updLbl}">UPDATE</span>${
             n.date ? `<span style="${css.updDate}">${E(n.date)}</span>` : ''
           }</div>`);
-          if (n.text) parts.push(`<div style="${css.prose};color:var(--amber)">${E(n.text)}</div>`);
+          if (n.text) parts.push(`<div style="${css.bullet};color:var(--amber)"><span style="${css.bulDot}">•</span>${E(n.text)}</div>`);
           inUpdate = true;
           return;
         }
         const colorOverride = inUpdate ? ';color:var(--amber)' : '';
-        if (n.kind === 'bullet') {
-          parts.push(`<div style="${css.bullet}${colorOverride}"><span style="${css.bulDot}">•</span>${E(n.text)}</div>`);
-        } else {
-          parts.push(`<div style="${css.prose}${colorOverride}">${E(n.text)}</div>`);
-        }
+        // Every notes line gets a bullet — bullet OR prose, both display as •
+        parts.push(`<div style="${css.bullet}${colorOverride}"><span style="${css.bulDot}">•</span>${E(n.text)}</div>`);
       });
       parts.push('</div>');
     }
