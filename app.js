@@ -453,6 +453,12 @@ function refreshPins() {
     if (m) {
       m._col = col; m._loc = loc;
       m.setIcon(makeIcon(col));
+      // Update position too — lat/lng might have changed via edit/regeocode
+      const newPos = { lat: Number(loc.lat), lng: Number(loc.lng) };
+      const cur = m.getPosition();
+      if (!cur || cur.lat() !== newPos.lat || cur.lng() !== newPos.lng) {
+        m.setPosition(newPos);
+      }
     } else {
       m = new google.maps.Marker({
         position: { lat: Number(loc.lat), lng: Number(loc.lng) },
@@ -790,7 +796,7 @@ window.openDetail = function (loc) {
     // Right column: SV thumb + business info (populated async)
     html += '<div class="dp-addr-side">';
     if (svUrl) {
-      html += `<a href="${svClick}" target="_blank" rel="noopener" class="dp-sv-thumb" title="Open Street View" aria-label="Open Street View">`;
+      html += `<a href="${svClick}" target="_blank" rel="noopener" class="dp-sv-thumb" id="dp-sv-thumb" title="Open Street View" aria-label="Open Street View">`;
       html += `<img src="${E(svUrl)}" alt="Street View" loading="lazy" onerror="this.parentNode.style.display='none'">`;
       html += `<span class="dp-sv-icon">↗</span>`;
       html += '</a>';
@@ -871,7 +877,23 @@ window.openDetail = function (loc) {
   loadDetailGallery(loc);
   loadPlaceInfo(loc);
   loadDetailBestPicks(loc);
+  checkStreetViewAvailable(loc);
 };
+
+// Query the Street View metadata endpoint — if no panorama exists at this location, hide the thumb
+async function checkStreetViewAvailable(loc) {
+  if (!hasCoords(loc)) return;
+  const myToken = S.dpRequestToken;
+  try {
+    const r = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?location=${loc.lat},${loc.lng}&key=${GM_KEY}`);
+    const data = await r.json();
+    if (myToken !== S.dpRequestToken) return;  // user opened another loc
+    if (data.status !== 'OK') {
+      const el = $('dp-sv-thumb');
+      if (el) el.style.display = 'none';
+    }
+  } catch (e) { /* leave thumb visible if check fails */ }
+}
 
 // Load this album's best-pick images from org_album_runs and render a strip
 async function loadDetailBestPicks(loc) {
@@ -1056,9 +1078,9 @@ async function loadDetailGallery(loc) {
     let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=thumb_url');
     if (myToken !== S.dpRequestToken) return;
 
-    // Fall back to live SmugMug fetch if the local cache is empty.
-    // Many albums never had their images synced; this keeps the photo viewer working.
-    if ((!imgs || !imgs.length) && S.smTokens) {
+    // Fall back to live SmugMug fetch if the local cache is empty OR has only 1 image
+    // (most albums never had their full image list synced — just the highlight/cover)
+    if ((!imgs || imgs.length <= 1) && S.smTokens) {
       try {
         const tb = btoa(JSON.stringify(S.smTokens));
         const r = await fetch(`${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`, {
@@ -1104,6 +1126,74 @@ async function loadDetailGallery(loc) {
     S.dpImages = cover ? [cover].concat(thumbs.filter(t => t !== cover)) : thumbs;
     dpUpdateViewer();
   } catch (e) { console.error('gallery:', e); }
+}
+
+// Rough state bounding boxes — used to detect pins that obviously don't match their state_code
+// These are loose — they just catch "this NJ pin is clearly in NY" kinds of errors.
+const STATE_BBOX = {
+  NY: { latMin: 40.50, latMax: 45.02, lngMin: -79.77, lngMax: -71.85 },
+  NJ: { latMin: 38.92, latMax: 41.36, lngMin: -75.56, lngMax: -73.88 },
+  CT: { latMin: 40.95, latMax: 42.05, lngMin: -73.73, lngMax: -71.78 },
+  PA: { latMin: 39.71, latMax: 42.27, lngMin: -80.52, lngMax: -74.69 }
+};
+
+function isLatLngInState(lat, lng, stateCode) {
+  const bbox = STATE_BBOX[(stateCode || '').toUpperCase()];
+  if (!bbox || !lat || !lng) return null;  // unknown — can't say
+  return lat >= bbox.latMin && lat <= bbox.latMax && lng >= bbox.lngMin && lng <= bbox.lngMax;
+}
+
+window.regeocodeBadPins = async function () {
+  // Find locations whose state_code disagrees with their lat/lng
+  const candidates = S.locations.filter(l => {
+    if (!hasCoords(l) || !l.state_code) return false;
+    const inside = isLatLngInState(Number(l.lat), Number(l.lng), l.state_code);
+    return inside === false;  // explicitly outside — don't include locations we can't check
+  });
+
+  if (!candidates.length) {
+    // Also offer to regeocode all unverified locations as a fallback
+    const unverified = S.locations.filter(l => l.address && !l.address_verified);
+    if (!unverified.length) { toast('No bad pins found 👍', 'inf'); return; }
+    if (!confirm(`No state-mismatched pins found.\n\nDo you want to re-geocode all ${unverified.length} unverified locations anyway? (Each takes ~0.2s, address_verified ones are skipped.)`)) return;
+    return await runRegeocodeBatch(unverified, 'unverified');
+  }
+
+  if (!confirm(`Found ${candidates.length} pin${candidates.length !== 1 ? 's' : ''} where the lat/lng doesn't match the state code (e.g. NJ-tagged pin landed in NY).\n\nRe-geocode them now? Takes ~${Math.ceil(candidates.length * 0.2)}s.`)) return;
+  await runRegeocodeBatch(candidates, 'mismatched');
+};
+
+async function runRegeocodeBatch(locs, label) {
+  const ns = $('nav-status');
+  let fixed = 0, failed = 0;
+  for (let i = 0; i < locs.length; i++) {
+    const loc = locs[i];
+    if (ns) ns.textContent = `regeocoding ${label} ${i+1}/${locs.length}…`;
+    const query = [loc.address, loc.city, loc.state_code, loc.zip].filter(Boolean).join(', ');
+    if (!query) continue;
+    try {
+      const stateParam = loc.state_code ? '&state=' + loc.state_code : '';
+      const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
+      const d = await r.json();
+      if (d.ok && d.lat) {
+        await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+          method: 'PATCH',
+          headers: {
+            apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+            'Content-Type': 'application/json', Prefer: 'return=minimal'
+          },
+          body: JSON.stringify({ lat: d.lat, lng: d.lng })
+        });
+        loc.lat = d.lat;
+        loc.lng = d.lng;
+        fixed++;
+      } else { failed++; }
+    } catch (e) { failed++; }
+    await new Promise(r => setTimeout(r, 150));  // gentle on the geocoder
+  }
+  if (S.gmap) refreshPins();
+  if (ns) ns.textContent = '';
+  toast(`Re-geocoded ${fixed}${failed ? ` · ${failed} failed` : ''}`, fixed ? 'ok' : 'err');
 }
 
 window.regeocodeCurrent = async function () {
@@ -2163,16 +2253,19 @@ function checkAuth() {
 function updateAuthUI(ok) {
   const lbl = $('dock-sm-label'), btn = $('dock-sm-btn');
   const ab = $('dock-auth-btn'), sb = $('dock-sync-btn'), so = $('dock-signout-btn');
+  const rg = $('dock-regeo-btn');
   if (ok) {
     lbl.textContent = 'smugmug ✓'; btn.classList.remove('unconnected');
     if (ab) ab.style.display = 'none';
     if (sb) sb.style.display = 'flex';
     if (so) so.style.display = 'flex';
+    if (rg) rg.style.display = 'flex';
   } else {
     lbl.textContent = 'smugmug'; btn.classList.add('unconnected');
     if (ab) ab.style.display = 'flex';
     if (sb) sb.style.display = 'none';
     if (so) so.style.display = 'none';
+    if (rg) rg.style.display = 'none';
   }
 }
 
