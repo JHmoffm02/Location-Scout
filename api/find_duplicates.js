@@ -14,17 +14,26 @@ const ALLOWED_ORIGINS = new Set([
 
 const SYSTEM_PROMPT = `You analyze folder names from a film/TV scout's photo library and group ones that likely represent the SAME logical category.
 
+CRITICAL RULE — ONLY group folders at the SAME DEPTH (same number of "/" separators in their path):
+- "junk-yard" + "scrapyard" — BOTH depth 1, OK to group
+- "houses" + "homes" — BOTH depth 1, OK to group
+- "bars/brooklyn" + "pubs/brooklyn" — BOTH depth 2, OK to group
+- "bars/manhattan" + "bars/queens" — BOTH depth 2, but DIFFERENT areas — NOT duplicates, do NOT group
+- "bars" + "bars/brooklyn" — DIFFERENT depths — NEVER group these
+- "bars" + "bars/queens" — DIFFERENT depths — NEVER group these
+
 Examples of folders that should be grouped:
-- "junk-yard" + "scrapyard" + "junkyard" → all auto/metal scrap places
-- "houses" + "homes" + "single-family-homes"
-- "diners" + "diner" + "casual-restaurants"
-- "warehouse" + "warehouses" + "storage"
-- "church" + "churches" + "religious"
+- "junk-yard" + "scrapyard" + "junkyard" → all auto/metal scrap places (depth 1)
+- "houses" + "homes" + "single-family-homes" (depth 1)
+- "diners" + "diner" + "casual-restaurants" (depth 1)
+- "warehouse" + "warehouses" + "storage" (depth 1)
+- "church" + "churches" + "religious" (depth 1)
 
 DO NOT group folders that are merely related but distinct:
 - "bars" and "lounges" are different categories — keep separate
 - "houses" and "mansions" are different scales — keep separate
 - "manhattan" and "brooklyn" are different boroughs — keep separate
+- A parent folder and its child (e.g. "bars" and "bars/brooklyn") are NEVER duplicates of each other
 
 For each cluster you propose, suggest a canonical name (the cleanest, most descriptive — preferably one that's already in the list).
 
@@ -174,9 +183,26 @@ module.exports = async function handler(req, res) {
 
     const text = await callHaiku(SYSTEM_PROMPT, userText, apiKey);
     const parsed = parseJSON(text);
-    const clusters = (parsed.clusters || []).filter(c =>
+    const rawClusters = (parsed.clusters || []).filter(c =>
       Array.isArray(c.paths) && c.paths.length >= 2
     );
+
+    // Hard guarantee: drop any cluster whose paths span different depths
+    // or contain a parent/child relationship. Defense against the model occasionally ignoring the rule.
+    const clusters = rawClusters.filter(c => {
+      const depths = c.paths.map(p => String(p).split('/').filter(Boolean).length);
+      const allSameDepth = depths.every(d => d === depths[0]);
+      if (!allSameDepth) return false;
+      // Check no path is a prefix of another (parent/child)
+      for (let i = 0; i < c.paths.length; i++) {
+        for (let j = 0; j < c.paths.length; j++) {
+          if (i === j) continue;
+          const a = String(c.paths[i]), b = String(c.paths[j]);
+          if (b.startsWith(a + '/') || a.startsWith(b + '/')) return false;
+        }
+      }
+      return true;
+    });
     return res.json({ ok: true, clusters });
   } catch (e) {
     console.error('find_duplicates error:', e);
