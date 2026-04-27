@@ -724,17 +724,15 @@ window.openDetail = function (loc) {
   if (cat) {
     headerHtml += `<span class="dp-cat-pill" style="background:${col}22;color:${col}">${E(cat.replace(/-/g,' '))}</span>`;
   }
-  // Show status pill always now (Clear is the default — visible too)
-  const statusLabel = SL_LABEL[loc.status] || loc.status || 'clear';
-  // Use status colors: pending = amber, clear = green, rejected = red
-  const isPending = loc.status === 'pending';
+  // Combined status + as-of pill
+  // Clear (default) → green; Pending → amber; Rejected → red
+  const isPending  = loc.status === 'pending';
   const isRejected = loc.status === 'rejected';
-  const sBg = isPending ? sl.bg : isRejected ? sl.bg : 'rgba(76,175,130,.18)';
-  const sCol = isPending ? sl.c : isRejected ? sl.c : '#4caf82';
-  headerHtml += `<span class="dp-status-pill" style="background:${sBg};color:${sCol}">${E(statusLabel)}</span>`;
-  if (asOfDate) {
-    headerHtml += `<span class="dp-asof-pill" title="Most recent date in the notes (signature or latest update)">as of ${E(asOfDate)}</span>`;
-  }
+  const statusLabel = isPending ? 'pending' : isRejected ? 'rejected' : 'clear';
+  const sBg  = isPending ? 'rgba(212,148,58,.18)'  : isRejected ? 'rgba(194,96,96,.18)' : 'rgba(76,175,130,.18)';
+  const sCol = isPending ? '#d4943a'                : isRejected ? '#c26060'             : '#4caf82';
+  const combinedLabel = asOfDate ? `${statusLabel} as of ${asOfDate}` : statusLabel;
+  headerHtml += `<span class="dp-status-pill" style="background:${sBg};color:${sCol}">${E(combinedLabel)}</span>`;
   if (inZone) {
     headerHtml += `<span class="dp-zone-pill">in zone</span>`;
   }
@@ -1055,8 +1053,51 @@ async function loadDetailGallery(loc) {
   if (!loc.smugmug_album_key) return;
   const myToken = ++S.dpRequestToken;
   try {
-    const imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=thumb_url');
-    if (myToken !== S.dpRequestToken) return;  // stale
+    let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=thumb_url');
+    if (myToken !== S.dpRequestToken) return;
+
+    // Fall back to live SmugMug fetch if the local cache is empty.
+    // Many albums never had their images synced; this keeps the photo viewer working.
+    if ((!imgs || !imgs.length) && S.smTokens) {
+      try {
+        const tb = btoa(JSON.stringify(S.smTokens));
+        const r = await fetch(`${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`, {
+          headers: { Authorization: 'Bearer ' + tb }
+        });
+        const data = await r.json();
+        if (myToken !== S.dpRequestToken) return;
+        if (data && data.images && data.images.length) {
+          imgs = data.images.map(i => ({ thumb_url: i.thumbUrl })).filter(i => i.thumb_url);
+          // Quietly cache to Supabase for next time (best-effort, fire-and-forget)
+          (async () => {
+            try {
+              const rows = data.images.filter(i => i.id && i.thumbUrl).map(i => ({
+                sm_key: i.id, album_key: loc.smugmug_album_key,
+                album_name: i.albumName || loc.name || '',
+                album_url: i.albumUrl || '',
+                filename: i.filename || '', title: i.title || '',
+                caption: i.caption || '', keywords: i.keywords || '',
+                thumb_url: i.thumbUrl, web_url: i.webUri || null,
+                lat: i.lat || null, lng: i.lng || null,
+                synced_at: new Date().toISOString()
+              }));
+              if (rows.length) {
+                await fetch(`${SB_URL}/rest/v1/smugmug_images?on_conflict=sm_key`, {
+                  method: 'POST',
+                  headers: {
+                    apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+                    'Content-Type': 'application/json',
+                    Prefer: 'resolution=merge-duplicates,return=minimal'
+                  },
+                  body: JSON.stringify(rows)
+                });
+              }
+            } catch (e) { /* silent */ }
+          })();
+        }
+      } catch (e) { /* silent */ }
+    }
+
     if (!imgs || !imgs.length) return;
     const thumbs = imgs.map(i => i.thumb_url).filter(Boolean);
     const cover = loc.cover_photo_url;
@@ -2289,10 +2330,20 @@ window.showPage = function (page, btn) {
   $(page + '-page').classList.add('active');
   btn.classList.add('active');
   closeDock();
-  // Flatten-places control is library-only
+
+  // Filter bar visibility:
+  //   Map → entire bar visible
+  //   Library → bar visible, but zone-ring + satellite hidden (map-specific)
+  //   Organize → entire bar hidden (organize is a separate workflow)
+  const mapControls = $('map-controls');
+  if (mapControls) mapControls.style.display = (page === 'organize') ? 'none' : 'flex';
   document.querySelectorAll('.flatten-only-library').forEach(el => {
     el.style.display = (page === 'library') ? '' : 'none';
   });
+  document.querySelectorAll('.map-only-control').forEach(el => {
+    el.style.display = (page === 'home') ? '' : 'none';
+  });
+
   if (page === 'home') {
     if (!S.mapReady) loadMapScript();
     else if (S.gmap) setTimeout(() => google.maps.event.trigger(S.gmap, 'resize'), 50);
