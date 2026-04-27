@@ -45,10 +45,20 @@ function envOrThrow(name) {
   return v;
 }
 
+// Build a full URL from a path. Handles three input forms:
+//   1) Full URL (https://...) — used as-is
+//   2) Path that already includes /api/v2/... (returned by SmugMug responses) — prepend host only
+//   3) Short path like /album/abc or /!authuser — prepend host + /api/v2
+function buildSmUrl(path) {
+  if (path.startsWith('http')) return path;
+  if (path.startsWith('/api/v2')) return 'https://api.smugmug.com' + path;
+  return SM_API + path;
+}
+
 async function smPost(path, accessToken, accessTokenSecret, jsonBody, attempt = 0) {
   const consumerKey = envOrThrow('SMUGMUG_KEY');
   const consumerSecret = envOrThrow('SMUGMUG_SECRET');
-  const baseUrl = (path.startsWith('http') ? path : `${SM_API}${path}`).split('?')[0];
+  const baseUrl = buildSmUrl(path).split('?')[0];
   const oauthParams = makeOauthParams(consumerKey, accessToken);
   const authHeader = buildAuthHeader('POST', baseUrl, oauthParams, {}, consumerSecret, accessTokenSecret || '');
 
@@ -230,25 +240,49 @@ function mergeKeywords(existingRaw, newTags) {
 // Move an album (by AlbumKey) to a destination folder path. Optionally update keywords/description.
 async function moveAlbumByKey(albumKey, destPath, opts, accessToken, accessTokenSecret) {
   opts = opts || {};
-  // 1. Fetch album → get its node URI + current keywords
+  // 1. Fetch album → get its node URI + current WebUri (for verification)
   const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
   const album = albumRes.Response?.Album;
   if (!album) throw new Error('Album not found: ' + albumKey);
   const albumNodeUri = album.Uris?.Node?.Uri;
   if (!albumNodeUri) throw new Error('No album node URI for ' + albumKey);
+  const oldWebUri = album.WebUri || '';
 
   // 2. Find/create destination folder
   const segments = String(destPath || '').split('/').filter(Boolean);
   if (!segments.length) throw new Error('Empty destination path');
   const destNodeUri = await findOrCreateFolderPath(segments, accessToken, accessTokenSecret);
 
-  // 3. Move the album node
+  // 3. Move the album node — try both case variants since SmugMug docs are inconsistent
   const baseUri = destNodeUri.split('!')[0];
-  await smPost(baseUri + '!movenodes', accessToken, accessTokenSecret, {
-    MoveUris: [albumNodeUri]
-  });
+  let moveResp;
+  try {
+    moveResp = await smPost(baseUri + '!moveNodes', accessToken, accessTokenSecret, {
+      MoveUris: [albumNodeUri]
+    });
+  } catch (e1) {
+    // Try lowercase as fallback
+    try {
+      moveResp = await smPost(baseUri + '!movenodes', accessToken, accessTokenSecret, {
+        MoveUris: [albumNodeUri]
+      });
+    } catch (e2) {
+      throw new Error(`Move failed: ${e1.message}; lowercase also failed: ${e2.message}`);
+    }
+  }
 
-  // 4. Optionally PATCH album with new keywords (merged) and/or description
+  // 4. Verify the move actually happened by re-fetching the album
+  await new Promise(r => setTimeout(r, 400));  // SmugMug sometimes takes a beat to update WebUri
+  const after = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
+  const newWebUri = after.Response?.Album?.WebUri || '';
+  // Build the expected path prefix (everything except the album's own slug)
+  const expectedPrefix = segments.join('/').toLowerCase();
+  const newWebUriPath = newWebUri.replace(/^https?:\/\/[^/]+\//, '').toLowerCase();
+  if (!newWebUriPath.startsWith(expectedPrefix + '/') && !newWebUriPath.includes('/' + expectedPrefix + '/')) {
+    throw new Error(`Move did not take effect on SmugMug. Album still at "${newWebUriPath}" — expected to be inside "${expectedPrefix}". (Move endpoint returned ok, but the album's WebUri did not move. This usually means SmugMug rejected the request silently — check OAuth permissions are "Full Access" for write operations.)`);
+  }
+
+  // 5. Optionally PATCH album with new keywords (merged) and/or description
   const patchFields = {};
   if (opts.tags && opts.tags.length) {
     patchFields.Keywords = mergeKeywords(album.Keywords, opts.tags);
@@ -263,14 +297,8 @@ async function moveAlbumByKey(albumKey, destPath, opts, accessToken, accessToken
       if (patchFields.Keywords) mergedKeywords = patchFields.Keywords;
     } catch (e) {
       console.error('Album PATCH failed:', e.message);
-      // Don't fail the whole move just because tags didn't save
     }
   }
-
-  // 5. Re-fetch album to get its new WebUri
-  await new Promise(r => setTimeout(r, 250));
-  const after = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
-  const newWebUri = after.Response?.Album?.WebUri || '';
 
   return { ok: true, albumKey, newPath: segments.join('/'), newWebUri, keywords: mergedKeywords };
 }
@@ -278,7 +306,7 @@ async function moveAlbumByKey(albumKey, destPath, opts, accessToken, accessToken
 async function smRequest(path, accessToken, accessTokenSecret, extraParams = {}, attempt = 0) {
   const consumerKey = envOrThrow('SMUGMUG_KEY');
   const consumerSecret = envOrThrow('SMUGMUG_SECRET');
-  const baseUrl = (path.startsWith('http') ? path : `${SM_API}${path}`).split('?')[0];
+  const baseUrl = buildSmUrl(path).split('?')[0];
   const oauthParams = makeOauthParams(consumerKey, accessToken);
   const authHeader = buildAuthHeader('GET', baseUrl, oauthParams, extraParams, consumerSecret, accessTokenSecret || '');
   const finalUrl = new URL(baseUrl);
@@ -506,7 +534,7 @@ module.exports = async function handler(req, res) {
       const { requestToken, requestTokenSecret } = await getRequestToken(callbackUrl);
       const secureFlag = proto === 'https' ? '; Secure' : '';
       res.setHeader('Set-Cookie', `sm_rts=${requestTokenSecret}; Path=/; HttpOnly; SameSite=Lax${secureFlag}; Max-Age=600`);
-      const authUrl = `https://api.smugmug.com/services/oauth/1.0a/authorize?oauth_token=${requestToken}&Access=Full&Permissions=Read`;
+      const authUrl = `https://api.smugmug.com/services/oauth/1.0a/authorize?oauth_token=${requestToken}&Access=Full&Permissions=Modify`;
       return res.json({ authUrl, requestToken });
     }
 
