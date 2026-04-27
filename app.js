@@ -22,20 +22,21 @@ const SL = {
   rejected:   { bg: 'rgba(194,96,96,.18)', c: '#c26060' }
 };
 
-// Display labels — decoupled from DB enum values
+// Display labels — collapsed to two states the scout cares about:
+//   PENDING: explicitly marked *pending* in notes (sync detected this)
+//   CLEAR:   everything else (the default — "this location is good to go")
 const SL_LABEL = {
-  identified: 'thoughts',
-  scouted:    'thoughts',
+  identified: 'clear',
+  scouted:    'clear',
   pending:    'pending',
-  approved:   'clears',
-  rejected:   'rejected'
+  approved:   'clear',
+  rejected:   'rejected'   // kept distinct in case you want to bring it back later
 };
 
 // Filter chip → DB statuses it matches
 const STATUS_FILTERS = {
-  thoughts: ['identified', 'scouted'],
   pending:  ['pending'],
-  clears:   ['approved']
+  clear:    ['identified', 'scouted', 'approved']
 };
 
 const CAT_PALETTE = [
@@ -266,27 +267,33 @@ function getActiveStatusKeys() {
 function zoneFilterActive() { return $('f-zone')?.checked; }
 
 function locPassesGlobalFilter(l) {
-  // State filter
-  const states = getActiveStates();
-  if (states.length) {
-    const sc = (l.state_code || '').toUpperCase();
-    const isNy = sc === 'NY';
-    const isNj = sc === 'NJ';
-    const isOther = !isNy && !isNj;
-    const ok = (states.includes('ny') && isNy) ||
-               (states.includes('nj') && isNj) ||
-               (states.includes('other') && isOther);
-    if (!ok) return false;
+  // ── State filter ────────────────────────────────────────────────────────
+  const ny    = $('f-ny')?.checked;
+  const nj    = $('f-nj')?.checked;
+  const other = $('f-other')?.checked;
+  const sc = (l.state_code || '').toUpperCase().trim();
+  if (sc === 'NY') {
+    if (!ny) return false;
+  } else if (sc === 'NJ') {
+    if (!nj) return false;
+  } else {
+    // Any other state, or empty/null state_code → counts as "other"
+    if (!other) return false;
   }
-  // Status filter — chip groups statuses
-  const statusKeys = getActiveStatusKeys();
-  if (statusKeys.length) {
-    let allowed = [];
-    statusKeys.forEach(k => allowed = allowed.concat(STATUS_FILTERS[k]));
-    if (allowed.indexOf(l.status) < 0) return false;
+
+  // ── Status filter (chips: pending, clear) ──────────────────────────────
+  const pendingChecked = $('f-pending')?.checked;
+  const clearChecked   = $('f-clear')?.checked;
+  if (l.status === 'pending') {
+    if (!pendingChecked) return false;
+  } else {
+    // Anything not 'pending' counts as "clear" for filter purposes
+    if (!clearChecked) return false;
   }
-  // Zone filter
+
+  // ── 30-mile zone filter ────────────────────────────────────────────────
   if (zoneFilterActive() && hasCoords(l) && miles(l.lat, l.lng) > 30) return false;
+
   return true;
 }
 
@@ -306,7 +313,7 @@ window.applyFilters = function () {
 
 function saveFilterSettings() {
   const s = {};
-  ['ny','nj','other','thoughts','pending','clears','zone','flatten'].forEach(id => {
+  ['ny','nj','other','pending','clear','zone','flatten'].forEach(id => {
     const el = $('f-' + id); if (el) s['f-'+id] = el.checked;
   });
   try { localStorage.setItem('mapFilters', JSON.stringify(s)); } catch (e) {}
@@ -315,7 +322,7 @@ function saveFilterSettings() {
 function loadFilterSettings() {
   try {
     const s = JSON.parse(localStorage.getItem('mapFilters') || '{}');
-    ['ny','nj','other','thoughts','pending','clears','zone','flatten'].forEach(id => {
+    ['ny','nj','other','pending','clear','zone','flatten'].forEach(id => {
       const el = $('f-' + id);
       if (el && s.hasOwnProperty('f-'+id)) el.checked = s['f-'+id];
     });
@@ -667,14 +674,40 @@ function posHcard(ev) {
 // ══════════════════════════════════════════════════════════════════════════
 // DETAIL PANEL
 // ══════════════════════════════════════════════════════════════════════════
+// Parse a "M-D-YY" / "M/D/YYYY" string into a timestamp for comparison
+function parseDateStr(s) {
+  if (!s) return 0;
+  const m = String(s).match(/(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/);
+  if (!m) return 0;
+  let y = parseInt(m[3], 10);
+  if (y < 100) y += y < 50 ? 2000 : 1900;
+  return new Date(y, parseInt(m[1], 10) - 1, parseInt(m[2], 10)).getTime();
+}
+
+// Find the most recent date in a parsed-notes object — checks signature date + any update entries
+function extractLatestDate(parsed) {
+  if (!parsed) return '';
+  const dates = [];
+  if (parsed.date) dates.push(parsed.date);
+  (parsed.notes || []).forEach(n => {
+    if (n.kind === 'update' && n.date) dates.push(n.date);
+  });
+  if (!dates.length) return '';
+  let best = dates[0], bestTs = parseDateStr(best);
+  for (const d of dates) {
+    const ts = parseDateStr(d);
+    if (ts > bestTs) { best = d; bestTs = ts; }
+  }
+  return best;
+}
+
 window.openDetail = function (loc) {
   if (!loc) return;
   if (S.currentDetailLoc !== loc) pushNav();
   S.currentDetailLoc = loc;
-  S.dpRequestToken++;  // invalidate any in-flight gallery loads
+  S.dpRequestToken++;
   $('hcard').classList.remove('show');
 
-  // Header
   const displayName = loc.name.replace(/[\s*]*pending[\s*]*/gi, '').trim();
   $('dp-name').textContent = displayName;
   const cat = getCatForLoc(loc);
@@ -682,13 +715,25 @@ window.openDetail = function (loc) {
   const sl = SL[loc.status] || SL.identified;
   const inZone = hasCoords(loc) && miles(loc.lat, loc.lng) <= 30;
 
-  // Build header bar: cat pill + status pill (skip if 'identified') + zone pill + edit/raw buttons
+  // Pre-parse so we can also pull the latest date for the "as of" pill
+  const parsed = window.NotesParser ? NotesParser.parse(loc.notes, { locName: loc.name }) : null;
+  const asOfDate = extractLatestDate(parsed) || (loc.scout_date || '');
+
+  // Build header bar: cat pill + status pill + as-of pill + zone pill + edit/raw buttons
   let headerHtml = '';
   if (cat) {
     headerHtml += `<span class="dp-cat-pill" style="background:${col}22;color:${col}">${E(cat.replace(/-/g,' '))}</span>`;
   }
-  if (loc.status && loc.status !== 'identified' && loc.status !== 'scouted') {
-    headerHtml += `<span class="dp-status-pill" style="background:${sl.bg};color:${sl.c}">${E(SL_LABEL[loc.status] || loc.status)}</span>`;
+  // Show status pill always now (Clear is the default — visible too)
+  const statusLabel = SL_LABEL[loc.status] || loc.status || 'clear';
+  // Use status colors: pending = amber, clear = green, rejected = red
+  const isPending = loc.status === 'pending';
+  const isRejected = loc.status === 'rejected';
+  const sBg = isPending ? sl.bg : isRejected ? sl.bg : 'rgba(76,175,130,.18)';
+  const sCol = isPending ? sl.c : isRejected ? sl.c : '#4caf82';
+  headerHtml += `<span class="dp-status-pill" style="background:${sBg};color:${sCol}">${E(statusLabel)}</span>`;
+  if (asOfDate) {
+    headerHtml += `<span class="dp-asof-pill" title="Most recent date in the notes (signature or latest update)">as of ${E(asOfDate)}</span>`;
   }
   if (inZone) {
     headerHtml += `<span class="dp-zone-pill">in zone</span>`;
@@ -702,9 +747,6 @@ window.openDetail = function (loc) {
   S.dpImages = loc.cover_photo_url ? [loc.cover_photo_url] : [];
   S.dpIndex = 0;
   dpUpdateViewer();
-
-  // Body
-  const parsed = window.NotesParser ? NotesParser.parse(loc.notes, { locName: loc.name }) : null;
 
   let html = '';
 
@@ -995,9 +1037,10 @@ function dpUpdateViewer() {
   const multi = S.dpImages.length > 1;
   prev.style.display = multi ? 'block' : 'none';
   next.style.display = multi ? 'block' : 'none';
-  ctr.style.display = multi ? 'block' : 'none';
+  // Show the counter whenever there's at least one image loaded
+  ctr.style.display = none ? 'none' : 'block';
   hint.style.display = !none ? 'block' : 'none';
-  if (multi) ctr.textContent = (S.dpIndex+1) + ' / ' + S.dpImages.length;
+  if (!none) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length;
   prev.onclick = () => dpNav(-1);
   next.onclick = () => dpNav(1);
 }
@@ -1694,7 +1737,13 @@ function libRender() {
       if (p !== targetPath) return false;
     }
     const loc = locByAlbumKey.get(a.sm_key);
-    if (loc && !locPassesGlobalFilter(loc)) return false;
+    if (loc) {
+      if (!locPassesGlobalFilter(loc)) return false;
+    } else {
+      // Album with no linked location — apply the "other" + "clear" check (treated as default)
+      if (!$('f-other')?.checked) return false;
+      if (!$('f-clear')?.checked) return false;
+    }
     return true;
   });
 
@@ -1706,7 +1755,9 @@ function libRender() {
       const p = albumParentPath(a);
       if (p !== f.path && p.indexOf(f.path + '/') !== 0) return false;
       const loc = locByAlbumKey.get(a.sm_key);
-      return !loc || locPassesGlobalFilter(loc);
+      if (loc) return locPassesGlobalFilter(loc);
+      // Unlinked: only show if other + clear are both checked (the "default everywhere" condition)
+      return ($('f-other')?.checked) && ($('f-clear')?.checked);
     });
     if (!children.length) return;
     const name = f.name || f.path.split('/').pop().replace(/-/g, ' ');
@@ -2238,6 +2289,10 @@ window.showPage = function (page, btn) {
   $(page + '-page').classList.add('active');
   btn.classList.add('active');
   closeDock();
+  // Flatten-places control is library-only
+  document.querySelectorAll('.flatten-only-library').forEach(el => {
+    el.style.display = (page === 'library') ? '' : 'none';
+  });
   if (page === 'home') {
     if (!S.mapReady) loadMapScript();
     else if (S.gmap) setTimeout(() => google.maps.event.trigger(S.gmap, 'resize'), 50);
@@ -3271,6 +3326,7 @@ document.addEventListener('keydown', function (e) {
 
     if (lbOpen || panelOpen) {
       e.preventDefault();
+      e.stopPropagation();
       if (S.dpImages.length) {
         S.dpIndex = fwd
           ? (S.dpIndex + 1) % S.dpImages.length
@@ -3286,6 +3342,7 @@ document.addEventListener('keydown', function (e) {
 
     if (libActive && !isInputFocused) {
       e.preventDefault();
+      e.stopPropagation();
       if (!fwd && S.libStack.length) { S.libRedoStack.push(S.libStack.pop()); libRender(); }
       if (fwd && S.libRedoStack.length) { S.libStack.push(S.libRedoStack.pop()); libRender(); }
     }
@@ -3346,7 +3403,7 @@ document.addEventListener('keydown', function (e) {
     }
     return;
   }
-});
+}, true);  // capture phase — beats anything that might consume arrow keys downstream
 
 document.addEventListener('click', function (e) {
   const smBtn = $('dock-sm-btn'), smAct = $('dock-actions');
