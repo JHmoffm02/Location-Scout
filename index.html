@@ -126,6 +126,11 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   white-space:nowrap;
 }
 .dp-zone-pill{color:var(--green);border:1px solid rgba(76,175,130,.35)}
+.dp-header-bar .dp-asof-pill{
+  font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.06em;
+  padding:2px 8px;border-radius:10px;line-height:1.6;white-space:nowrap;
+  color:var(--text3);border:1px solid var(--border2);
+}
 .dp-header-bar .dp-hbtn{
   font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
   padding:3px 9px;border-radius:10px;cursor:pointer;
@@ -580,9 +585,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
         <input class="lib-search" id="lib-q" placeholder="search locations..." oninput="libSearch()" aria-label="Search locations">
         <select class="lib-sel" id="lib-status-sel" onchange="libSearch()" aria-label="Filter by status">
           <option value="">all status</option>
-          <option value="thoughts">thoughts</option>
           <option value="pending">pending</option>
-          <option value="clears">clears</option>
+          <option value="clear">clear</option>
         </select>
       </div>
       <div id="lib-grid" onclick="libGridClick(event)"><div class="empty"><div class="spin"></div><span>loading library...</span></div></div>
@@ -632,13 +636,12 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
     <div class="mc-sep"></div>
     <div class="mc-group">
       <span class="mc-label">Status</span>
-      <div class="fi"><input type="checkbox" id="f-thoughts" checked onchange="applyFilters()"><label for="f-thoughts">Thoughts</label></div>
       <div class="fi"><input type="checkbox" id="f-pending" checked onchange="applyFilters()"><label for="f-pending">Pending</label></div>
-      <div class="fi"><input type="checkbox" id="f-clears" checked onchange="applyFilters()"><label for="f-clears">Clears</label></div>
+      <div class="fi"><input type="checkbox" id="f-clear" checked onchange="applyFilters()"><label for="f-clear">Clear</label></div>
     </div>
     <div class="mc-sep"></div>
     <div class="mc-group">
-      <div class="fi"><input type="checkbox" id="f-flatten" onchange="applyFilters()"><label for="f-flatten" title="Library: skip area subfolders, show all albums under each category in one grid">flatten places</label></div>
+      <div class="fi flatten-only-library" style="display:none"><input type="checkbox" id="f-flatten" onchange="applyFilters()"><label for="f-flatten" title="Library: skip area subfolders, show all albums under each category in one grid">flatten places</label></div>
       <div class="fi"><input type="checkbox" id="f-zone" onchange="applyFilters()"><label for="f-zone" style="color:var(--text2)">zone</label></div>
       <div class="zone-tog" id="zone-btn" onclick="toggleZone()" style="gap:5px" role="button" aria-label="Toggle 30-mile zone ring">
         <div class="zdot"></div>
