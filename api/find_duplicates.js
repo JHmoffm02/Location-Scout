@@ -54,7 +54,7 @@ async function callHaiku(systemPrompt, userText, apiKey) {
       },
       body: JSON.stringify({
         model: HAIKU,
-        max_tokens: 1500,
+        max_tokens: 3000,
         system: systemPrompt,
         messages: [{ role: 'user', content: userText }]
       }),
@@ -74,9 +74,76 @@ async function callHaiku(systemPrompt, userText, apiKey) {
 function parseJSON(text) {
   let cleaned = text.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
   const first = cleaned.indexOf('{');
-  const last = cleaned.lastIndexOf('}');
-  if (first < 0 || last < 0) throw new Error('No JSON in response');
-  return JSON.parse(cleaned.slice(first, last + 1));
+  if (first < 0) throw new Error('No JSON in response: ' + cleaned.slice(0, 120));
+  cleaned = cleaned.slice(first);
+
+  // Try direct parse if response ends in '}'
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (lastBrace > 0) {
+    try { return JSON.parse(cleaned.slice(0, lastBrace + 1)); } catch (e) { /* fall through */ }
+  }
+
+  // Recovery: scan for last fully-balanced top-level object
+  let inString = false, escape = false, braceDepth = 0, bracketDepth = 0;
+  let lastSafeEnd = -1, lastTokenEnd = -1, currentStringStart = -1;
+  for (let i = 0; i < cleaned.length; i++) {
+    const c = cleaned[i];
+    if (escape) { escape = false; continue; }
+    if (inString) {
+      if (c === '\\') escape = true;
+      else if (c === '"') { inString = false; currentStringStart = -1; lastTokenEnd = i + 1; }
+      continue;
+    }
+    if (c === '"') { inString = true; currentStringStart = i; continue; }
+    if (c === '{') braceDepth++;
+    else if (c === '}') {
+      braceDepth--; lastTokenEnd = i + 1;
+      if (braceDepth === 0 && bracketDepth === 0) lastSafeEnd = i + 1;
+    }
+    else if (c === '[') bracketDepth++;
+    else if (c === ']') { bracketDepth--; lastTokenEnd = i + 1; }
+    else if (/[\d\.\-]/.test(c) || /[truefalsn]/i.test(c)) lastTokenEnd = i + 1;
+  }
+  if (lastSafeEnd > 0) {
+    try { return JSON.parse(cleaned.slice(0, lastSafeEnd)); } catch (e) {}
+  }
+
+  let cut;
+  if (inString && currentStringStart >= 0) {
+    cut = currentStringStart;
+    while (cut > 0 && /\s/.test(cleaned[cut - 1])) cut--;
+    if (cut > 0 && cleaned[cut - 1] === ':') {
+      cut--;
+      while (cut > 0 && /\s/.test(cleaned[cut - 1])) cut--;
+      if (cut > 0 && cleaned[cut - 1] === '"') {
+        cut--;
+        while (cut > 0 && cleaned[cut - 1] !== '"') cut--;
+        if (cut > 0) cut--;
+      }
+    }
+    while (cut > 0 && /[\s,]/.test(cleaned[cut - 1])) cut--;
+  } else {
+    cut = lastTokenEnd > 0 ? lastTokenEnd : cleaned.length;
+    while (cut > 0 && /[\s,]/.test(cleaned[cut - 1])) cut--;
+  }
+  let bd = 0, kd = 0, str = false, esc = false;
+  for (let i = 0; i < cut; i++) {
+    const c = cleaned[i];
+    if (esc) { esc = false; continue; }
+    if (str) { if (c === '\\') esc = true; else if (c === '"') str = false; continue; }
+    if (c === '"') str = true;
+    else if (c === '{') bd++;
+    else if (c === '}') bd--;
+    else if (c === '[') kd++;
+    else if (c === ']') kd--;
+  }
+  let candidate = cleaned.slice(0, cut);
+  for (let i = 0; i < kd; i++) candidate += ']';
+  for (let i = 0; i < bd; i++) candidate += '}';
+  candidate = candidate.replace(/,(\s*[\]}])/g, '$1');
+  try { return JSON.parse(candidate); } catch (e) {
+    throw new Error('JSON parse failed: ' + e.message + ' | head: ' + cleaned.slice(0, 80));
+  }
 }
 
 module.exports = async function handler(req, res) {
