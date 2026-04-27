@@ -1659,7 +1659,10 @@ function libRender() {
   const grid = $('lib-grid'), bc = $('lib-bc');
   const currentPath = S.libStack.length ? S.libStack[S.libStack.length-1].path : null;
   const targetPath  = currentPath || 'Master-Library';
-  const flatten = $('f-flatten') && $('f-flatten').checked;
+  // "Flatten places" only takes effect once you've drilled into a category — at the root,
+  // we still want to see top-level categories. Inside a category, we want all albums in one
+  // grid (skipping the area-level subfolders).
+  const flatten = !!(currentPath && $('f-flatten') && $('f-flatten').checked);
 
   // Breadcrumb
   let bcHtml = `<span class="lib-bc-seg${currentPath ? '' : ' cur'}" onclick="libBrowse(null)">Master Library</span>`;
@@ -3077,6 +3080,15 @@ window.orgFindDuplicateFolders = async function () {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folders: folderRecords })
     });
+    // Detect the most common gotcha: 404 returning an HTML "page not found" instead of JSON
+    const ct = r.headers.get('content-type') || '';
+    if (!r.ok || !ct.includes('application/json')) {
+      const text = await r.text();
+      if (r.status === 404 || text.startsWith('<') || text.toLowerCase().startsWith('the page')) {
+        throw new Error('api/find_duplicates.js is not deployed yet. Push the file to your repo, then redeploy on Vercel.');
+      }
+      throw new Error(`Server ${r.status}: ${text.slice(0, 160)}`);
+    }
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'find_duplicates failed');
 
@@ -3239,11 +3251,49 @@ window.orgMergeCluster = async function (ci) {
 
 document.addEventListener('keydown', function (e) {
   const tag = e.target.tagName;
-  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-
+  const isInputFocused = (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA');
   const lbOpen = $('lightbox').classList.contains('open');
   const panelOpen = $('detail-panel').classList.contains('open');
+  const editOpen = $('edit-panel') && $('edit-panel').style.display === 'flex';
+  const rawOpen = $('raw-notes-modal') && $('raw-notes-modal').style.display === 'flex';
+  const mergeOpen = $('merge-modal') && $('merge-modal').style.display === 'flex';
   const libActive = $('library-page').classList.contains('active');
+
+  // ── Arrow keys: highest priority for image nav when panel/lightbox open ──
+  // We bypass the normal "skip if focused on INPUT" check here because the user's
+  // intent when the panel is open is photo navigation, not text editing — UNLESS a
+  // modal that uses inputs (edit, raw notes) is on top of the panel.
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    // If user is typing in an input that's part of an open modal, let them edit
+    if (isInputFocused && (editOpen || rawOpen || mergeOpen)) return;
+
+    const fwd = e.key === 'ArrowRight' || e.key === 'ArrowDown';
+
+    if (lbOpen || panelOpen) {
+      e.preventDefault();
+      if (S.dpImages.length) {
+        S.dpIndex = fwd
+          ? (S.dpIndex + 1) % S.dpImages.length
+          : (S.dpIndex - 1 + S.dpImages.length) % S.dpImages.length;
+        dpUpdateViewer();
+        if (lbOpen) {
+          $('lb-img').src = smXL(S.dpImages[S.dpIndex]);
+          updateLbCounter();
+        }
+      }
+      return;
+    }
+
+    if (libActive && !isInputFocused) {
+      e.preventDefault();
+      if (!fwd && S.libStack.length) { S.libRedoStack.push(S.libStack.pop()); libRender(); }
+      if (fwd && S.libRedoStack.length) { S.libStack.push(S.libRedoStack.pop()); libRender(); }
+    }
+    return;
+  }
+
+  // ── All other keys: skip if user is typing somewhere ──
+  if (isInputFocused) return;
 
   if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
     e.preventDefault();
@@ -3295,26 +3345,6 @@ document.addEventListener('keydown', function (e) {
       setTimeout(() => openDetail(S.currentDetailLoc), 150);
     }
     return;
-  }
-
-  if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    const fwd = e.key === 'ArrowRight' || e.key === 'ArrowDown';
-    if (lbOpen || panelOpen) {
-      if (S.dpImages.length) {
-        S.dpIndex = fwd ? (S.dpIndex+1) % S.dpImages.length : (S.dpIndex - 1 + S.dpImages.length) % S.dpImages.length;
-        dpUpdateViewer();
-        if (lbOpen) {
-          $('lb-img').src = smXL(S.dpImages[S.dpIndex]);
-          updateLbCounter();
-        }
-      }
-      return;
-    }
-    if (libActive) {
-      if (!fwd && S.libStack.length) { S.libRedoStack.push(S.libStack.pop()); libRender(); }
-      if (fwd && S.libRedoStack.length) { S.libStack.push(S.libRedoStack.pop()); libRender(); }
-    }
   }
 });
 
