@@ -1074,93 +1074,146 @@ function dpNav(dir) {
 async function loadDetailGallery(loc) {
   if (!loc.smugmug_album_key) return;
   const myToken = ++S.dpRequestToken;
+
+  // Indicate we're fetching while user waits
+  const ctr = $('dp-counter');
+  if (ctr) {
+    ctr.style.display = 'block';
+    ctr.textContent = '⟳ loading photos…';
+  }
+
   try {
+    // First check the album's expected image count
+    let expectedCount = 0;
+    try {
+      const albs = await db(`smugmug_albums?sm_key=eq.${loc.smugmug_album_key}&select=image_count`);
+      if (albs && albs[0]) expectedCount = albs[0].image_count || 0;
+    } catch (e) {}
+
     let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=thumb_url');
     if (myToken !== S.dpRequestToken) return;
+    const cacheCount = (imgs && imgs.length) || 0;
 
-    // Fall back to live SmugMug fetch if the local cache is empty OR has only 1 image
-    // (most albums never had their full image list synced — just the highlight/cover)
-    if ((!imgs || imgs.length <= 1) && S.smTokens) {
+    // Trigger live-fetch when we don't have enough cached photos
+    // (e.g. cache has 0 or 1 but album really has 30)
+    const needLiveFetch = S.smTokens && (
+      cacheCount === 0 ||
+      (expectedCount > 1 && cacheCount < Math.min(expectedCount, 3))
+    );
+
+    if (needLiveFetch) {
+      console.log(`[gallery] album ${loc.smugmug_album_key}: cache=${cacheCount}, expected=${expectedCount}, fetching live`);
       try {
         const tb = btoa(JSON.stringify(S.smTokens));
-        const r = await fetch(`${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`, {
-          headers: { Authorization: 'Bearer ' + tb }
-        });
-        const data = await r.json();
+        const url = `${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`;
+        const r = await fetch(url, { headers: { Authorization: 'Bearer ' + tb } });
         if (myToken !== S.dpRequestToken) return;
-        if (data && data.images && data.images.length) {
-          imgs = data.images.map(i => ({ thumb_url: i.thumbUrl })).filter(i => i.thumb_url);
-          // Quietly cache to Supabase for next time (best-effort, fire-and-forget)
-          (async () => {
-            try {
-              const rows = data.images.filter(i => i.id && i.thumbUrl).map(i => ({
-                sm_key: i.id, album_key: loc.smugmug_album_key,
-                album_name: i.albumName || loc.name || '',
-                album_url: i.albumUrl || '',
-                filename: i.filename || '', title: i.title || '',
-                caption: i.caption || '', keywords: i.keywords || '',
-                thumb_url: i.thumbUrl, web_url: i.webUri || null,
-                lat: i.lat || null, lng: i.lng || null,
-                synced_at: new Date().toISOString()
-              }));
-              if (rows.length) {
-                await fetch(`${SB_URL}/rest/v1/smugmug_images?on_conflict=sm_key`, {
-                  method: 'POST',
-                  headers: {
-                    apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
-                    'Content-Type': 'application/json',
-                    Prefer: 'resolution=merge-duplicates,return=minimal'
-                  },
-                  body: JSON.stringify(rows)
-                });
-              }
-            } catch (e) { /* silent */ }
-          })();
+        if (!r.ok) {
+          const errText = await r.text().catch(() => '');
+          console.error('[gallery] HTTP', r.status, errText.slice(0, 240));
+          if (r.status === 401) toast('SmugMug auth expired — sign out and re-authorize', 'err');
+          else toast(`Photo fetch failed (${r.status})`, 'err');
+        } else {
+          const data = await r.json();
+          if (myToken !== S.dpRequestToken) return;
+          if (data && data.images && data.images.length) {
+            console.log(`[gallery] live-fetched ${data.images.length} images`);
+            imgs = data.images.map(i => ({ thumb_url: i.thumbUrl })).filter(i => i.thumb_url);
+            // Cache to Supabase for next time (best-effort)
+            (async () => {
+              try {
+                const rows = data.images.filter(i => i.id && i.thumbUrl).map(i => ({
+                  sm_key: i.id, album_key: loc.smugmug_album_key,
+                  album_name: i.albumName || loc.name || '',
+                  album_url: i.albumUrl || '',
+                  filename: i.filename || '', title: i.title || '',
+                  caption: i.caption || '', keywords: i.keywords || '',
+                  thumb_url: i.thumbUrl, web_url: i.webUri || null,
+                  lat: i.lat || null, lng: i.lng || null,
+                  synced_at: new Date().toISOString()
+                }));
+                if (rows.length) {
+                  await fetch(`${SB_URL}/rest/v1/smugmug_images?on_conflict=sm_key`, {
+                    method: 'POST',
+                    headers: {
+                      apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+                      'Content-Type': 'application/json',
+                      Prefer: 'resolution=merge-duplicates,return=minimal'
+                    },
+                    body: JSON.stringify(rows)
+                  });
+                }
+              } catch (e) { /* silent */ }
+            })();
+          } else {
+            console.warn('[gallery] live-fetch returned no images:', data);
+            if (data && data.error) toast(`Photo fetch error: ${data.error}`, 'err');
+          }
         }
-      } catch (e) { /* silent */ }
+      } catch (e) {
+        console.error('[gallery] live-fetch threw:', e);
+        toast('Photo fetch error: ' + (e.message || 'unknown'), 'err');
+      }
+    } else if (!S.smTokens && cacheCount <= 1) {
+      // No SmugMug token — can't live-fetch. Tell the user they have to connect.
+      console.warn('[gallery] no smTokens — connect SmugMug to load full albums');
     }
 
-    if (!imgs || !imgs.length) return;
+    if (!imgs || !imgs.length) {
+      // Restore counter to whatever the existing dpImages says
+      if (ctr) {
+        if (S.dpImages.length) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length;
+        else ctr.style.display = 'none';
+      }
+      return;
+    }
     const thumbs = imgs.map(i => i.thumb_url).filter(Boolean);
     const cover = loc.cover_photo_url;
     S.dpImages = cover ? [cover].concat(thumbs.filter(t => t !== cover)) : thumbs;
     dpUpdateViewer();
-  } catch (e) { console.error('gallery:', e); }
+  } catch (e) {
+    console.error('[gallery] outer error:', e);
+    toast('Gallery error: ' + (e.message || 'unknown'), 'err');
+    if (ctr) ctr.textContent = '';
+  }
 }
 
-// Rough state bounding boxes — used to detect pins that obviously don't match their state_code
-// These are loose — they just catch "this NJ pin is clearly in NY" kinds of errors.
-const STATE_BBOX = {
-  NY: { latMin: 40.50, latMax: 45.02, lngMin: -79.77, lngMax: -71.85 },
-  NJ: { latMin: 38.92, latMax: 41.36, lngMin: -75.56, lngMax: -73.88 },
-  CT: { latMin: 40.95, latMax: 42.05, lngMin: -73.73, lngMax: -71.78 },
-  PA: { latMin: 39.71, latMax: 42.27, lngMin: -80.52, lngMax: -74.69 }
-};
-
-function isLatLngInState(lat, lng, stateCode) {
-  const bbox = STATE_BBOX[(stateCode || '').toUpperCase()];
-  if (!bbox || !lat || !lng) return null;  // unknown — can't say
-  return lat >= bbox.latMin && lat <= bbox.latMax && lng >= bbox.lngMin && lng <= bbox.lngMax;
+// Try to detect a state code from the address text if state_code is missing
+function detectStateFromText(text) {
+  if (!text) return null;
+  const m = String(text).match(/\b(NY|NJ|CT|PA|MA|VT|NH|RI|ME|DE|MD)\b/);
+  return m ? m[1] : null;
 }
 
 window.regeocodeBadPins = async function () {
-  // Find locations whose state_code disagrees with their lat/lng
-  const candidates = S.locations.filter(l => {
-    if (!hasCoords(l) || !l.state_code) return false;
-    const inside = isLatLngInState(Number(l.lat), Number(l.lng), l.state_code);
-    return inside === false;  // explicitly outside — don't include locations we can't check
-  });
+  // Find all locations that have an address worth re-geocoding.
+  // Default: all unverified ones with an address. With shift-click, regeo everything (even verified).
+  const allWithAddress = S.locations.filter(l =>
+    (l.address && l.address.trim()) || (l.city && l.city.trim())
+  );
+  const unverified = allWithAddress.filter(l => !l.address_verified);
 
-  if (!candidates.length) {
-    // Also offer to regeocode all unverified locations as a fallback
-    const unverified = S.locations.filter(l => l.address && !l.address_verified);
-    if (!unverified.length) { toast('No bad pins found 👍', 'inf'); return; }
-    if (!confirm(`No state-mismatched pins found.\n\nDo you want to re-geocode all ${unverified.length} unverified locations anyway? (Each takes ~0.2s, address_verified ones are skipped.)`)) return;
-    return await runRegeocodeBatch(unverified, 'unverified');
+  if (!allWithAddress.length) { toast('No addresses to geocode', 'inf'); return; }
+
+  let candidates;
+  let label;
+  if (unverified.length > 0) {
+    if (!confirm(
+`Re-geocode ${unverified.length} unverified location${unverified.length !== 1 ? 's' : ''}?
+
+Total addresses: ${allWithAddress.length}
+With address_verified=true: ${allWithAddress.length - unverified.length} (skipped)
+Estimated time: ~${Math.ceil(unverified.length * 0.25)}s
+
+The geocoder uses each location's state_code to bias results — pins should land in the right area.`)) return;
+    candidates = unverified;
+    label = 'unverified';
+  } else {
+    if (!confirm(`All ${allWithAddress.length} locations are already address_verified.\n\nForce re-geocode them anyway? (~${Math.ceil(allWithAddress.length * 0.25)}s)`)) return;
+    candidates = allWithAddress;
+    label = 'all';
   }
-
-  if (!confirm(`Found ${candidates.length} pin${candidates.length !== 1 ? 's' : ''} where the lat/lng doesn't match the state code (e.g. NJ-tagged pin landed in NY).\n\nRe-geocode them now? Takes ~${Math.ceil(candidates.length * 0.2)}s.`)) return;
-  await runRegeocodeBatch(candidates, 'mismatched');
+  await runRegeocodeBatch(candidates, label);
 };
 
 async function runRegeocodeBatch(locs, label) {
@@ -1169,28 +1222,42 @@ async function runRegeocodeBatch(locs, label) {
   for (let i = 0; i < locs.length; i++) {
     const loc = locs[i];
     if (ns) ns.textContent = `regeocoding ${label} ${i+1}/${locs.length}…`;
+    // Build query — use whatever address parts we have
     const query = [loc.address, loc.city, loc.state_code, loc.zip].filter(Boolean).join(', ');
     if (!query) continue;
+    // Determine state for biasing — prefer stored, fall back to detect from address text
+    const stateForBias = loc.state_code || detectStateFromText((loc.address || '') + ' ' + (loc.city || ''));
     try {
-      const stateParam = loc.state_code ? '&state=' + loc.state_code : '';
+      const stateParam = stateForBias ? '&state=' + stateForBias : '';
       const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
       const d = await r.json();
       if (d.ok && d.lat) {
+        const updates = { lat: d.lat, lng: d.lng };
+        // If state_code wasn't set but we detected one, save it
+        if (!loc.state_code && stateForBias) updates.state_code = stateForBias;
         await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
           method: 'PATCH',
           headers: {
             apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
             'Content-Type': 'application/json', Prefer: 'return=minimal'
           },
-          body: JSON.stringify({ lat: d.lat, lng: d.lng })
+          body: JSON.stringify(updates)
         });
-        loc.lat = d.lat;
-        loc.lng = d.lng;
+        Object.assign(loc, updates);
         fixed++;
       } else { failed++; }
     } catch (e) { failed++; }
     await new Promise(r => setTimeout(r, 150));  // gentle on the geocoder
   }
+  // Update lookups + cache + map
+  rebuildLookups();
+  try {
+    const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+    if (cached && cached.data) {
+      cached.data = S.locations;
+      localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+    }
+  } catch (e) {}
   if (S.gmap) refreshPins();
   if (ns) ns.textContent = '';
   toast(`Re-geocoded ${fixed}${failed ? ` · ${failed} failed` : ''}`, fixed ? 'ok' : 'err');
