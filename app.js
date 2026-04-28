@@ -1272,6 +1272,61 @@ window.runPlacePins = async function () {
   else toast(`No pins placed (${r.failed} unlocatable)`, 'inf');
 };
 
+// Wipe all coordinates on unverified locations, then re-run the full pin chain
+window.scrubAndRepin = async function () {
+  closeDock();
+  const total = S.locations.length;
+  const verified = S.locations.filter(l => l.address_verified).length;
+  const targets = total - verified;
+  if (targets === 0) {
+    toast('All locations are address_verified — nothing to scrub', 'inf');
+    return;
+  }
+  if (!confirm(`Scrub coordinates from ${targets} location${targets !== 1 ? 's' : ''} (verified addresses are protected) and re-run the pin chain?\n\nThis fixes locations that were geocoded with bad logic in earlier versions.\n\nApprox cost: up to ~$${(targets * 0.03).toFixed(2)} — most resolve via cheaper paths.`)) return;
+
+  const ns = $('nav-status');
+  if (ns) ns.textContent = `scrubbing ${targets} coordinates…`;
+
+  // Wipe lat/lng on all unverified locations (in chunks to avoid huge URL)
+  const ids = S.locations.filter(l => !l.address_verified).map(l => l.id);
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const list = chunk.map(x => `"${x}"`).join(',');
+    try {
+      await fetch(`${SB_URL}/rest/v1/locations?id=in.(${list})`, {
+        method: 'PATCH',
+        headers: {
+          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=minimal'
+        },
+        body: JSON.stringify({ lat: null, lng: null })
+      });
+    } catch (e) { console.warn('scrub chunk failed:', e); }
+  }
+
+  // Mirror in memory + clear cache
+  S.locations.forEach(l => { if (!l.address_verified) { l.lat = null; l.lng = null; } });
+  try {
+    const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+    if (cached && cached.data) {
+      cached.data = S.locations;
+      localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+    }
+  } catch (e) {}
+  if (S.gmap) refreshPins();
+  toast(`Scrubbed ${ids.length} coordinates. Now re-pinning…`, 'inf');
+
+  // Run the pin chain
+  const r = await placePins();
+  const placed = r.fromGps + r.fromAddr + r.fromName;
+  const parts = [];
+  if (r.fromGps)  parts.push(`${r.fromGps} GPS`);
+  if (r.fromAddr) parts.push(`${r.fromAddr} address`);
+  if (r.fromName) parts.push(`${r.fromName} name`);
+  toast(`Repinned ${placed}/${ids.length}: ${parts.join(' · ')}${r.failed ? ' · ' + r.failed + ' unlocatable' : ''}`, 'ok');
+  if (ns) ns.textContent = '';
+};
+
 window.fixMissingThumbnails = async function () {
   if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
   closeDock();
@@ -2578,6 +2633,7 @@ function updateAuthUI(ok) {
   const rg = $('dock-regeo-btn');
   const th = $('dock-thumbs-btn');
   const pp = $('dock-pin-btn');
+  const sc = $('dock-scrub-btn');
   if (ok) {
     lbl.textContent = 'smugmug ✓'; btn.classList.remove('unconnected');
     if (ab) ab.style.display = 'none';
@@ -2586,6 +2642,7 @@ function updateAuthUI(ok) {
     if (rg) rg.style.display = 'flex';
     if (th) th.style.display = 'flex';
     if (pp) pp.style.display = 'flex';
+    if (sc) sc.style.display = 'flex';
   } else {
     lbl.textContent = 'smugmug'; btn.classList.add('unconnected');
     if (ab) ab.style.display = 'flex';
@@ -2594,6 +2651,7 @@ function updateAuthUI(ok) {
     if (rg) rg.style.display = 'none';
     if (th) th.style.display = 'none';
     if (pp) pp.style.display = 'none';
+    if (sc) sc.style.display = 'none';
   }
 }
 
@@ -2688,8 +2746,9 @@ window.startFullSync = async function () {
     if (S.gmap) refreshPins();
     S.libLoaded = false;
     checkSyncStatus();
-    toast(`Sync complete · ${imgDone} new image sets`, 'ok');
-    if (ns) ns.textContent = 'placing pins…';
+    const unpinned = S.locations.filter(l => !hasCoords(l) && !l.address_verified).length;
+    toast(`Sync complete · ${imgDone} new image sets · ${unpinned} location${unpinned !== 1 ? 's' : ''} need pins`, 'ok');
+    if (ns) ns.textContent = unpinned ? `placing ${unpinned} pins…` : 'sync complete';
   } catch (e) {
     toast('Sync error: ' + e.message, 'err');
     if (ns) ns.textContent = 'sync error';
@@ -2697,16 +2756,22 @@ window.startFullSync = async function () {
 
   // Place pins for any unverified locations missing coordinates
   try {
-    const r = await placePins();
-    const total = r.fromGps + r.fromAddr + r.fromName;
-    if (total > 0) {
-      const parts = [];
-      if (r.fromGps)  parts.push(`${r.fromGps} from photo GPS`);
-      if (r.fromAddr) parts.push(`${r.fromAddr} from address`);
-      if (r.fromName) parts.push(`${r.fromName} from name`);
-      toast(`Pinned ${total} new locations: ${parts.join(' · ')}${r.failed ? ' · ' + r.failed + ' couldn\'t be located' : ''}`, 'ok');
-    } else if (r.failed) {
-      toast(`${r.failed} locations couldn't be located (no GPS, address, or matchable name)`, 'inf');
+    const before = S.locations.filter(l => !hasCoords(l) && !l.address_verified).length;
+    if (before === 0) {
+      console.log('[sync] all locations already pinned, skipping placePins');
+    } else {
+      console.log(`[sync] running placePins on ${before} unpinned locations`);
+      const r = await placePins();
+      const total = r.fromGps + r.fromAddr + r.fromName;
+      if (total > 0) {
+        const parts = [];
+        if (r.fromGps)  parts.push(`${r.fromGps} from photo GPS`);
+        if (r.fromAddr) parts.push(`${r.fromAddr} from address`);
+        if (r.fromName) parts.push(`${r.fromName} from name`);
+        toast(`Pinned ${total} new locations: ${parts.join(' · ')}${r.failed ? ' · ' + r.failed + ' couldn\'t be located' : ''}`, 'ok');
+      } else if (r.failed) {
+        toast(`${r.failed} locations couldn't be located (no GPS, address, or matchable name)`, 'inf');
+      }
     }
   } catch (e) { console.warn('placePins error:', e); }
 
