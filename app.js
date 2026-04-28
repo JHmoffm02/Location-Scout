@@ -3693,24 +3693,38 @@ function renderMergeClusters() {
       return r ? r : { path: p, album_count: 0, sample_albums: [] };
     });
     const totalAlbums = items.reduce((s, i) => s + (i.album_count || 0), 0);
+    const isGroup = cluster.kind === 'group';
+    const headerLabel = isGroup
+      ? `<span class="merge-kind-pill merge-kind-group">GROUP</span> Move under parent: <code>${E(cluster.parent || '')}</code>`
+      : `<span class="merge-kind-pill merge-kind-merge">MERGE</span> Fold all into one folder`;
+
     return `<div class="merge-cluster" data-ci="${ci}">
       <div class="merge-cluster-head">
+        <div class="merge-kind-line">${headerLabel}</div>
         <div class="merge-reason">${E(cluster.reason || '')}</div>
       </div>
       <div class="merge-folder-list">
-        ${items.map(it => `
-          <label class="merge-folder">
+        ${items.map(it => {
+          if (isGroup) {
+            return `<div class="merge-folder">
+              <div class="merge-folder-info">
+                <div class="merge-folder-path">${E(cluster.parent)}/<strong>${E(it.path)}</strong></div>
+                <div class="merge-folder-meta">${it.album_count || 0} album${(it.album_count||0) !== 1 ? 's' : ''}${it.sample_albums && it.sample_albums.length ? ' · ' + it.sample_albums.slice(0,2).map(s => E(s)).join(', ') : ''}</div>
+              </div>
+            </div>`;
+          }
+          return `<label class="merge-folder">
             <input type="radio" name="merge-canon-${ci}" value="${E(it.path)}" ${it.path === cluster.canonical ? 'checked' : ''}>
             <div class="merge-folder-info">
               <div class="merge-folder-path">${E(it.path)}</div>
               <div class="merge-folder-meta">${it.album_count || 0} album${(it.album_count||0) !== 1 ? 's' : ''}${it.sample_albums && it.sample_albums.length ? ' · ' + it.sample_albums.slice(0,2).map(s => E(s)).join(', ') : ''}</div>
             </div>
-          </label>
-        `).join('')}
+          </label>`;
+        }).join('')}
       </div>
       <div class="merge-cluster-actions">
-        <span class="merge-totals">${totalAlbums} albums total · select canonical</span>
-        <button class="org-btn" onclick="orgMergeCluster(${ci})">⌗ Merge</button>
+        <span class="merge-totals">${totalAlbums} albums total ${isGroup ? '· will be moved under "' + E(cluster.parent) + '"' : '· select canonical'}</span>
+        <button class="org-btn" onclick="orgMergeCluster(${ci})">${isGroup ? '⌗ Group' : '⌗ Merge'}</button>
         <button class="org-btn" onclick="orgDismissCluster(${ci})">skip</button>
       </div>
       <div id="merge-progress-${ci}" class="merge-progress"></div>
@@ -3733,10 +3747,23 @@ window.orgMergeCluster = async function (ci) {
   if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
   const cluster = S.mergeClusters[ci];
   if (!cluster) return;
-  const radio = document.querySelector(`input[name="merge-canon-${ci}"]:checked`);
-  const canonical = radio ? radio.value : cluster.canonical;
-  const sources = (cluster.paths || []).filter(p => p !== canonical);
-  if (!sources.length) { toast('Pick a canonical folder', 'err'); return; }
+
+  const isGroup = cluster.kind === 'group';
+  let canonical, sources, parent;
+
+  if (isGroup) {
+    // Group mode: every folder in cluster.paths gets moved under cluster.parent
+    parent = cluster.parent;
+    if (!parent) { toast('Missing parent path', 'err'); return; }
+    sources = cluster.paths.slice();
+    canonical = null;  // not used in group mode
+  } else {
+    // Merge mode: pick canonical, others fold in
+    const radio = document.querySelector(`input[name="merge-canon-${ci}"]:checked`);
+    canonical = radio ? radio.value : cluster.canonical;
+    sources = (cluster.paths || []).filter(p => p !== canonical);
+    if (!sources.length) { toast('Pick a canonical folder', 'err'); return; }
+  }
 
   // Get all albums in source folders
   const allAlbums = await db('smugmug_albums?select=sm_key,name,web_url');
@@ -3752,9 +3779,16 @@ window.orgMergeCluster = async function (ci) {
     });
   });
 
-  const msg = sourceAlbums.length
-    ? `Merge ${sources.length} folder${sources.length!==1?'s':''} into "${canonical}"?\n\nThis will:\n  • Move ${sourceAlbums.length} album${sourceAlbums.length!==1?'s':''} into the canonical folder\n  • Delete the source folder${sources.length!==1?'s':''} once empty\n\nReversible (you can move back), but takes a few minutes.`
-    : `No albums in source folders. Just delete empty source folders, keeping "${canonical}"?`;
+  let msg;
+  if (isGroup) {
+    msg = sourceAlbums.length
+      ? `Group ${sources.length} folder${sources.length!==1?'s':''} under "${parent}"?\n\nWill move ${sourceAlbums.length} album${sourceAlbums.length!==1?'s':''} so paths become e.g. "${parent}/${sources[0]}/...".\n\nReversible — takes a few minutes.`
+      : `No albums in source folders. Just delete the empty folders and create "${parent}" empty?`;
+  } else {
+    msg = sourceAlbums.length
+      ? `Merge ${sources.length} folder${sources.length!==1?'s':''} into "${canonical}"?\n\nWill move ${sourceAlbums.length} album${sourceAlbums.length!==1?'s':''} into the canonical folder, then delete empty source folders.\n\nReversible — takes a few minutes.`
+      : `No albums in source folders. Just delete empty source folders, keeping "${canonical}"?`;
+  }
   if (!confirm(msg)) return;
 
   const progressEl = $(`merge-progress-${ci}`);
@@ -3764,12 +3798,18 @@ window.orgMergeCluster = async function (ci) {
   for (let i = 0; i < sourceAlbums.length; i++) {
     const a = sourceAlbums[i];
     progressEl.innerHTML = `Moving ${i+1}/${sourceAlbums.length}: ${E(a.name)}…`;
-    let newInnerPath = a._albumParentInner;
-    if (newInnerPath === a._sourcePath) newInnerPath = canonical;
-    else newInnerPath = canonical + newInnerPath.slice(a._sourcePath.length);
+    let newInnerPath;
+    if (isGroup) {
+      // Album was at sourcePath/.../X — becomes parent/sourcePath/.../X
+      newInnerPath = parent + '/' + a._albumParentInner;
+    } else {
+      // Merge: replace source prefix with canonical
+      if (a._albumParentInner === a._sourcePath) newInnerPath = canonical;
+      else newInnerPath = canonical + a._albumParentInner.slice(a._sourcePath.length);
+    }
     const destPath = 'Master-Library/' + newInnerPath;
     try {
-      const r = await fetch(`${SM_BASE}/api/smugmug?action=move_album`, {
+      const r = await fetchRetry(`${SM_BASE}/api/smugmug?action=move_album`, {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + tb, 'Content-Type': 'application/json' },
         body: JSON.stringify({ albumKey: a.sm_key, destPath })
@@ -3813,8 +3853,8 @@ window.orgMergeCluster = async function (ci) {
     } catch (e) {}
   }
 
-  progressEl.innerHTML = `<span style="color:var(--green)">✓ Merged: ${moved} moved · ${deleted} deleted${failed ? ` · ${failed} failed` : ''}</span>`;
-  toast(`Merge complete · ${moved} albums moved`, 'ok');
+  progressEl.innerHTML = `<span style="color:var(--green)">✓ ${isGroup ? 'Grouped' : 'Merged'}: ${moved} moved · ${deleted} deleted${failed ? ` · ${failed} failed` : ''}</span>`;
+  toast(`${isGroup ? 'Group' : 'Merge'} complete · ${moved} albums moved`, 'ok');
 
   S.libLoaded = false;
   try { S.libFolders = await db('smugmug_folders?select=name,path&order=path.asc'); } catch (e) {}
