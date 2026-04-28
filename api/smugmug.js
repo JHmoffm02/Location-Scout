@@ -435,6 +435,18 @@ async function crawlLibrary(accessToken, accessTokenSecret) {
         const webUrl = album.WebUri || '';
         const urlParts = webUrl.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
         const folderPath = urlParts.length > 1 ? urlParts.slice(0, -1).join('/') : '';
+
+        // Fetch the highlight image for the thumbnail (separate API call per album, but parallelized via pmap)
+        let thumbUrl = null;
+        try {
+          const hlUri = album.Uris?.HighlightImage?.Uri;
+          if (hlUri) {
+            const hlRes = await smRequest(hlUri, accessToken, accessTokenSecret);
+            const hl = hlRes.Response?.Image;
+            if (hl) thumbUrl = hl.ThumbnailUrl || hl.SmallImageUrl || hl.MediumImageUrl || null;
+          }
+        } catch (e) { /* skip silently — album just won't have a thumb */ }
+
         return {
           album: {
             id: album.AlbumKey,
@@ -443,7 +455,8 @@ async function crawlLibrary(accessToken, accessTokenSecret) {
             url: webUrl,
             imageCount: album.ImageCount || 0,
             description: album.Description || '',
-            keywords: album.Keywords || ''
+            keywords: album.Keywords || '',
+            thumbUrl: thumbUrl
           },
           folderPath
         };
@@ -592,6 +605,25 @@ module.exports = async function handler(req, res) {
         return res.json({ ok: true, description: album?.Description || '' });
       } catch (e) {
         return res.json({ ok: true, description: '' });
+      }
+    }
+
+    if (action === 'album-thumbnail') {
+      // Fetch just the HighlightImage for one album — used to backfill missing thumbs
+      // without a full re-crawl. Cheap (2 requests per album).
+      const { albumKey } = req.query;
+      if (!albumKey) return res.status(400).json({ error: 'albumKey required' });
+      try {
+        const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
+        const album = albumRes.Response?.Album;
+        const hlUri = album?.Uris?.HighlightImage?.Uri;
+        if (!hlUri) return res.json({ ok: true, thumbUrl: null });
+        const hlRes = await smRequest(hlUri, accessToken, accessTokenSecret);
+        const hl = hlRes.Response?.Image;
+        const thumbUrl = hl ? (hl.ThumbnailUrl || hl.SmallImageUrl || hl.MediumImageUrl || null) : null;
+        return res.json({ ok: true, thumbUrl });
+      } catch (e) {
+        return res.json({ ok: true, thumbUrl: null, error: e.message });
       }
     }
 
