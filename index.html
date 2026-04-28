@@ -546,6 +546,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
         <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px">authorize ↗</button>
         <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px"><span id="dock-sync-label">⟳ sync</span></button>
         <button class="dock-btn" id="dock-regeo-btn" onclick="regeocodeBadPins()" style="display:none;height:28px;padding:0 10px" title="Re-geocode pins whose lat/lng seems wrong for their state">⌖ fix pins</button>
+        <button class="dock-btn" id="dock-thumbs-btn" onclick="fixMissingThumbnails()" style="display:none;height:28px;padding:0 10px" title="Backfill missing album thumbnails">🖼 fix thumbs</button>
         <button class="dock-btn" id="dock-signout-btn" onclick="signOutSmugMug()" style="display:none;height:28px;padding:0 10px;border-color:var(--red);color:var(--red)">sign out</button>
       </div>
       <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px" aria-label="SmugMug menu"><span id="dock-sm-label">smugmug</span></button>
