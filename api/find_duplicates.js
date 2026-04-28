@@ -12,43 +12,80 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:5173'
 ]);
 
-const SYSTEM_PROMPT = `You analyze folder names from a film/TV scout's photo library and group ones that likely represent the SAME logical category.
+const SYSTEM_PROMPT = `You analyze folder names from a film/TV scout's photo library and propose ways to consolidate them.
 
-CRITICAL RULE — ONLY group folders at the SAME DEPTH (same number of "/" separators in their path):
-- "junk-yard" + "scrapyard" — BOTH depth 1, OK to group
-- "houses" + "homes" — BOTH depth 1, OK to group
-- "bars/brooklyn" + "pubs/brooklyn" — BOTH depth 2, OK to group
-- "bars/manhattan" + "bars/queens" — BOTH depth 2, but DIFFERENT areas — NOT duplicates, do NOT group
-- "bars" + "bars/brooklyn" — DIFFERENT depths — NEVER group these
-- "bars" + "bars/queens" — DIFFERENT depths — NEVER group these
+You may propose TWO kinds of consolidation in your output — both go in the "clusters" array:
 
-Examples of folders that should be grouped:
-- "junk-yard" + "scrapyard" + "junkyard" → all auto/metal scrap places (depth 1)
-- "houses" + "homes" + "single-family-homes" (depth 1)
-- "diners" + "diner" + "casual-restaurants" (depth 1)
-- "warehouse" + "warehouses" + "storage" (depth 1)
-- "church" + "churches" + "religious" (depth 1)
+═══════════════════════════════════════════════════════════════════════
+TYPE 1: MERGE (kind: "merge") — fold these into ONE canonical folder
+═══════════════════════════════════════════════════════════════════════
+Use this when folders genuinely represent the SAME location type. Be GENEROUS here:
 
-DO NOT group folders that are merely related but distinct:
-- "bars" and "lounges" are different categories — keep separate
-- "houses" and "mansions" are different scales — keep separate
-- "manhattan" and "brooklyn" are different boroughs — keep separate
-- A parent folder and its child (e.g. "bars" and "bars/brooklyn") are NEVER duplicates of each other
+  • Synonyms / spelling variants:
+    - "junk-yard" + "scrapyard" + "junkyard" + "auto-salvage"
+    - "warehouse" + "warehouses" + "storage"
+    - "church" + "churches"
 
-For each cluster you propose, suggest a canonical name (the cleanest, most descriptive — preferably one that's already in the list).
+  • Conceptual equivalents (same thing, different word):
+    - "waterfront" + "waterside" + "by-the-water"  → all water-adjacent locations
+    - "garage" + "mechanic-shop" + "auto-repair" → all auto service places
+    - "art-studio" + "arts" + "artist-studio" + "atelier"
+    - "diner" + "diners" + "casual-restaurant"
+    - "house" + "houses" + "single-family-home"
 
-Return ONLY a JSON object, no prose:
+  • Plural/punctuation drift:
+    - "bar" + "bars" + "Bar"
+
+═══════════════════════════════════════════════════════════════════════
+TYPE 2: GROUP UNDER PARENT (kind: "group") — make several folders into siblings under a new parent
+═══════════════════════════════════════════════════════════════════════
+Use this when folders are DIFFERENT types but SHARE A BROADER CATEGORY. Examples:
+
+  • Industrial broadly:
+    - "junkyard" + "warehouse" + "garage" + "factory" + "loading-dock"  → propose parent "industrial"
+    - The merged result would be "industrial/junkyard", "industrial/warehouse", etc.
+
+  • Food broadly:
+    - "diner" + "fine-dining" + "cafe" + "deli"  → propose parent "restaurants"
+
+  • Civic broadly:
+    - "courthouse" + "library" + "post-office" + "city-hall"  → propose parent "civic"
+
+  • Outdoors broadly:
+    - "park" + "beach" + "waterfront" + "forest"  → propose parent "outdoor"
+
+For "group" clusters, set "parent" to the proposed parent path. The child folders won't be renamed — they'll just be moved INTO the parent. So "junkyard" stays "junkyard", but its full path becomes "industrial/junkyard".
+
+═══════════════════════════════════════════════════════════════════════
+RULES
+═══════════════════════════════════════════════════════════════════════
+• ONLY group folders at the SAME DEPTH (same number of "/" separators).
+• "bars" + "bars/brooklyn" — different depths — NEVER group.
+• Sibling areas under a category ("bars/manhattan" + "bars/queens") are NOT duplicates — leave them alone.
+• When in doubt, propose it — the user reviews each cluster and rejects bad ones.
+• Aim for 5-15 cluster proposals if the library has obvious consolidation opportunities. Be generous.
+
+═══════════════════════════════════════════════════════════════════════
+OUTPUT — return ONLY this JSON, no prose, no markdown fences
+═══════════════════════════════════════════════════════════════════════
 {
   "clusters": [
     {
-      "paths": ["junk-yard", "scrapyard"],
-      "canonical": "junk-yard",
-      "reason": "synonyms — both refer to scrap/auto yards"
+      "kind": "merge",
+      "paths": ["junk-yard", "scrapyard", "auto-salvage"],
+      "canonical": "junkyard",
+      "reason": "all refer to scrap/auto yards"
+    },
+    {
+      "kind": "group",
+      "paths": ["junkyard", "warehouse", "garage", "factory"],
+      "parent": "industrial",
+      "reason": "all industrial / heavy-equipment spaces"
     }
   ]
 }
 
-If nothing in the list looks duplicate, return { "clusters": [] }.`;
+If nothing in the list looks consolidable, return { "clusters": [] }.`;
 
 async function callHaiku(systemPrompt, userText, apiKey) {
   const ctrl = new AbortController();
@@ -172,38 +209,61 @@ module.exports = async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const folders = Array.isArray(body && body.folders) ? body.folders : [];
     if (!folders.length) return res.status(400).json({ ok: false, error: 'no folders provided' });
-    if (folders.length > 200) return res.status(400).json({ ok: false, error: 'max 200 folders per call' });
+    if (folders.length > 800) return res.status(400).json({ ok: false, error: 'max 800 folders per call' });
 
-    // Build a compact list for Claude
-    const lines = folders.map(f => {
-      const albums = (f.sample_albums || []).slice(0, 3).join('; ');
-      return `${f.path}  (${f.album_count || 0} albums${albums ? ': ' + albums : ''})`;
-    }).join('\n');
-    const userText = `Folder list:\n${lines}\n\nGroup any that likely represent the same category.`;
+    // Run multi-pass when the list is large — each pass sees a subset, then merge results
+    // and de-dupe overlapping clusters.
+    const CHUNK_SIZE = 200;
+    const allClusters = [];
 
-    const text = await callHaiku(SYSTEM_PROMPT, userText, apiKey);
-    const parsed = parseJSON(text);
-    const rawClusters = (parsed.clusters || []).filter(c =>
-      Array.isArray(c.paths) && c.paths.length >= 2
-    );
+    for (let i = 0; i < folders.length; i += CHUNK_SIZE) {
+      const chunk = folders.slice(i, i + CHUNK_SIZE);
+      const lines = chunk.map(f => {
+        const albums = (f.sample_albums || []).slice(0, 3).join('; ');
+        return `${f.path}  (${f.album_count || 0} albums${albums ? ': ' + albums : ''})`;
+      }).join('\n');
+      const userText = `Folder list:\n${lines}\n\nGroup any that likely represent the same category, AND propose grouping any that share a broader theme.`;
 
-    // Hard guarantee: drop any cluster whose paths span different depths
-    // or contain a parent/child relationship. Defense against the model occasionally ignoring the rule.
-    const clusters = rawClusters.filter(c => {
-      const depths = c.paths.map(p => String(p).split('/').filter(Boolean).length);
-      const allSameDepth = depths.every(d => d === depths[0]);
-      if (!allSameDepth) return false;
-      // Check no path is a prefix of another (parent/child)
-      for (let i = 0; i < c.paths.length; i++) {
-        for (let j = 0; j < c.paths.length; j++) {
-          if (i === j) continue;
-          const a = String(c.paths[i]), b = String(c.paths[j]);
-          if (b.startsWith(a + '/') || a.startsWith(b + '/')) return false;
+      const text = await callHaiku(SYSTEM_PROMPT, userText, apiKey);
+      const parsed = parseJSON(text);
+      const rawClusters = (parsed.clusters || []).filter(c =>
+        Array.isArray(c.paths) && c.paths.length >= 2
+      );
+
+      // Per-cluster sanity:
+      //   - same depth among paths
+      //   - no parent/child relationship
+      //   - "group" type also needs a parent
+      const valid = rawClusters.filter(c => {
+        const depths = c.paths.map(p => String(p).split('/').filter(Boolean).length);
+        if (!depths.every(d => d === depths[0])) return false;
+        for (let a = 0; a < c.paths.length; a++) {
+          for (let b = 0; b < c.paths.length; b++) {
+            if (a === b) continue;
+            const x = String(c.paths[a]), y = String(c.paths[b]);
+            if (y.startsWith(x + '/') || x.startsWith(y + '/')) return false;
+          }
         }
-      }
-      return true;
+        // Default kind = "merge" if missing
+        if (!c.kind) c.kind = 'merge';
+        if (c.kind === 'group' && !c.parent) return false;
+        return true;
+      });
+      allClusters.push(...valid);
+    }
+
+    // Dedupe: drop clusters whose path-set is a subset of another
+    // (when two chunks both saw "junkyard" + "scrapyard", we'd get duplicates)
+    const seen = new Set();
+    const unique = [];
+    allClusters.forEach(c => {
+      const key = c.kind + ':' + [...c.paths].sort().join(',');
+      if (seen.has(key)) return;
+      seen.add(key);
+      unique.push(c);
     });
-    return res.json({ ok: true, clusters });
+
+    return res.json({ ok: true, clusters: unique });
   } catch (e) {
     console.error('find_duplicates error:', e);
     return res.status(500).json({ ok: false, error: e.message || 'failed' });
