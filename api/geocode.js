@@ -60,6 +60,15 @@ module.exports = async function handler(req, res) {
     return doReverseGeocode(req, res, flat, flng);
   }
 
+  // Places-by-name search: ?action=place&name=...&hint=...
+  const { action, name, hint } = req.query;
+  if (action === 'place') {
+    if (typeof name !== 'string' || !name.trim() || name.length > 200) {
+      return res.status(400).json({ ok: false, error: 'invalid name' });
+    }
+    return doPlaceSearch(req, res, name, hint);
+  }
+
   if (typeof address !== 'string' || !address.trim() || address.length > 500) {
     return res.status(400).json({ ok: false, error: 'invalid address' });
   }
@@ -132,6 +141,60 @@ module.exports = async function handler(req, res) {
     clearTimeout(timer);
   }
 };
+
+async function doPlaceSearch(req, res, name, hint) {
+  const key = process.env.GMAPS_KEY;
+  if (!key) return res.status(500).json({ ok: false, error: 'server misconfigured' });
+
+  // Compose query: name + hint (state code or city). NYC metro bias keeps results local.
+  const query = hint ? `${name} ${hint}` : name;
+  const ck = `place:${query.toLowerCase()}`;
+  const cached = cacheGet(ck);
+  if (cached) {
+    res.setHeader('X-Cache', 'HIT');
+    return res.json(cached);
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    // Places Text Search v1
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&region=us&location=40.73,-73.97&radius=80000&key=${key}`;
+    const r = await fetch(url, { signal: ctrl.signal });
+    const data = await r.json();
+    let response;
+    if (data.status === 'OK' && data.results && data.results[0]) {
+      const top = data.results[0];
+      response = {
+        ok: true,
+        name: top.name || '',
+        formatted: top.formatted_address || '',
+        place_id: top.place_id,
+        lat: top.geometry?.location?.lat,
+        lng: top.geometry?.location?.lng,
+        types: top.types || [],
+        // Up to 3 alternates
+        alternates: data.results.slice(1, 4).map(r => ({
+          name: r.name || '',
+          formatted: r.formatted_address || '',
+          place_id: r.place_id,
+          lat: r.geometry?.location?.lat,
+          lng: r.geometry?.location?.lng
+        }))
+      };
+      cacheSet(ck, response);
+    } else {
+      response = { ok: false, status: data.status || 'ZERO_RESULTS' };
+    }
+    return res.json(response);
+  } catch (e) {
+    if (e.name === 'AbortError') return res.status(504).json({ ok: false, error: 'timeout' });
+    console.error('place search error:', e);
+    return res.status(500).json({ ok: false, error: 'place search failed' });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function doReverseGeocode(req, res, lat, lng) {
   const key = process.env.GMAPS_KEY;
