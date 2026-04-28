@@ -1242,6 +1242,82 @@ function detectStateFromText(text) {
   return m ? m[1] : null;
 }
 
+window.fixMissingThumbnails = async function () {
+  if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
+  closeDock();
+  const ns = $('nav-status');
+  ns && (ns.textContent = 'finding albums without thumbnails...');
+
+  // Find albums in DB without highlight_url
+  let missing;
+  try {
+    missing = await db('smugmug_albums?highlight_url=is.null&select=sm_key,name');
+  } catch (e) {
+    toast('Failed to query albums: ' + e.message, 'err');
+    return;
+  }
+  if (!missing || !missing.length) {
+    toast('All albums already have thumbnails 👍', 'inf');
+    if (ns) ns.textContent = '';
+    return;
+  }
+  if (!confirm(`${missing.length} album${missing.length !== 1 ? 's' : ''} missing thumbnails. Backfill them now?\n\nApprox ~${Math.ceil(missing.length * 0.5)}s.`)) {
+    if (ns) ns.textContent = '';
+    return;
+  }
+
+  const tb = btoa(JSON.stringify(S.smTokens));
+  let fixed = 0, failed = 0;
+  for (let i = 0; i < missing.length; i++) {
+    const a = missing[i];
+    if (ns) ns.textContent = `thumbnails ${i + 1}/${missing.length}: ${a.name}`;
+    try {
+      const r = await fetchRetry(`${SM_BASE}/api/smugmug?action=album-thumbnail&albumKey=${a.sm_key}`, {
+        headers: { Authorization: 'Bearer ' + tb }
+      });
+      const d = await r.json();
+      if (d.ok && d.thumbUrl) {
+        // Save to DB
+        await fetch(`${SB_URL}/rest/v1/smugmug_albums?sm_key=eq.${a.sm_key}`, {
+          method: 'PATCH',
+          headers: {
+            apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+            'Content-Type': 'application/json', Prefer: 'return=minimal'
+          },
+          body: JSON.stringify({ highlight_url: d.thumbUrl })
+        });
+        // Patch local cache so the library re-renders correctly
+        const lalb = S.libAlbums.find(x => x.sm_key === a.sm_key);
+        if (lalb) lalb.highlight_url = d.thumbUrl;
+        const malb = S.mapAlbums.find(x => x.sm_key === a.sm_key);
+        if (malb) malb.highlight_url = d.thumbUrl;
+        // Also propagate to any linked location's cover_photo_url if missing
+        const linkedLoc = S.locByAlbumKey.get(a.sm_key);
+        if (linkedLoc && !linkedLoc.cover_photo_url) {
+          try {
+            await fetch(`${SB_URL}/rest/v1/locations?id=eq.${linkedLoc.id}`, {
+              method: 'PATCH',
+              headers: {
+                apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+                'Content-Type': 'application/json', Prefer: 'return=minimal'
+              },
+              body: JSON.stringify({ cover_photo_url: d.thumbUrl })
+            });
+            linkedLoc.cover_photo_url = d.thumbUrl;
+          } catch (e) {}
+        }
+        fixed++;
+      } else { failed++; }
+    } catch (e) { failed++; }
+  }
+
+  // Refresh visible UI
+  if ($('library-page').classList.contains('active')) libRender();
+  if (S.gmap) refreshPins();
+  if (ns) ns.textContent = '';
+  toast(`Thumbnails: ${fixed} fixed${failed ? ` · ${failed} failed` : ''}`, fixed ? 'ok' : 'err');
+};
+
 window.regeocodeBadPins = async function () {
   // Find all locations that have an address worth re-geocoding.
   // Default: all unverified ones with an address. With shift-click, regeo everything (even verified).
@@ -2041,7 +2117,7 @@ function libRender() {
     const aCat = a.web_url ? a.web_url.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean)[1] : '';
     const glow = (S.catPinColors[aCat] || S.savedCatColors[aCat])
       ? 'box-shadow:0 0 6px 2px ' + hexToRgba(S.catPinColors[aCat] || S.savedCatColors[aCat], 0.55) : '';
-    cards += `<div class="gcard${isSelected?' gcard-selected':''}" data-locid="${E(loc ? loc.id : '')}" data-smurl="${E(a.web_url || '#')}" onclick="libCardClick(this)" style="${glow}">`;
+    cards += `<div class="gcard${isSelected?' gcard-selected':''}" data-locid="${E(loc ? loc.id : '')}" data-smkey="${E(a.sm_key || '')}" data-smurl="${E(a.web_url || '#')}" data-name="${E(a.name || '')}" onclick="libCardClick(this)" style="${glow}">`;
     cards += '<div class="gcard-tw">';
     if (thumb) cards += `<img class="gcard-img" src="${E(smMedium(thumb))}" loading="lazy" alt="${E(a.name)} thumbnail" onerror="hideOnError(this)">`;
     cards += '<div class="gcard-ph">◻</div>';
@@ -2061,6 +2137,30 @@ window.libCardClick = function (el) {
     const loc = S.locById.get(locId);
     if (loc) { openDetail(loc); return; }
   }
+  // Album with no linked location yet — build a synthetic stub so user can still see/edit it
+  const smKey = el.dataset.smkey;
+  if (smKey) {
+    const album = S.libAlbums.find(a => a.sm_key === smKey) || S.mapAlbums.find(a => a.sm_key === smKey);
+    if (album) {
+      const stub = {
+        id: 'stub:' + smKey,
+        name: album.name || el.dataset.name || '(unnamed)',
+        smugmug_album_key: smKey,
+        smugmug_gallery_url: album.web_url || el.dataset.smurl || '',
+        cover_photo_url: album.highlight_url || '',
+        notes: album.description || '',
+        status: 'identified',
+        tags: [],
+        address_verified: false,
+        _isStub: true
+      };
+      // Stash so closeDetail / lookups don't break
+      S.locById.set(stub.id, stub);
+      openDetail(stub);
+      return;
+    }
+  }
+  // Last resort — open SmugMug if all else fails
   if (el.dataset.smurl && el.dataset.smurl !== '#') window.open(el.dataset.smurl, '_blank');
 };
 window.libFolderClick = function (el) {
@@ -2378,18 +2478,21 @@ function updateAuthUI(ok) {
   const lbl = $('dock-sm-label'), btn = $('dock-sm-btn');
   const ab = $('dock-auth-btn'), sb = $('dock-sync-btn'), so = $('dock-signout-btn');
   const rg = $('dock-regeo-btn');
+  const th = $('dock-thumbs-btn');
   if (ok) {
     lbl.textContent = 'smugmug ✓'; btn.classList.remove('unconnected');
     if (ab) ab.style.display = 'none';
     if (sb) sb.style.display = 'flex';
     if (so) so.style.display = 'flex';
     if (rg) rg.style.display = 'flex';
+    if (th) th.style.display = 'flex';
   } else {
     lbl.textContent = 'smugmug'; btn.classList.add('unconnected');
     if (ab) ab.style.display = 'flex';
     if (sb) sb.style.display = 'none';
     if (so) so.style.display = 'none';
     if (rg) rg.style.display = 'none';
+    if (th) th.style.display = 'none';
   }
 }
 
