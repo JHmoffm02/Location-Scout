@@ -878,14 +878,8 @@ window.openDetail = function (loc) {
     html += '</div></div>';
   }
 
-  // Selected best-pick images (from org_album_runs, if classification was run for this album)
-  // Async-load: render placeholder then populate
-  if (loc.smugmug_album_key) {
-    html += `<div class="dp-section" id="dp-selected-section" style="display:none">
-      <div class="dp-label">Best picks <span class="dp-label-sub">(click image to view, ✕ to remove)</span></div>
-      <div id="dp-selected-strip" class="dp-selected-strip"></div>
-    </div>`;
-  }
+  // (Best Picks intentionally not shown in the detail panel — they're available in
+  //  the Edit panel for review/training, and are still saved in org_album_runs.)
 
   // Scout
   if (loc.scout_name || loc.scout_date) {
@@ -929,7 +923,6 @@ window.openDetail = function (loc) {
   }
   loadDetailGallery(loc);
   loadPlaceInfo(loc);
-  loadDetailBestPicks(loc);
   checkStreetViewAvailable(loc);
 };
 
@@ -1135,46 +1128,7 @@ async function loadDetailGallery(loc) {
   }
 
   try {
-    // ── FAST PATH: use the 15 curated best-picks if this album was classified ──
-    // These were already fetched & cached during the AI organizing step. No live SmugMug call needed.
-    let run = (orgRunsCache && orgRunsCache[loc.smugmug_album_key]) || null;
-    if (!run) {
-      try {
-        const r = await db(`org_album_runs?album_key=eq.${loc.smugmug_album_key}&select=selected_image_keys`);
-        if (r && r[0]) {
-          run = r[0];
-          if (orgRunsCache) orgRunsCache[loc.smugmug_album_key] = run;
-        }
-      } catch (e) { /* table might not exist yet — fall through */ }
-    }
-    if (myToken !== S.dpRequestToken) return;
-
-    if (run && Array.isArray(run.selected_image_keys) && run.selected_image_keys.length) {
-      const keys = run.selected_image_keys.filter(Boolean);
-      if (keys.length) {
-        const list = keys.map(k => `"${k}"`).join(',');
-        try {
-          const imgs = await db(`smugmug_images?sm_key=in.(${list})&select=sm_key,thumb_url`);
-          if (myToken !== S.dpRequestToken) return;
-          const byKey = {};
-          imgs.forEach(i => { byKey[i.sm_key] = i.thumb_url; });
-          // Preserve the curated order
-          const orderedThumbs = keys.map(k => byKey[k]).filter(Boolean);
-          if (orderedThumbs.length >= keys.length / 2) {  // got most of them
-            console.log(`[gallery] using ${orderedThumbs.length} curated best-picks (no live-fetch needed)`);
-            const cover = loc.cover_photo_url;
-            S.dpImages = cover && !orderedThumbs.includes(cover)
-              ? [cover].concat(orderedThumbs)
-              : orderedThumbs;
-            dpUpdateViewer();
-            return;
-          }
-          // else: smugmug_images is missing rows — fall through to live-fetch path
-        } catch (e) { /* fall through */ }
-      }
-    }
-
-    // ── SLOW PATH: no classification on this album — fetch all images ──
+    // Read the album's expected count for diagnostics
     let expectedCount = 0;
     try {
       const albs = await db(`smugmug_albums?sm_key=eq.${loc.smugmug_album_key}&select=image_count`);
@@ -1184,74 +1138,90 @@ async function loadDetailGallery(loc) {
     let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=thumb_url');
     if (myToken !== S.dpRequestToken) return;
     const cacheCount = (imgs && imgs.length) || 0;
+    console.log(`[gallery] album ${loc.smugmug_album_key}: cache=${cacheCount}, expected=${expectedCount}`);
 
-    const needLiveFetch = S.smTokens && (
-      cacheCount === 0 ||
-      (expectedCount > 1 && cacheCount < Math.min(expectedCount, 3))
-    );
+    // If cache is full enough, use it
+    const cacheIsComplete = cacheCount > 0 && (expectedCount === 0 || cacheCount >= expectedCount);
 
-    if (needLiveFetch) {
-      console.log(`[gallery] album ${loc.smugmug_album_key}: cache=${cacheCount}, expected=${expectedCount}, fetching live`);
-      try {
-        const tb = btoa(JSON.stringify(S.smTokens));
-        const url = `${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`;
-        const r = await fetch(url, { headers: { Authorization: 'Bearer ' + tb } });
-        if (myToken !== S.dpRequestToken) return;
-        if (!r.ok) {
-          const errText = await r.text().catch(() => '');
-          console.error('[gallery] HTTP', r.status, errText.slice(0, 240));
-          if (r.status === 401) toast('SmugMug auth expired — sign out and re-authorize', 'err');
-          else toast(`Photo fetch failed (${r.status})`, 'err');
-        } else {
-          const data = await r.json();
+    if (!cacheIsComplete) {
+      if (!S.smTokens) {
+        console.warn('[gallery] cache incomplete & not connected to SmugMug — will display only what we have');
+        toast('Connect SmugMug to load full album', 'inf');
+      } else {
+        // Live-fetch full album from SmugMug
+        try {
+          const tb = btoa(JSON.stringify(S.smTokens));
+          const url = `${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`;
+          console.log('[gallery] fetching:', url);
+          const r = await fetch(url, { headers: { Authorization: 'Bearer ' + tb } });
           if (myToken !== S.dpRequestToken) return;
-          if (data && data.images && data.images.length) {
-            console.log(`[gallery] live-fetched ${data.images.length} images`);
-            imgs = data.images.map(i => ({ thumb_url: i.thumbUrl })).filter(i => i.thumb_url);
-            // Cache to Supabase for next time
-            (async () => {
-              try {
-                const rows = data.images.filter(i => i.id && i.thumbUrl).map(i => ({
-                  sm_key: i.id, album_key: loc.smugmug_album_key,
-                  album_name: i.albumName || loc.name || '',
-                  album_url: i.albumUrl || '',
-                  filename: i.filename || '', title: i.title || '',
-                  caption: i.caption || '', keywords: i.keywords || '',
-                  thumb_url: i.thumbUrl, web_url: i.webUri || null,
-                  lat: i.lat || null, lng: i.lng || null,
-                  synced_at: new Date().toISOString()
-                }));
-                if (rows.length) {
-                  await fetch(`${SB_URL}/rest/v1/smugmug_images?on_conflict=sm_key`, {
-                    method: 'POST',
-                    headers: {
-                      apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
-                      'Content-Type': 'application/json',
-                      Prefer: 'resolution=merge-duplicates,return=minimal'
-                    },
-                    body: JSON.stringify(rows)
-                  });
-                }
-              } catch (e) { /* silent */ }
-            })();
+
+          if (!r.ok) {
+            const errText = await r.text().catch(() => '');
+            console.error('[gallery] HTTP', r.status, errText.slice(0, 400));
+            if (r.status === 401) toast('SmugMug auth expired — sign out and re-authorize', 'err');
+            else if (r.status === 504 || r.status === 502) toast('Photo fetch timed out — try again', 'err');
+            else toast(`Photo fetch failed (${r.status})`, 'err');
           } else {
-            console.warn('[gallery] live-fetch returned no images:', data);
-            if (data && data.error) toast(`Photo fetch error: ${data.error}`, 'err');
+            const ct = r.headers.get('content-type') || '';
+            if (!ct.includes('application/json')) {
+              const text = await r.text();
+              console.error('[gallery] non-JSON response:', text.slice(0, 240));
+              toast('Photo fetch: server returned HTML (deploy issue?)', 'err');
+            } else {
+              const data = await r.json();
+              if (myToken !== S.dpRequestToken) return;
+              if (data && data.images && data.images.length) {
+                console.log(`[gallery] ✓ live-fetched ${data.images.length} images for album`);
+                imgs = data.images.map(i => ({ thumb_url: i.thumbUrl })).filter(i => i.thumb_url);
+                // Cache to Supabase for next time (non-blocking)
+                (async () => {
+                  try {
+                    const rows = data.images.filter(i => i.id && i.thumbUrl).map(i => ({
+                      sm_key: i.id, album_key: loc.smugmug_album_key,
+                      album_name: i.albumName || loc.name || '',
+                      album_url: i.albumUrl || '',
+                      filename: i.filename || '', title: i.title || '',
+                      caption: i.caption || '', keywords: i.keywords || '',
+                      thumb_url: i.thumbUrl, web_url: i.webUri || null,
+                      lat: i.lat || null, lng: i.lng || null,
+                      synced_at: new Date().toISOString()
+                    }));
+                    if (rows.length) {
+                      await fetch(`${SB_URL}/rest/v1/smugmug_images?on_conflict=sm_key`, {
+                        method: 'POST',
+                        headers: {
+                          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+                          'Content-Type': 'application/json',
+                          Prefer: 'resolution=merge-duplicates,return=minimal'
+                        },
+                        body: JSON.stringify(rows)
+                      });
+                      console.log(`[gallery] cached ${rows.length} images to Supabase`);
+                    }
+                  } catch (e) { console.warn('[gallery] cache save failed:', e.message); }
+                })();
+              } else {
+                console.warn('[gallery] live-fetch returned no images. Response:', data);
+                if (data && data.error) toast(`Photo fetch: ${data.error}`, 'err');
+                else toast('Photo fetch returned no images', 'err');
+              }
+            }
           }
+        } catch (e) {
+          console.error('[gallery] live-fetch threw:', e);
+          toast('Photo fetch error: ' + (e.message || 'unknown'), 'err');
         }
-      } catch (e) {
-        console.error('[gallery] live-fetch threw:', e);
-        toast('Photo fetch error: ' + (e.message || 'unknown'), 'err');
       }
-    } else if (!S.smTokens && cacheCount <= 1) {
-      console.warn('[gallery] no smTokens — connect SmugMug to load full albums');
+    } else {
+      console.log(`[gallery] using ${cacheCount} cached images (matches expected count)`);
     }
 
     if (!imgs || !imgs.length) {
-      if (ctr) {
-        if (S.dpImages.length) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length;
-        else ctr.style.display = 'none';
-      }
+      // No images anywhere — show "no photo" placeholder, hide counter
+      if (ctr) ctr.style.display = 'none';
+      S.dpImages = loc.cover_photo_url ? [loc.cover_photo_url] : [];
+      dpUpdateViewer();
       return;
     }
     const thumbs = imgs.map(i => i.thumb_url).filter(Boolean);
