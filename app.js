@@ -50,7 +50,7 @@ const CAT_PALETTE = [
 const NAV_HISTORY_MAX = 50;
 const LOC_CACHE_KEY = 'loc_cache_v2_1';
 const LOC_CACHE_TTL = 15 * 60 * 1000;
-const LOC_SELECT = 'id,name,lat,lng,status,state_code,city,address,address_cross,zip,address_verified,address_candidates,smugmug_album_key,smugmug_gallery_url,cover_photo_url,notes,notes_override,tags,scout_name,scout_date';
+const LOC_SELECT = 'id,name,lat,lng,status,state_code,city,address,address_cross,zip,address_verified,address_candidates,smugmug_album_key,smugmug_gallery_url,cover_photo_url,notes,notes_override,app_notes,tags,scout_name,scout_date';
 // Pre-migration schema (no address_cross, zip, address_verified, address_candidates)
 const LOC_SELECT_LEGACY = 'id,name,lat,lng,status,state_code,city,address,smugmug_album_key,smugmug_gallery_url,cover_photo_url,notes,notes_override,tags,scout_name,scout_date';
 
@@ -234,7 +234,8 @@ async function fetchLocations() {
         address_verified: false,
         address_candidates: null,
         address_cross: null,
-        zip: null
+        zip: null,
+        app_notes: null
       }, l));
       S.migrationRan = false;   // suppress verification UI in legacy mode
       rebuildLookups();
@@ -259,7 +260,7 @@ async function refreshLocationsBackground() {
       data = await db(`locations?select=${LOC_SELECT_LEGACY}&order=name.asc`);
       data = data.map(l => Object.assign({
         address_verified: false, address_candidates: null,
-        address_cross: null, zip: null
+        address_cross: null, zip: null, app_notes: null
       }, l));
     }
     if (!data || !data.length) return;
@@ -858,6 +859,20 @@ window.openDetail = function (loc) {
     html += '</div>';  // /dp-addr-side
     html += '</div>';  // /dp-addr-wrap
     html += '</div>';  // /dp-section
+  } else {
+    // No address yet — offer to look it up by name via Google Places
+    html += `<div class="dp-section">
+      <div class="dp-label">Address</div>
+      <div class="dp-no-addr">
+        <span>No address yet for this location.</span>
+        <button class="dp-btn" onclick="dpFindAddress()">⌖ find from name</button>
+      </div>
+    </div>`;
+  }
+
+  // App notes (separate from raw notes; populated by AI lookups, etc)
+  if (loc.app_notes && loc.app_notes.trim()) {
+    html += `<div class="dp-section"><div class="dp-label">App Notes <span class="dp-label-sub">(app-generated · ✏ Edit to remove)</span></div><div class="dp-app-notes">${E(loc.app_notes)}</div></div>`;
   }
 
   // Notes (rendered via shared parser)
@@ -1396,6 +1411,68 @@ async function runRegeocodeBatch(locs, label) {
   toast(`Re-geocoded ${fixed}${failed ? ` · ${failed} failed` : ''}`, fixed ? 'ok' : 'err');
 }
 
+window.dpFindAddress = async function () {
+  const loc = S.currentDetailLoc;
+  if (!loc) return;
+  if (!loc.name || !loc.name.trim()) { toast('No name to search', 'err'); return; }
+  toast('Searching Google Places…', 'inf');
+  try {
+    // Use state code or "NY" as the bias hint
+    const hint = loc.state_code || loc.city || '';
+    const url = `${SM_BASE}/api/geocode?action=place&name=${encodeURIComponent(loc.name)}${hint ? '&hint=' + encodeURIComponent(hint) : ''}`;
+    const r = await fetch(url);
+    const d = await r.json();
+    if (!d.ok || !d.formatted) {
+      toast(`No match found (${d.status || 'no results'})`, 'err');
+      return;
+    }
+    // Build the tentative app-note line
+    const date = new Date().toISOString().slice(0, 10);
+    const line = `Tentative address (Google Places, ${date}): ${d.name || loc.name} — ${d.formatted}`;
+    const altsLine = (d.alternates && d.alternates.length)
+      ? '\nAlternates: ' + d.alternates.map(a => a.formatted).filter(Boolean).join(' · ')
+      : '';
+    const newAppNotes = (loc.app_notes ? loc.app_notes + '\n\n' : '') + line + altsLine;
+
+    if (!confirm(`Found: ${d.name || loc.name}\n${d.formatted}\n\nAdd this as a tentative address to the App Notes? (Won't change SmugMug or the saved address fields.)`)) return;
+
+    // Save the app_notes update + (separately) update lat/lng if location has none
+    const updates = { app_notes: newAppNotes };
+    if (!hasCoords(loc) && d.lat && d.lng) {
+      updates.lat = d.lat;
+      updates.lng = d.lng;
+    }
+    try {
+      await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=minimal'
+        },
+        body: JSON.stringify(updates)
+      });
+      Object.assign(loc, updates);
+      // Update cache
+      try {
+        const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+        if (cached && cached.data) {
+          const li = cached.data.findIndex(l => l.id === loc.id);
+          if (li >= 0) Object.assign(cached.data[li], updates);
+          localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+        }
+      } catch (e) {}
+      rebuildLookups();
+      if (S.gmap) refreshPins();
+      openDetail(loc);  // re-render with the new app_notes section visible
+      toast('Tentative address saved to App Notes', 'ok');
+    } catch (e) {
+      toast('Save failed: ' + (e.message || 'unknown'), 'err');
+    }
+  } catch (e) {
+    toast('Place search failed: ' + (e.message || 'unknown'), 'err');
+  }
+};
+
 window.regeocodeCurrent = async function () {
   const loc = S.currentDetailLoc;
   if (!loc) return;
@@ -1652,6 +1729,7 @@ window.openEditPanel = function (loc) {
   $('edit-addr').value    = formatAddressForEdit(parsed && parsed.address, loc);
   $('edit-contact').value = formatContactsForEdit(parsed);
   $('edit-notes').value   = formatNotesForEdit(parsed);
+  $('edit-app-notes').value = loc.app_notes || '';
 
   // Tags section — only show if location has any
   S.editTagsState = {
@@ -1800,13 +1878,15 @@ window.saveEdit = async function () {
     signature: sig, date: date
   });
 
+  const appNotesVal = $('edit-app-notes').value;
   const updates = {
     name: titleVal,
     address: addrParts.street || null,
     city: addrParts.city || null,
     state_code: addrParts.state || null,
     notes: canonicalNotes,
-    notes_override: true
+    notes_override: true,
+    app_notes: appNotesVal.trim() ? appNotesVal : null
   };
   if (S.migrationRan) {
     updates.zip = addrParts.zip || null;
@@ -2092,10 +2172,13 @@ function libRender() {
     });
     if (!children.length) return;
     const name = f.name || f.path.split('/').pop().replace(/-/g, ' ');
+    // Folder thumbnail: prefer first child's location cover_photo_url, else its album highlight_url.
+    // Either way, never gray — every folder gets a representative image.
     let thumb = '';
     for (const ca of children) {
       const loc = locByAlbumKey.get(ca.sm_key);
       if (loc && loc.cover_photo_url) { thumb = loc.cover_photo_url; break; }
+      if (ca.highlight_url) { thumb = ca.highlight_url; break; }
     }
     const fCat = f.path ? f.path.split('/')[1] : '';
     const glow = (S.catPinColors[fCat] || S.savedCatColors[fCat])
@@ -2845,12 +2928,73 @@ function updateFeedbackBadge() {
 
 // ── Pull all album image data (urls + keys) ──
 async function orgFetchAlbumImageData(sm_key) {
+  // Read whatever's in the DB cache
+  let imgs = [];
   try {
-    const imgs = await db(`smugmug_images?album_key=eq.${sm_key}&select=sm_key,thumb_url&limit=200`);
-    return imgs
-      .filter(i => i.thumb_url)
-      .map(i => ({ key: i.sm_key, thumb_url: i.thumb_url }));
-  } catch (e) { return []; }
+    imgs = await db(`smugmug_images?album_key=eq.${sm_key}&select=sm_key,thumb_url&limit=200`);
+  } catch (e) {}
+
+  // Check the album's expected image count
+  let expectedCount = 0;
+  try {
+    const albs = await db(`smugmug_albums?sm_key=eq.${sm_key}&select=image_count`);
+    if (albs && albs[0]) expectedCount = albs[0].image_count || 0;
+  } catch (e) {}
+
+  const cacheCount = imgs ? imgs.length : 0;
+  const needLiveFetch = S.smTokens && (
+    cacheCount === 0 ||
+    (expectedCount > 1 && cacheCount < Math.min(expectedCount, 3))
+  );
+
+  // Live-fetch if cache is incomplete
+  if (needLiveFetch) {
+    console.log(`[org] album ${sm_key}: cache=${cacheCount}, expected=${expectedCount} — live-fetching`);
+    try {
+      const tb = btoa(JSON.stringify(S.smTokens));
+      const r = await fetchRetry(`${SM_BASE}/api/smugmug?action=album-images&albumKey=${sm_key}`, {
+        headers: { Authorization: 'Bearer ' + tb }
+      });
+      if (r.ok) {
+        const data = await r.json();
+        if (data && data.images && data.images.length) {
+          imgs = data.images
+            .filter(i => i.id && i.thumbUrl)
+            .map(i => ({ sm_key: i.id, thumb_url: i.thumbUrl }));
+          // Cache to Supabase for next time (non-blocking)
+          (async () => {
+            try {
+              const rows = data.images.filter(i => i.id && i.thumbUrl).map(i => ({
+                sm_key: i.id, album_key: sm_key,
+                album_name: i.albumName || '',
+                album_url: i.albumUrl || '',
+                filename: i.filename || '', title: i.title || '',
+                caption: i.caption || '', keywords: i.keywords || '',
+                thumb_url: i.thumbUrl, web_url: i.webUri || null,
+                lat: i.lat || null, lng: i.lng || null,
+                synced_at: new Date().toISOString()
+              }));
+              if (rows.length) {
+                await fetch(`${SB_URL}/rest/v1/smugmug_images?on_conflict=sm_key`, {
+                  method: 'POST',
+                  headers: {
+                    apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+                    'Content-Type': 'application/json',
+                    Prefer: 'resolution=merge-duplicates,return=minimal'
+                  },
+                  body: JSON.stringify(rows)
+                });
+              }
+            } catch (e) { /* silent */ }
+          })();
+        }
+      }
+    } catch (e) { console.warn('[org] live-fetch failed:', e.message); }
+  }
+
+  return (imgs || [])
+    .filter(i => i.thumb_url)
+    .map(i => ({ key: i.sm_key, thumb_url: i.thumb_url }));
 }
 
 // Build the existing taxonomy from smugmug_folders
