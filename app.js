@@ -1272,23 +1272,37 @@ window.runPlacePins = async function () {
   else toast(`No pins placed (${r.failed} unlocatable)`, 'inf');
 };
 
-// Wipe all coordinates on unverified locations, then re-run the full pin chain
+// Wipe ALL coordinates (including verified) and re-run the full pin chain.
+// Use this when you've changed pin logic and want a fresh slate.
 window.scrubAndRepin = async function () {
   closeDock();
   const total = S.locations.length;
   const verified = S.locations.filter(l => l.address_verified).length;
-  const targets = total - verified;
-  if (targets === 0) {
-    toast('All locations are address_verified — nothing to scrub', 'inf');
-    return;
-  }
-  if (!confirm(`Scrub coordinates from ${targets} location${targets !== 1 ? 's' : ''} (verified addresses are protected) and re-run the pin chain?\n\nThis fixes locations that were geocoded with bad logic in earlier versions.\n\nApprox cost: up to ~$${(targets * 0.03).toFixed(2)} — most resolve via cheaper paths.`)) return;
+  if (total === 0) { toast('No locations to scrub', 'inf'); return; }
+
+  // Two-stage confirmation — full purge is destructive and we don't want accidents
+  if (!confirm(
+`FULL PURGE — wipe coordinates from ALL ${total} locations and re-run the pin chain?
+
+This includes ${verified} address-verified location${verified !== 1 ? 's' : ''} that you previously approved.
+
+The pin chain will:
+  1. Photo GPS metadata (free, instant)
+  2. Geocoded address from notes (~1¢ each via Google)
+  3. Place name lookup (~3¢ each, only if needed)
+
+Verified addresses with stored street/city/state will likely re-pin to the same spot via Pass 2 — so this is mostly safe — but the operation isn't reversible without re-verifying.
+
+Cost: up to ~$${(total * 0.03).toFixed(2)}, typically much less.`
+  )) return;
+
+  if (!confirm(`Final check: wipe ${total} pins and re-pin them all?`)) return;
 
   const ns = $('nav-status');
-  if (ns) ns.textContent = `scrubbing ${targets} coordinates…`;
+  if (ns) ns.textContent = `purging ${total} coordinates…`;
 
-  // Wipe lat/lng on all unverified locations (in chunks to avoid huge URL)
-  const ids = S.locations.filter(l => !l.address_verified).map(l => l.id);
+  // Wipe lat/lng on ALL locations in batches
+  const ids = S.locations.map(l => l.id);
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100);
     const list = chunk.map(x => `"${x}"`).join(',');
@@ -1301,11 +1315,16 @@ window.scrubAndRepin = async function () {
         },
         body: JSON.stringify({ lat: null, lng: null })
       });
-    } catch (e) { console.warn('scrub chunk failed:', e); }
+    } catch (e) { console.warn('purge chunk failed:', e); }
   }
 
-  // Mirror in memory + clear cache
-  S.locations.forEach(l => { if (!l.address_verified) { l.lat = null; l.lng = null; } });
+  // Mirror in memory + clear cache; also un-verify so the pin chain considers them
+  // (they're verified addresses, so Pass 2 will succeed and re-mark them as needed)
+  S.locations.forEach(l => { l.lat = null; l.lng = null; });
+  // Note: we deliberately keep address_verified=true for those that had it, so the address
+  // stays trusted — but placePins's filter checks !hasCoords, so they're now eligible again.
+  // Hack: temporarily flip the candidate-filter behavior by un-verifying for this run only.
+  // Simpler: change placePins to consider !hasCoords regardless of verified.
   try {
     const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
     if (cached && cached.data) {
@@ -1314,10 +1333,10 @@ window.scrubAndRepin = async function () {
     }
   } catch (e) {}
   if (S.gmap) refreshPins();
-  toast(`Scrubbed ${ids.length} coordinates. Now re-pinning…`, 'inf');
+  toast(`Purged ${ids.length} coordinates. Re-pinning…`, 'inf');
 
-  // Run the pin chain
-  const r = await placePins();
+  // Run pin chain. Pass forceAll: true so verified locations are re-considered.
+  const r = await placePins({ forceAll: true });
   const placed = r.fromGps + r.fromAddr + r.fromName;
   const parts = [];
   if (r.fromGps)  parts.push(`${r.fromGps} GPS`);
@@ -2808,14 +2827,17 @@ async function checkAutoSync() {
 async function placePins(opts) {
   opts = opts || {};
   const onlyMissingPins = opts.onlyMissingPins !== false; // default true
+  const forceAll = !!opts.forceAll;                       // include verified locations too
   const ns = $('nav-status');
 
-  // Don't repin verified addresses unless explicitly asked
-  const candidates = S.locations.filter(l =>
-    onlyMissingPins
+  // Default behavior: pin only locations missing coords (and not address_verified).
+  // forceAll: pin any location missing coords, even if previously verified.
+  const candidates = S.locations.filter(l => {
+    if (forceAll) return !hasCoords(l);
+    return onlyMissingPins
       ? (!hasCoords(l) && !l.address_verified)
-      : !l.address_verified
-  );
+      : !l.address_verified;
+  });
   if (!candidates.length) return { fromGps: 0, fromAddr: 0, fromName: 0, failed: 0 };
 
   let fromGps = 0, fromAddr = 0, fromName = 0, failed = 0;
@@ -2859,28 +2881,43 @@ async function placePins(opts) {
     }
   }
 
-  // ── PASS 2: geocode the structured address ──
+  // ── PASS 2: geocode the address ──
+  // Use the SAME address text that's shown as a Google Maps link in the detail panel.
+  // Precedence: parsed-from-notes (most reliable for unedited locations) > stored DB columns.
   const stillMissing1 = candidates.filter(l => !hasCoords(l));
   for (let i = 0; i < stillMissing1.length; i++) {
     const loc = stillMissing1[i];
     if (ns) ns.textContent = `pin pass 2/3 — geocoding addresses ${i + 1}/${stillMissing1.length}`;
-    // Need at least an address or city to make this meaningful — skip otherwise
-    if (!loc.address && !loc.city) continue;
-    const query = [loc.address, loc.city, loc.state_code, loc.zip].filter(Boolean).join(', ');
+
+    // Parse the notes the same way the detail panel does, to get the address that's
+    // displayed (and clickable as a Google Maps link)
+    const parsed = window.NotesParser ? NotesParser.parse(loc.notes, { locName: loc.name }) : null;
+    const pAddr = (parsed && parsed.address) || null;
+    const street = (loc.address     || (pAddr && pAddr.street) || '').trim();
+    const city   = (loc.city        || (pAddr && pAddr.city)   || '').trim();
+    const state  = (loc.state_code  || (pAddr && pAddr.state)  || '').trim();
+    const zip    = (loc.zip         || (pAddr && pAddr.zip)    || '').trim();
+
+    // Need at least a street or city to make this meaningful
+    if (!street && !city) continue;
+    const query = [street, city, state, zip].filter(Boolean).join(', ');
     try {
-      const stateParam = loc.state_code ? '&state=' + loc.state_code : '';
+      const stateParam = state ? '&state=' + state : '';
       const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
       const d = await r.json();
       if (d.ok && d.lat) {
+        // If state_code wasn't stored but we picked one up from notes, save it too
+        const updates = { lat: d.lat, lng: d.lng };
+        if (!loc.state_code && state) updates.state_code = state;
         await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
           method: 'PATCH',
           headers: {
             apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
             'Content-Type': 'application/json', Prefer: 'return=minimal'
           },
-          body: JSON.stringify({ lat: d.lat, lng: d.lng })
+          body: JSON.stringify(updates)
         });
-        loc.lat = d.lat; loc.lng = d.lng;
+        Object.assign(loc, updates);
         fromAddr++;
       }
     } catch (e) {}
