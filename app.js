@@ -1257,6 +1257,21 @@ function detectStateFromText(text) {
   return m ? m[1] : null;
 }
 
+window.runPlacePins = async function () {
+  const candidates = S.locations.filter(l => !hasCoords(l) && !l.address_verified);
+  if (!candidates.length) { toast('All locations already pinned 👍', 'inf'); return; }
+  closeDock();
+  if (!confirm(`Place pins for ${candidates.length} location${candidates.length !== 1 ? 's' : ''}?\n\nPriority chain:\n  1. Photo GPS metadata (free, instant)\n  2. Geocoded address (~1¢ each via Google)\n  3. Place name lookup (~3¢ each)\n\nLocations with no GPS, address, or matchable name will stay unpinned.\nEstimated cost: up to ~$${(candidates.length * 0.03).toFixed(2)} (most resolve via the cheaper paths first).`)) return;
+  const r = await placePins();
+  const total = r.fromGps + r.fromAddr + r.fromName;
+  const parts = [];
+  if (r.fromGps)  parts.push(`${r.fromGps} from photo GPS`);
+  if (r.fromAddr) parts.push(`${r.fromAddr} from address`);
+  if (r.fromName) parts.push(`${r.fromName} from name`);
+  if (total > 0) toast(`Pinned ${total}: ${parts.join(' · ')}${r.failed ? ' · ' + r.failed + ' couldn\'t locate' : ''}`, 'ok');
+  else toast(`No pins placed (${r.failed} unlocatable)`, 'inf');
+};
+
 window.fixMissingThumbnails = async function () {
   if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
   closeDock();
@@ -2562,6 +2577,7 @@ function updateAuthUI(ok) {
   const ab = $('dock-auth-btn'), sb = $('dock-sync-btn'), so = $('dock-signout-btn');
   const rg = $('dock-regeo-btn');
   const th = $('dock-thumbs-btn');
+  const pp = $('dock-pin-btn');
   if (ok) {
     lbl.textContent = 'smugmug ✓'; btn.classList.remove('unconnected');
     if (ab) ab.style.display = 'none';
@@ -2569,6 +2585,7 @@ function updateAuthUI(ok) {
     if (so) so.style.display = 'flex';
     if (rg) rg.style.display = 'flex';
     if (th) th.style.display = 'flex';
+    if (pp) pp.style.display = 'flex';
   } else {
     lbl.textContent = 'smugmug'; btn.classList.add('unconnected');
     if (ab) ab.style.display = 'flex';
@@ -2576,6 +2593,7 @@ function updateAuthUI(ok) {
     if (so) so.style.display = 'none';
     if (rg) rg.style.display = 'none';
     if (th) th.style.display = 'none';
+    if (pp) pp.style.display = 'none';
   }
 }
 
@@ -2671,13 +2689,27 @@ window.startFullSync = async function () {
     S.libLoaded = false;
     checkSyncStatus();
     toast(`Sync complete · ${imgDone} new image sets`, 'ok');
-    if (ns) ns.textContent = 'synced just now';
+    if (ns) ns.textContent = 'placing pins…';
   } catch (e) {
     toast('Sync error: ' + e.message, 'err');
     if (ns) ns.textContent = 'sync error';
   }
 
-  await autoGeocode();
+  // Place pins for any unverified locations missing coordinates
+  try {
+    const r = await placePins();
+    const total = r.fromGps + r.fromAddr + r.fromName;
+    if (total > 0) {
+      const parts = [];
+      if (r.fromGps)  parts.push(`${r.fromGps} from photo GPS`);
+      if (r.fromAddr) parts.push(`${r.fromAddr} from address`);
+      if (r.fromName) parts.push(`${r.fromName} from name`);
+      toast(`Pinned ${total} new locations: ${parts.join(' · ')}${r.failed ? ' · ' + r.failed + ' couldn\'t be located' : ''}`, 'ok');
+    } else if (r.failed) {
+      toast(`${r.failed} locations couldn't be located (no GPS, address, or matchable name)`, 'inf');
+    }
+  } catch (e) { console.warn('placePins error:', e); }
+
   S.mapFolders = []; S.mapAlbums = [];
   await Promise.all([
     db('smugmug_albums?select=sm_key,name,web_url').then(r => { S.mapAlbums = r; }),
@@ -2699,17 +2731,81 @@ async function checkAutoSync() {
 }
 
 // Auto-geocode unverified locations (uses state_code, no hardcoded NY)
-async function autoGeocode() {
-  const toGeo = S.locations.filter(l => !hasCoords(l) && !l.address_verified);
-  if (!toGeo.length) return;
+// ══════════════════════════════════════════════════════════════════════════
+// PIN PLACEMENT — priority chain
+// ══════════════════════════════════════════════════════════════════════════
+// For every location lacking coords, try in order:
+//   1. GPS from any photo in the album (already stored in smugmug_images.lat/lng)
+//   2. Geocoding the structured address (street + city + state)
+//   3. Geocoding the location name + state hint (last resort)
+// Locations that fail all three stay without a pin (genuinely unlocatable).
+
+async function placePins(opts) {
+  opts = opts || {};
+  const onlyMissingPins = opts.onlyMissingPins !== false; // default true
   const ns = $('nav-status');
-  for (let i = 0; i < toGeo.length; i++) {
-    const loc = toGeo[i];
-    if (ns) ns.textContent = `geocoding ${i+1}/${toGeo.length}`;
+
+  // Don't repin verified addresses unless explicitly asked
+  const candidates = S.locations.filter(l =>
+    onlyMissingPins
+      ? (!hasCoords(l) && !l.address_verified)
+      : !l.address_verified
+  );
+  if (!candidates.length) return { fromGps: 0, fromAddr: 0, fromName: 0, failed: 0 };
+
+  let fromGps = 0, fromAddr = 0, fromName = 0, failed = 0;
+
+  // ── PASS 1: GPS from photo metadata (free, instant) ──
+  if (ns) ns.textContent = `pin pass 1/3 — checking photo GPS for ${candidates.length} locations…`;
+  // Bulk-fetch all relevant smugmug_images rows in chunks
+  const albumKeys = candidates.map(c => c.smugmug_album_key).filter(Boolean);
+  const gpsByAlbum = {};
+
+  for (let i = 0; i < albumKeys.length; i += 50) {
+    const chunk = albumKeys.slice(i, i + 50);
+    if (ns) ns.textContent = `pin pass 1/3 — scanning photo GPS ${i + chunk.length}/${albumKeys.length}`;
+    const list = chunk.map(k => `"${k}"`).join(',');
     try {
-      const query = loc.geocode_query || loc.name;
+      const rows = await db(`smugmug_images?album_key=in.(${list})&select=album_key,lat,lng&lat=not.is.null`);
+      rows.forEach(r => {
+        if (!r.lat || !r.lng) return;
+        // First non-null per album wins (photos are typically near each other)
+        if (!gpsByAlbum[r.album_key]) gpsByAlbum[r.album_key] = { lat: r.lat, lng: r.lng };
+      });
+    } catch (e) {}
+  }
+
+  for (const loc of candidates) {
+    if (hasCoords(loc)) continue;
+    const gps = gpsByAlbum[loc.smugmug_album_key];
+    if (gps && gps.lat && gps.lng) {
+      try {
+        await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+          method: 'PATCH',
+          headers: {
+            apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+            'Content-Type': 'application/json', Prefer: 'return=minimal'
+          },
+          body: JSON.stringify({ lat: gps.lat, lng: gps.lng })
+        });
+        loc.lat = gps.lat; loc.lng = gps.lng;
+        fromGps++;
+      } catch (e) {}
+    }
+  }
+
+  // ── PASS 2: geocode the structured address ──
+  const stillMissing1 = candidates.filter(l => !hasCoords(l));
+  for (let i = 0; i < stillMissing1.length; i++) {
+    const loc = stillMissing1[i];
+    if (ns) ns.textContent = `pin pass 2/3 — geocoding addresses ${i + 1}/${stillMissing1.length}`;
+    // Need at least an address or city to make this meaningful — skip otherwise
+    if (!loc.address && !loc.city) continue;
+    const query = [loc.address, loc.city, loc.state_code, loc.zip].filter(Boolean).join(', ');
+    try {
       const stateParam = loc.state_code ? '&state=' + loc.state_code : '';
-      const d = await (await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`)).json();
+      const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
+      const d = await r.json();
       if (d.ok && d.lat) {
         await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
           method: 'PATCH',
@@ -2720,11 +2816,60 @@ async function autoGeocode() {
           body: JSON.stringify({ lat: d.lat, lng: d.lng })
         });
         loc.lat = d.lat; loc.lng = d.lng;
+        fromAddr++;
       }
     } catch (e) {}
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  // ── PASS 3: name-only as last resort (only if name has obvious place hints) ──
+  const stillMissing2 = candidates.filter(l => !hasCoords(l));
+  for (let i = 0; i < stillMissing2.length; i++) {
+    const loc = stillMissing2[i];
+    // Only attempt if we have the name AND something that hints at place (state code or city
+    // appears in name, e.g. "100 East 1st St - Mt Vernon")
+    if (!loc.name) continue;
+    if (ns) ns.textContent = `pin pass 3/3 — name fallback ${i + 1}/${stillMissing2.length}`;
+    // Use Places Text Search — better than raw geocode for "Joe's Diner Brooklyn" style queries
+    const hint = loc.state_code || '';
+    try {
+      const r = await fetch(`${SM_BASE}/api/geocode?action=place&name=${encodeURIComponent(loc.name)}${hint ? '&hint=' + encodeURIComponent(hint) : ''}`);
+      const d = await r.json();
+      if (d.ok && d.lat && d.lng) {
+        await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+          method: 'PATCH',
+          headers: {
+            apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+            'Content-Type': 'application/json', Prefer: 'return=minimal'
+          },
+          body: JSON.stringify({ lat: d.lat, lng: d.lng })
+        });
+        loc.lat = d.lat; loc.lng = d.lng;
+        fromName++;
+      } else { failed++; }
+    } catch (e) { failed++; }
     await new Promise(r => setTimeout(r, 150));
   }
+
+  if (ns) ns.textContent = '';
+
+  // Update local cache so the map reflects everything immediately
+  try {
+    const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+    if (cached && cached.data) {
+      cached.data = S.locations;
+      localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+    }
+  } catch (e) {}
   if (S.gmap) refreshPins();
+
+  return { fromGps, fromAddr, fromName, failed };
+}
+
+// Backward-compatible alias for old call sites
+async function autoGeocode() {
+  const r = await placePins();
+  console.log(`[placePins] gps=${r.fromGps} addr=${r.fromAddr} name=${r.fromName} failed=${r.failed}`);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
