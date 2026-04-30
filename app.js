@@ -364,7 +364,7 @@ function rebuildStateCheckboxes() {
   // Render
   container.innerHTML = keys.map(key => {
     const id = 'f-state-' + key;
-    const label = key === 'NONE' ? '(none)' : key;
+    const label = key === 'NONE' ? 'Other' : key;
     // Default to checked. Restore from prev (current session) or saved (cross-session) if available.
     let checked = true;
     if (Object.prototype.hasOwnProperty.call(prev, id))            checked = prev[id];
@@ -2760,12 +2760,31 @@ window.startFullSync = async function () {
 
   try {
     if (ns) ns.textContent = 'crawling SmugMug...';
+
+    // Build "knownAlbums" map from current DB cache so the crawl can skip unchanged ones
+    let knownAlbums = {};
+    try {
+      const known = await db('smugmug_albums?select=sm_key,last_updated&last_updated=not.is.null');
+      (known || []).forEach(a => {
+        if (a.sm_key && a.last_updated) knownAlbums[a.sm_key] = a.last_updated;
+      });
+      console.log(`[sync] sending ${Object.keys(knownAlbums).length} known album timestamps to crawl`);
+    } catch (e) {
+      // last_updated column may not exist yet (migration_4 not run) — that's OK
+      console.log('[sync] no last_updated cache available; doing full crawl');
+    }
+
     const crawlResp = await (await fetchRetry(SM_BASE + '/api/smugmug?action=crawl', {
-      headers: { Authorization: 'Bearer ' + tb }
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + tb, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ knownAlbums })
     })).json();
     const library = crawlResp.library;
     const smAlbums = library.albums || [];
-    if (ns) ns.textContent = `found ${smAlbums.length} albums — syncing structure...`;
+    const unchanged = library._unchangedCount || 0;
+    const changed = smAlbums.length - unchanged;
+    console.log(`[sync] crawl returned ${smAlbums.length} albums (${unchanged} unchanged, ${changed} need update)`);
+    if (ns) ns.textContent = `found ${smAlbums.length} albums (${unchanged} cached) — syncing...`;
 
     // Sync structure with mode='full' so server knows it can prune
     await fetchRetry(SM_BASE + '/api/sync', {
@@ -2866,6 +2885,68 @@ async function checkAutoSync() {
     const hrs = (Date.now() - new Date(r[0].last_sync).getTime()) / 3600000;
     if (hrs > 24) { $('nav-status').textContent = 'auto-syncing...'; startFullSync(); }
   } catch (e) {}
+}
+
+// Lightweight background check on app load — runs an incremental crawl in the
+// background and applies changes silently. Fast because of last_updated cache.
+// Only fires if connected to SmugMug and last sync was >30 minutes ago.
+async function backgroundIncrementalSync() {
+  if (!S.smTokens) return;
+  try {
+    const r = await db('sync_log?id=eq.1&select=last_sync');
+    if (r && r[0] && r[0].last_sync) {
+      const minsSince = (Date.now() - new Date(r[0].last_sync).getTime()) / 60000;
+      if (minsSince < 30) return;  // recent enough, skip
+    }
+  } catch (e) { return; }
+
+  console.log('[bg-sync] starting background incremental sync');
+  const ns = $('nav-status');
+  const prevText = ns ? ns.textContent : '';
+  if (ns) ns.textContent = 'checking SmugMug for changes…';
+
+  try {
+    const tb = btoa(JSON.stringify(S.smTokens));
+    let knownAlbums = {};
+    try {
+      const known = await db('smugmug_albums?select=sm_key,last_updated&last_updated=not.is.null');
+      (known || []).forEach(a => {
+        if (a.sm_key && a.last_updated) knownAlbums[a.sm_key] = a.last_updated;
+      });
+    } catch (e) {}
+
+    const crawlResp = await (await fetchRetry(SM_BASE + '/api/smugmug?action=crawl', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + tb, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ knownAlbums })
+    })).json();
+    const library = crawlResp.library;
+    const smAlbums = library.albums || [];
+    const unchanged = library._unchangedCount || 0;
+    const changed = smAlbums.length - unchanged;
+
+    if (changed === 0) {
+      console.log(`[bg-sync] no changes (${smAlbums.length} albums all unchanged)`);
+      if (ns) ns.textContent = prevText;
+      return;
+    }
+
+    console.log(`[bg-sync] ${changed} albums changed, applying`);
+    if (ns) ns.textContent = `applying ${changed} changes…`;
+    await fetchRetry(SM_BASE + '/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'full', library: { folders: library.folders || [], albums: smAlbums, images: [] } })
+    });
+    await loadLocations(true);
+    if (S.gmap) refreshPins();
+    S.libLoaded = false;
+    checkSyncStatus();
+    toast(`Background sync: ${changed} album${changed !== 1 ? 's' : ''} updated`, 'inf');
+  } catch (e) {
+    console.warn('[bg-sync] failed silently:', e.message);
+    if (ns) ns.textContent = prevText;
+  }
 }
 
 // Auto-geocode unverified locations (uses state_code, no hardcoded NY)
@@ -4284,6 +4365,8 @@ $('hcard').addEventListener('mouseleave', function () {
   await loadLocations();
   loadMapScript();
   await checkAutoSync();
+  // Light background sync after the app's already loaded — finds new uploads silently
+  setTimeout(() => { backgroundIncrementalSync(); }, 4000);
   setTimeout(posNavStatus, 100);
 })();
 
