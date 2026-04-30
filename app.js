@@ -106,9 +106,11 @@ function toast(msg, type) {
   setTimeout(() => { el.className = 'toast'; }, 3500);
 }
 
-function smMedium(url) { return url ? url.replace(/\/(Th|Ti|S)\//, '/M/') : ''; }
-function smLarge(url)  { return url ? url.replace(/\/(Th|Ti|S|M)\//, '/L/') : ''; }
-function smXL(url)     { return url ? url.replace(/\/(Th|Ti|S|M|L)\//, '/XL/') : ''; }
+function smMedium(url) { return url ? url.replace(/\/(Th|Ti|S|L|XL|X2|X3|X4|X5|O)\//, '/M/') : ''; }
+function smLarge(url)  { return url ? url.replace(/\/(Th|Ti|S|M|XL|X2|X3|X4|X5|O)\//, '/L/') : ''; }
+// "XL" is now actually X3 (1600px) — much sharper than the 1024px XL.
+// Falls back gracefully if X3 isn't available for the image.
+function smXL(url)     { return url ? url.replace(/\/(Th|Ti|S|M|L|XL|X2|X4|X5|O)\//, '/X3/') : ''; }
 
 function hasCoords(l) { return l && l.lat && l.lng && !(l.lat === 0 && l.lng === 0); }
 
@@ -2552,22 +2554,94 @@ window.libFolderClick = function (el) {
 };
 
 window.libSearch = function () {
-  const q = $('lib-q').value.toLowerCase();
+  const raw = $('lib-q').value.trim().toLowerCase();
   const statusKey = $('lib-status-sel').value;
-  if (!q && !statusKey) { libRender(); return; }
+  if (!raw && !statusKey) { libRender(); return; }
   const grid = $('lib-grid'), bc = $('lib-bc');
   const allowed = statusKey ? STATUS_FILTERS[statusKey] : null;
-  const f = S.locations.filter(l => {
-    if (allowed && allowed.indexOf(l.status) < 0) return false;
-    if (q) {
-      const h = [l.name, l.address, l.city, l.notes].concat(l.tags || []).join(' ').toLowerCase();
-      if (h.indexOf(q) < 0) return false;
+
+  // Tokenize the query — quoted phrases stay intact, otherwise split on whitespace
+  const tokens = [];
+  if (raw) {
+    const re = /"([^"]+)"|(\S+)/g;
+    let m;
+    while ((m = re.exec(raw)) !== null) {
+      const t = (m[1] || m[2] || '').trim();
+      if (t) tokens.push(t);
     }
-    return true;
+  }
+
+  // Build a per-location haystack and score each candidate
+  // Scoring rules (per token):
+  //   • exact match in name           → 10
+  //   • token substring in name       →  6
+  //   • exact match in tags           →  8
+  //   • token substring in tags       →  4
+  //   • exact match in per-image tags →  6
+  //   • token substring in city/state →  3
+  //   • token substring in notes      →  2
+  //   • token substring in address    →  2
+  // A location must match ALL tokens (AND), but the score determines order.
+  const results = [];
+  const perImageRunCache = orgRunsCache || {};
+  const tagsLower = new Map();   // location → lowercased album tags array
+  const imgTagsLower = new Map();  // location → set of per-image tags
+
+  S.locations.forEach(l => {
+    if (allowed && allowed.indexOf(l.status) < 0) return;
+    if (!tokens.length) { results.push({ loc: l, score: 0 }); return; }
+
+    // Lowercase haystack pieces (computed lazily)
+    const nameL = (l.name || '').toLowerCase();
+    const cityL = (l.city || '').toLowerCase();
+    const stateL = (l.state_code || '').toLowerCase();
+    const addrL = (l.address || '').toLowerCase();
+    const notesL = (l.notes || '').toLowerCase();
+    const tagsArr = (l.tags || []).map(t => String(t).toLowerCase());
+
+    // Per-image tags from the Organize run record (if classified)
+    let imgTagSet = imgTagsLower.get(l.id);
+    if (imgTagSet === undefined) {
+      imgTagSet = new Set();
+      const run = perImageRunCache[l.smugmug_album_key];
+      if (run && run.per_image_tags) {
+        Object.values(run.per_image_tags).forEach(arr => {
+          (arr || []).forEach(t => imgTagSet.add(String(t).toLowerCase()));
+        });
+      }
+      imgTagsLower.set(l.id, imgTagSet);
+    }
+
+    let totalScore = 0;
+    let allTokensMatched = true;
+    for (const tok of tokens) {
+      let tokenScore = 0;
+      // Name matches
+      if (nameL === tok)          tokenScore = Math.max(tokenScore, 10);
+      else if (nameL.includes(tok)) tokenScore = Math.max(tokenScore, 6);
+      // Tag matches
+      if (tagsArr.includes(tok))  tokenScore = Math.max(tokenScore, 8);
+      else if (tagsArr.some(t => t.includes(tok))) tokenScore = Math.max(tokenScore, 4);
+      // Per-image tag matches
+      if (imgTagSet.has(tok)) tokenScore = Math.max(tokenScore, 6);
+      // City/state matches
+      if (cityL.includes(tok) || stateL.includes(tok)) tokenScore = Math.max(tokenScore, 3);
+      // Notes / address (substring only)
+      if (notesL.includes(tok) || addrL.includes(tok)) tokenScore = Math.max(tokenScore, 2);
+
+      if (tokenScore === 0) { allTokensMatched = false; break; }
+      totalScore += tokenScore;
+    }
+    if (allTokensMatched) results.push({ loc: l, score: totalScore });
   });
-  bc.innerHTML = `<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span><span class="lib-bc-sep"> / </span><span class="lib-bc-seg cur">search (${f.length})</span>`;
+
+  // Sort by score descending, name ascending as tiebreak
+  results.sort((a, b) => (b.score - a.score) || a.loc.name.localeCompare(b.loc.name));
+  const f = results.map(r => r.loc);
+
+  bc.innerHTML = `<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span><span class="lib-bc-sep"> / </span><span class="lib-bc-seg cur">search "${E(raw)}" (${f.length})</span>`;
   if (!f.length) {
-    grid.innerHTML = `<div class="empty">No results for "${E(q)}"</div>`;
+    grid.innerHTML = `<div class="empty">No results for "${E(raw)}"</div>`;
     return;
   }
   grid.innerHTML = f.map(l => {
@@ -2580,6 +2654,100 @@ window.libSearch = function () {
 };
 
 window.hideOnError = function (el) { el.style.display = 'none'; };
+
+// ── AI search: natural-language queries → ranked location matches ──
+window.runAiSearch = async function () {
+  const inp = $('lib-ai-q');
+  const btn = $('lib-ai-btn');
+  if (!inp || !btn) return;
+  const query = inp.value.trim();
+  if (!query) { inp.focus(); return; }
+
+  // Build compact summaries — one short line per location
+  const summaries = S.locations.map(l => {
+    const tags = (l.tags || []).slice(0, 18);
+    // Add per-image tags if available (deduplicated, capped)
+    const run = orgRunsCache && orgRunsCache[l.smugmug_album_key];
+    if (run && run.per_image_tags) {
+      const seen = new Set(tags.map(t => String(t).toLowerCase()));
+      Object.values(run.per_image_tags).forEach(arr => {
+        (arr || []).forEach(t => {
+          const lower = String(t).toLowerCase();
+          if (!seen.has(lower) && tags.length < 30) {
+            seen.add(lower);
+            tags.push(t);
+          }
+        });
+      });
+    }
+    // Notes excerpt: first 200 chars, single-line
+    let notes = '';
+    if (l.notes) {
+      notes = String(l.notes).replace(/[\r\n]+/g, ' ').slice(0, 200);
+    }
+    return {
+      id: l.id,
+      name: l.name || '',
+      city: l.city || '',
+      state: l.state_code || '',
+      tags: tags,
+      notes_excerpt: notes
+    };
+  });
+
+  // UI: lock controls during search
+  btn.disabled = true;
+  const oldBtn = btn.textContent;
+  btn.textContent = '✨ thinking…';
+  const grid = $('lib-grid'), bc = $('lib-bc');
+  grid.innerHTML = `<div class="empty"><div class="spin"></div><span>AI is searching ${summaries.length} locations…</span></div>`;
+  bc.innerHTML = `<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span><span class="lib-bc-sep"> / </span><span class="lib-bc-seg cur">✨ AI search "${E(query)}"</span>`;
+
+  try {
+    const r = await fetch(`${SM_BASE}/api/ai_search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, locations: summaries })
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'AI search failed');
+    const matches = data.matches || [];
+
+    if (!matches.length) {
+      grid.innerHTML = `<div class="empty">AI found no strong matches for "${E(query)}".<br>Try a broader query or use the regular search bar.</div>`;
+      return;
+    }
+
+    // Render: each card shows score + reason
+    grid.innerHTML = matches.map(m => {
+      const loc = S.locById.get(m.id);
+      if (!loc) return '';
+      const sl = SL[loc.status] || SL.identified;
+      const scoreClass = m.score >= 80 ? 'high' : m.score >= 60 ? 'med' : 'low';
+      const thumb = loc.cover_photo_url ? `<img class="gcard-img" src="${E(smMedium(loc.cover_photo_url))}" loading="lazy" onerror="hideOnError(this)">` : '';
+      return `<div class="gcard ai-result-card" data-locid="${E(loc.id)}" onclick="libCardClick(this)">
+        <div class="gcard-tw">
+          ${thumb}
+          <div class="gcard-ph">◻</div>
+          <div class="ai-score-pill ai-score-${scoreClass}">${m.score}</div>
+          <div class="gcard-overlay">${E(loc.name)}</div>
+        </div>
+        ${m.reason ? `<div class="ai-reason">${E(m.reason)}</div>` : ''}
+        <div class="gcard-meta">
+          <span style="color:${sl.c}">${E(SL_LABEL[loc.status] || loc.status)}</span>
+          <span style="color:var(--text3)">${E([loc.city, loc.state_code].filter(Boolean).join(', ') || '—')}</span>
+        </div>
+      </div>`;
+    }).filter(Boolean).join('');
+
+    bc.innerHTML = `<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span><span class="lib-bc-sep"> / </span><span class="lib-bc-seg cur">✨ AI search "${E(query)}" (${matches.length})</span>`;
+  } catch (e) {
+    grid.innerHTML = `<div class="empty" style="color:var(--red)">AI search failed: ${E(e.message || 'unknown')}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldBtn;
+  }
+};
 
 // ══════════════════════════════════════════════════════════════════════════
 // LEFT PANEL (build once; toggle via classes — no DOM rebuild on every click)
@@ -4520,6 +4688,8 @@ $('hcard').addEventListener('mouseleave', function () {
   checkAuth();
   await loadLocations();
   loadMapScript();
+  // Preload org_album_runs in background so search can use per-image tags from the start
+  setTimeout(() => { loadOrgRuns().catch(() => {}); }, 100);
   await checkAutoSync();
   // Light background sync after the app's already loaded — finds new uploads silently
   setTimeout(() => { backgroundIncrementalSync(); }, 4000);
