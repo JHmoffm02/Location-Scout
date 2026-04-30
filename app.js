@@ -99,6 +99,25 @@ const E = (window.NotesParser && NotesParser.escapeHtml) || function (s) {
 };
 const $ = id => document.getElementById(id);
 
+// Wrap matches of any of `tokens` in a <mark> tag inside an already-escaped string.
+// `escapedHtml` is HTML that's already gone through E() — we wrap text matches without
+// breaking existing tags. Uses case-insensitive whole-token detection where reasonable.
+function highlightTokens(escapedHtml, tokens) {
+  if (!tokens || !tokens.length) return escapedHtml;
+  // Sort longest first so overlapping tokens don't truncate each other
+  const sorted = tokens.slice().filter(Boolean).sort((a, b) => b.length - a.length);
+  if (!sorted.length) return escapedHtml;
+  // Escape regex special chars
+  const escaped = sorted.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const re = new RegExp('(' + escaped.join('|') + ')', 'gi');
+  // Only touch text nodes — avoid matching inside HTML tag/attr names
+  // Split on tags, replace inside non-tag pieces only
+  return escapedHtml.split(/(<[^>]+>)/).map(part => {
+    if (part.startsWith('<')) return part;
+    return part.replace(re, '<mark class="search-hit">$1</mark>');
+  }).join('');
+}
+
 function toast(msg, type) {
   const el = $('toast');
   el.textContent = msg;
@@ -824,8 +843,20 @@ window.openDetail = function (loc) {
   S.dpRequestToken++;
   $('hcard').classList.remove('show');
 
+  // Search-match context: tokens that hit + tag/image/field hits for this location
+  const matchInfo = (S.lastSearchMatches && S.lastSearchMatches[loc.id]) || null;
+  const matchTokens = matchInfo ? matchInfo.tokens : [];
+  const hitTags = matchInfo ? new Set(matchInfo.tags) : new Set();
+  const hitImageKeys = matchInfo ? new Set(matchInfo.imageKeys) : new Set();
+  S._matchInfo = matchInfo;  // stash so loadDetailGallery can prioritize matched images
+
   const displayName = loc.name.replace(/[\s*]*pending[\s*]*/gi, '').trim();
-  $('dp-name').textContent = displayName;
+  // Highlight matches in the title
+  if (matchTokens.length) {
+    $('dp-name').innerHTML = highlightTokens(E(displayName), matchTokens);
+  } else {
+    $('dp-name').textContent = displayName;
+  }
   const cat = getCatForLoc(loc);
   const col = cat ? catColorByKey(cat) : '';
   const sl = SL[loc.status] || SL.identified;
@@ -895,12 +926,12 @@ window.openDetail = function (loc) {
     html += '<div class="dp-addr-wrap">';
     html += '<div class="dp-addr-text">';
     html += `<a href="${mapsUrl}" target="_blank" rel="noopener" class="dp-addr-link">`;
-    if (addrPart) html += `<div class="dp-addr-l1">${E(addrPart)}</div>`;
-    if (line2)    html += `<div class="dp-addr-l2">${E(line2)}</div>`;
+    if (addrPart) html += `<div class="dp-addr-l1">${highlightTokens(E(addrPart), matchTokens)}</div>`;
+    if (line2)    html += `<div class="dp-addr-l2">${highlightTokens(E(line2), matchTokens)}</div>`;
     html += '</a>';
-    if (crossPart) html += `<div class="dp-addr-extra">${E(crossPart)}</div>`;
+    if (crossPart) html += `<div class="dp-addr-extra">${highlightTokens(E(crossPart), matchTokens)}</div>`;
     filteredExtras.forEach(x => {
-      html += `<div class="dp-addr-extra">${E(x.text)}</div>`;
+      html += `<div class="dp-addr-extra">${highlightTokens(E(x.text), matchTokens)}</div>`;
     });
     html += '</div>';
     // Right column: SV thumb + business info (populated async)
@@ -952,18 +983,25 @@ window.openDetail = function (loc) {
 
   // Notes (rendered via shared parser)
   if (parsed && window.NotesParser) {
-    const notesHtml = NotesParser.renderHtml(parsed, { showAddress: false });
-    if (notesHtml) html += `<div class="dp-section"><div class="dp-notes">${notesHtml}</div></div>`;
+    let notesHtml = NotesParser.renderHtml(parsed, { showAddress: false });
+    if (notesHtml) {
+      if (matchTokens.length) notesHtml = highlightTokens(notesHtml, matchTokens);
+      html += `<div class="dp-section"><div class="dp-notes">${notesHtml}</div></div>`;
+    }
   } else if (loc.notes) {
-    // Fallback: raw notes if parser missing
-    html += `<div class="dp-section"><div class="dp-notes" style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${E(loc.notes)}</div></div>`;
+    let raw = E(loc.notes);
+    if (matchTokens.length) raw = highlightTokens(raw, matchTokens);
+    html += `<div class="dp-section"><div class="dp-notes" style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${raw}</div></div>`;
   }
 
   // Tags (clickable to remove — saves as feedback)
+  // Tags that contributed to a search hit get a "search-hit-tag" highlight
   if (loc.tags && loc.tags.length) {
     html += '<div class="dp-section"><div class="dp-label">Keywords <span class="dp-label-sub">(click ✕ to remove and train AI)</span></div><div class="dp-tags">';
     loc.tags.forEach(t => {
-      html += `<span class="dp-tag dp-tag-removable" onclick="dpRemoveTag('${E(t)}')">${E(t)}<span class="dp-tag-x">✕</span></span>`;
+      const isHit = hitTags.has(t);
+      const cls = isHit ? 'dp-tag dp-tag-removable search-hit-tag' : 'dp-tag dp-tag-removable';
+      html += `<span class="${cls}" onclick="dpRemoveTag('${E(t)}')">${E(t)}<span class="dp-tag-x">✕</span></span>`;
     });
     html += '</div></div>';
   }
@@ -1225,7 +1263,7 @@ async function loadDetailGallery(loc) {
       if (albs && albs[0]) expectedCount = albs[0].image_count || 0;
     } catch (e) {}
 
-    let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=thumb_url');
+    let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=sm_key,thumb_url');
     if (myToken !== S.dpRequestToken) return;
     const cacheCount = (imgs && imgs.length) || 0;
     console.log(`[gallery] album ${loc.smugmug_album_key}: cache=${cacheCount}, expected=${expectedCount}`);
@@ -1263,7 +1301,7 @@ async function loadDetailGallery(loc) {
               if (myToken !== S.dpRequestToken) return;
               if (data && data.images && data.images.length) {
                 console.log(`[gallery] ✓ live-fetched ${data.images.length} images for album`);
-                imgs = data.images.map(i => ({ thumb_url: i.thumbUrl })).filter(i => i.thumb_url);
+                imgs = data.images.map(i => ({ sm_key: i.id, thumb_url: i.thumbUrl })).filter(i => i.thumb_url);
                 // Cache to Supabase for next time (non-blocking)
                 (async () => {
                   try {
@@ -1314,9 +1352,33 @@ async function loadDetailGallery(loc) {
       dpUpdateViewer();
       return;
     }
-    const thumbs = imgs.map(i => i.thumb_url).filter(Boolean);
     const cover = loc.cover_photo_url;
-    S.dpImages = cover ? [cover].concat(thumbs.filter(t => t !== cover)) : thumbs;
+    const matchInfo = S._matchInfo;
+    const hitKeys = matchInfo ? new Set(matchInfo.imageKeys || []) : new Set();
+
+    // Build the image list. If search hits include specific image keys, surface those first.
+    const orderedThumbs = [];
+    const seenUrls = new Set();
+    function pushIf(url) {
+      if (url && !seenUrls.has(url)) { orderedThumbs.push(url); seenUrls.add(url); }
+    }
+    if (cover) pushIf(cover);
+    // Hit images first (preserve order they appear in `imgs`)
+    if (hitKeys.size) {
+      imgs.forEach(i => { if (i.sm_key && hitKeys.has(i.sm_key)) pushIf(i.thumb_url); });
+    }
+    // Then everything else
+    imgs.forEach(i => pushIf(i.thumb_url));
+
+    S.dpImages = orderedThumbs;
+    // If a hit image was promoted, jump to it (skip the cover at index 0 unless cover IS a hit thumb)
+    if (hitKeys.size && S.dpImages.length > 1) {
+      // Find first non-cover thumbnail in the list
+      const firstHitIdx = cover ? 1 : 0;
+      S.dpIndex = Math.max(0, Math.min(firstHitIdx, S.dpImages.length - 1));
+    } else {
+      S.dpIndex = 0;
+    }
     dpUpdateViewer();
   } catch (e) {
     console.error('[gallery] outer error:', e);
@@ -2395,6 +2457,9 @@ window.libBrowse = function (path, label) {
   pushNav();
   $('lib-q').value = '';
   $('lib-status-sel').value = '';
+  // Clear search-match context — we're leaving the search view
+  S.lastSearchTokens = null;
+  S.lastSearchMatches = null;
   if (path === null) {
     S.libRedoStack = S.libStack.slice().reverse();
     S.libStack = [];
@@ -2556,11 +2621,16 @@ window.libFolderClick = function (el) {
 window.libSearch = function () {
   const raw = $('lib-q').value.trim().toLowerCase();
   const statusKey = $('lib-status-sel').value;
-  if (!raw && !statusKey) { libRender(); return; }
+  if (!raw && !statusKey) {
+    S.lastSearchTokens = null;
+    S.lastSearchMatches = null;
+    libRender();
+    return;
+  }
   const grid = $('lib-grid'), bc = $('lib-bc');
   const allowed = statusKey ? STATUS_FILTERS[statusKey] : null;
 
-  // Tokenize the query — quoted phrases stay intact, otherwise split on whitespace
+  // Tokenize: quoted phrases stay intact, otherwise split on whitespace
   const tokens = [];
   if (raw) {
     const re = /"([^"]+)"|(\S+)/g;
@@ -2570,28 +2640,17 @@ window.libSearch = function () {
       if (t) tokens.push(t);
     }
   }
+  // Stash the search context globally — openDetail uses it to highlight matches
+  S.lastSearchTokens = tokens.slice();
 
-  // Build a per-location haystack and score each candidate
-  // Scoring rules (per token):
-  //   • exact match in name           → 10
-  //   • token substring in name       →  6
-  //   • exact match in tags           →  8
-  //   • token substring in tags       →  4
-  //   • exact match in per-image tags →  6
-  //   • token substring in city/state →  3
-  //   • token substring in notes      →  2
-  //   • token substring in address    →  2
-  // A location must match ALL tokens (AND), but the score determines order.
   const results = [];
   const perImageRunCache = orgRunsCache || {};
-  const tagsLower = new Map();   // location → lowercased album tags array
-  const imgTagsLower = new Map();  // location → set of per-image tags
+  const imgTagsLower = new Map();
 
   S.locations.forEach(l => {
     if (allowed && allowed.indexOf(l.status) < 0) return;
-    if (!tokens.length) { results.push({ loc: l, score: 0 }); return; }
+    if (!tokens.length) { results.push({ loc: l, score: 0, hits: {} }); return; }
 
-    // Lowercase haystack pieces (computed lazily)
     const nameL = (l.name || '').toLowerCase();
     const cityL = (l.city || '').toLowerCase();
     const stateL = (l.state_code || '').toLowerCase();
@@ -2599,44 +2658,87 @@ window.libSearch = function () {
     const notesL = (l.notes || '').toLowerCase();
     const tagsArr = (l.tags || []).map(t => String(t).toLowerCase());
 
-    // Per-image tags from the Organize run record (if classified)
-    let imgTagSet = imgTagsLower.get(l.id);
-    if (imgTagSet === undefined) {
-      imgTagSet = new Set();
+    // Per-image tags — track which IMAGE_KEY contained which tag, for highlighting
+    let imgIndex = imgTagsLower.get(l.id);
+    if (imgIndex === undefined) {
+      imgIndex = { tagSet: new Set(), tagToKeys: new Map() };  // tagToKeys: lower-tag → [image_keys]
       const run = perImageRunCache[l.smugmug_album_key];
       if (run && run.per_image_tags) {
-        Object.values(run.per_image_tags).forEach(arr => {
-          (arr || []).forEach(t => imgTagSet.add(String(t).toLowerCase()));
+        Object.entries(run.per_image_tags).forEach(([imgKey, arr]) => {
+          (arr || []).forEach(t => {
+            const lower = String(t).toLowerCase();
+            imgIndex.tagSet.add(lower);
+            const list = imgIndex.tagToKeys.get(lower) || [];
+            list.push(imgKey);
+            imgIndex.tagToKeys.set(lower, list);
+          });
         });
       }
-      imgTagsLower.set(l.id, imgTagSet);
+      imgTagsLower.set(l.id, imgIndex);
     }
 
     let totalScore = 0;
     let allTokensMatched = true;
+    // Hits accumulated per location (deduped across tokens)
+    // hits = { tagsHit: Set<string>, imageKeysHit: Set<string>, fieldsHit: Set<'name'|'city'|'state'|'notes'|'address'>, tokens: Set<string> }
+    const hits = {
+      tags: new Set(),
+      imageKeys: new Set(),
+      fields: new Set(),
+      tokens: new Set()
+    };
+
     for (const tok of tokens) {
       let tokenScore = 0;
-      // Name matches
-      if (nameL === tok)          tokenScore = Math.max(tokenScore, 10);
-      else if (nameL.includes(tok)) tokenScore = Math.max(tokenScore, 6);
-      // Tag matches
-      if (tagsArr.includes(tok))  tokenScore = Math.max(tokenScore, 8);
-      else if (tagsArr.some(t => t.includes(tok))) tokenScore = Math.max(tokenScore, 4);
-      // Per-image tag matches
-      if (imgTagSet.has(tok)) tokenScore = Math.max(tokenScore, 6);
-      // City/state matches
-      if (cityL.includes(tok) || stateL.includes(tok)) tokenScore = Math.max(tokenScore, 3);
-      // Notes / address (substring only)
-      if (notesL.includes(tok) || addrL.includes(tok)) tokenScore = Math.max(tokenScore, 2);
+      // Name
+      if (nameL === tok)            { tokenScore = Math.max(tokenScore, 10); hits.fields.add('name'); hits.tokens.add(tok); }
+      else if (nameL.includes(tok)) { tokenScore = Math.max(tokenScore, 6);  hits.fields.add('name'); hits.tokens.add(tok); }
+      // Album-level tags
+      tagsArr.forEach((t, idx) => {
+        if (t === tok)              { tokenScore = Math.max(tokenScore, 8); hits.tags.add((l.tags || [])[idx]); hits.tokens.add(tok); }
+        else if (t.includes(tok))   { tokenScore = Math.max(tokenScore, 4); hits.tags.add((l.tags || [])[idx]); hits.tokens.add(tok); }
+      });
+      // Per-image tags
+      if (imgIndex.tagSet.has(tok)) {
+        tokenScore = Math.max(tokenScore, 6);
+        (imgIndex.tagToKeys.get(tok) || []).forEach(k => hits.imageKeys.add(k));
+        hits.tokens.add(tok);
+      } else {
+        // Substring per-image search
+        imgIndex.tagSet.forEach(t => {
+          if (t.includes(tok)) {
+            tokenScore = Math.max(tokenScore, 4);
+            (imgIndex.tagToKeys.get(t) || []).forEach(k => hits.imageKeys.add(k));
+            hits.tokens.add(tok);
+          }
+        });
+      }
+      // City/state
+      if (cityL.includes(tok))  { tokenScore = Math.max(tokenScore, 3); hits.fields.add('city');  hits.tokens.add(tok); }
+      if (stateL.includes(tok)) { tokenScore = Math.max(tokenScore, 3); hits.fields.add('state'); hits.tokens.add(tok); }
+      // Notes / address
+      if (notesL.includes(tok)) { tokenScore = Math.max(tokenScore, 2); hits.fields.add('notes'); hits.tokens.add(tok); }
+      if (addrL.includes(tok))  { tokenScore = Math.max(tokenScore, 2); hits.fields.add('address'); hits.tokens.add(tok); }
 
       if (tokenScore === 0) { allTokensMatched = false; break; }
       totalScore += tokenScore;
     }
-    if (allTokensMatched) results.push({ loc: l, score: totalScore });
+    if (allTokensMatched) results.push({ loc: l, score: totalScore, hits });
   });
 
-  // Sort by score descending, name ascending as tiebreak
   results.sort((a, b) => (b.score - a.score) || a.loc.name.localeCompare(b.loc.name));
+
+  // Save match info keyed by location id so openDetail can use it
+  S.lastSearchMatches = {};
+  results.forEach(r => {
+    S.lastSearchMatches[r.loc.id] = {
+      tags:      Array.from(r.hits.tags),
+      imageKeys: Array.from(r.hits.imageKeys),
+      fields:    Array.from(r.hits.fields),
+      tokens:    Array.from(r.hits.tokens)
+    };
+  });
+
   const f = results.map(r => r.loc);
 
   bc.innerHTML = `<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span><span class="lib-bc-sep"> / </span><span class="lib-bc-seg cur">search "${E(raw)}" (${f.length})</span>`;
