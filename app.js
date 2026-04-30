@@ -1136,6 +1136,7 @@ window.openDetail = function (loc) {
   headerHtml += '<span class="dp-hbtn-sep"></span>';
   headerHtml += '<button class="dp-hbtn" onclick="openEditPanel(S.currentDetailLoc)" aria-label="Edit location">✏ edit</button>';
   headerHtml += '<button class="dp-hbtn" onclick="showRawNotes(S.currentDetailLoc)" aria-label="Show raw notes">raw notes</button>';
+  headerHtml += '<button class="dp-hbtn" onclick="dpDeepTag()" title="Run AI per-photo analysis: keywords + focus check + top 25% picks. Stores results in DB; doesn\'t modify SmugMug.">✨ deep tag</button>';
   $('dp-header-bar').innerHTML = headerHtml;
 
   // Images
@@ -1302,6 +1303,7 @@ window.openDetail = function (loc) {
   loadDetailGallery(loc);
   loadPlaceInfo(loc);
   checkStreetViewAvailable(loc);
+  dpLoadExistingDeepTag(loc);
 };
 
 // Query the Street View metadata endpoint — if no panorama exists at this location, hide the thumb.
@@ -1627,6 +1629,8 @@ async function loadDetailGallery(loc) {
     imgs.forEach(i => pushIf(i.thumb_url));
 
     S.dpImages = orderedThumbs;
+    // Stash the keyed list for dpApplyOrder to use later
+    S._lastDeepTagImgs = imgs.slice();
     // If a hit image was promoted, jump to it (skip the cover at index 0 unless cover IS a hit thumb)
     if (hitKeys.size && S.dpImages.length > 1) {
       // Find first non-cover thumbnail in the list
@@ -1636,10 +1640,263 @@ async function loadDetailGallery(loc) {
       S.dpIndex = 0;
     }
     dpUpdateViewer();
+    // If user has deep-tag data and 'ranked' mode active, apply that order
+    if (S.dpDeepTag && S.dpDeepTag.orderMode === 'ranked') {
+      dpApplyOrder();
+    }
   } catch (e) {
     console.error('[gallery] outer error:', e);
     toast('Gallery error: ' + (e.message || 'unknown'), 'err');
     if (ctr) ctr.textContent = '';
+  }
+}
+
+// ── Deep-tag pipeline (per-photo Haiku + top-25% Sonnet) ─────────────────────
+// State for the current detail panel's deep-tag run, kept in S.dpDeepTag:
+//   { albumKey, perPhoto: [{key, tags, sonnetTags, isSharp, composition, isTopPick, originalIndex, rankedIndex}],
+//     consensusTags, sharpCount, softCount, topPickCount, photoCount,
+//     orderMode: 'original' | 'ranked' }
+
+window.dpDeepTag = async function () {
+  const loc = S.currentDetailLoc;
+  if (!loc || !loc.smugmug_album_key) { toast('No album to analyze', 'err'); return; }
+  if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
+
+  // Pull image list. Reuse the gallery load if it's already populated; else fetch.
+  let imageList;
+  try {
+    let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=sm_key,thumb_url');
+    if (!imgs || imgs.length <= 1) {
+      // Live-fetch via SmugMug API
+      const tb = btoa(JSON.stringify(S.smTokens));
+      const r = await fetch(`${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`, {
+        headers: { Authorization: 'Bearer ' + tb }
+      });
+      const data = await r.json();
+      imgs = (data.images || []).filter(i => i.id && i.thumbUrl).map(i => ({ sm_key: i.id, thumb_url: i.thumbUrl }));
+    }
+    imageList = imgs;
+  } catch (e) {
+    toast('Could not fetch images: ' + (e.message || 'unknown'), 'err');
+    return;
+  }
+  if (!imageList || !imageList.length) { toast('Album has no images', 'err'); return; }
+  if (imageList.length > 200) {
+    if (!confirm(`This album has ${imageList.length} photos — only the first 200 will be analyzed. Continue?`)) return;
+    imageList = imageList.slice(0, 200);
+  }
+
+  const estCost = (imageList.length * 0.003).toFixed(2);
+  if (!confirm(`Run deep tag on ${imageList.length} photos in "${loc.name}"?\n\nFlow:\n  1. Haiku tags + focus + composition score for every photo\n  2. Distill consensus album keywords\n  3. Top 25% (~${Math.ceil(imageList.length * 0.25)} photos) get richer Sonnet tags\n  4. Soft photos get sorted to the back\n\nEstimated cost: ~$${estCost}`)) return;
+
+  const ctr = $('dp-counter');
+  if (ctr) { ctr.style.display = 'block'; ctr.textContent = `✨ analyzing ${imageList.length} photos…`; }
+  toast('Deep tag started — this takes 30-60 seconds', 'inf');
+
+  try {
+    const r = await fetch(`${SM_BASE}/api/deep_tag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        albumKey: loc.smugmug_album_key,
+        albumName: loc.name,
+        albumNotes: loc.notes || '',
+        albumTags: loc.tags || [],
+        images: imageList.map(i => ({ key: i.sm_key, url: i.thumb_url }))
+      })
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'deep tag failed');
+
+    // Bill from real usage
+    const u = data.usage || {};
+    trackUsage('haiku-classify', {
+      costCents: data.costCents || 0,
+      meta: { stage: 'deep-tag', album_key: loc.smugmug_album_key, photos: imageList.length }
+    });
+
+    // Save to DB (per-photo + album-level aggregate)
+    await dpSaveDeepTagResults(loc, data);
+
+    // Update in-memory state
+    S.dpDeepTag = {
+      albumKey: loc.smugmug_album_key,
+      perPhoto: data.perPhoto || [],
+      consensusTags: data.consensusTags || [],
+      sharpCount: data.sharpCount || 0,
+      softCount: data.softCount || 0,
+      topPickCount: data.topPickCount || 0,
+      photoCount: data.photoCount || imageList.length,
+      orderMode: 'ranked'  // default to showing the curated order first
+    };
+    // Apply ranked order to the viewer
+    dpApplyOrder();
+    if (ctr) ctr.textContent = `✓ analyzed: ${data.sharpCount} sharp, ${data.softCount} soft, ${data.topPickCount} top picks`;
+    setTimeout(() => { if (ctr && S.dpImages.length) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length; }, 3000);
+    toast(`Deep tag done · cost ~$${(data.costCents / 10000).toFixed(3)}`, 'ok');
+  } catch (e) {
+    toast('Deep tag error: ' + (e.message || 'unknown'), 'err');
+    if (ctr) ctr.style.display = 'none';
+  }
+};
+
+async function dpSaveDeepTagResults(loc, data) {
+  const albumKey = loc.smugmug_album_key;
+  const perPhoto = data.perPhoto || [];
+  // Upsert per-photo rows
+  try {
+    const rows = perPhoto.map(p => ({
+      image_key: p.key,
+      album_key: albumKey,
+      haiku_tags: p.tags || [],
+      sonnet_tags: p.sonnetTags || [],
+      is_sharp: p.is_sharp !== false,
+      composition: p.composition || 5,
+      is_top_pick: !!p.isTopPick,
+      original_index: p.originalIndex,
+      ranked_index: p.rankedIndex,
+      ai_model: p.sonnetTags && p.sonnetTags.length ? 'haiku+sonnet' : 'haiku',
+      analyzed_at: new Date().toISOString()
+    }));
+    if (rows.length) {
+      await fetch(`${SB_URL}/rest/v1/photo_deep_tags?on_conflict=image_key`, {
+        method: 'POST',
+        headers: {
+          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify(rows)
+      });
+    }
+  } catch (e) { console.warn('save photo_deep_tags failed:', e); }
+
+  // Upsert album-level aggregate
+  try {
+    await fetch(`${SB_URL}/rest/v1/album_deep_tags?on_conflict=album_key`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify({
+        album_key: albumKey,
+        consensus_tags: data.consensusTags || [],
+        outlier_tags: data.outlierTags || [],
+        photo_count: data.photoCount || 0,
+        sharp_count: data.sharpCount || 0,
+        soft_count: data.softCount || 0,
+        top_pick_count: data.topPickCount || 0,
+        ai_model: 'haiku+sonnet',
+        total_cost_cents: data.costCents || 0,
+        analyzed_at: new Date().toISOString()
+      })
+    });
+  } catch (e) { console.warn('save album_deep_tags failed:', e); }
+}
+
+// Apply the current orderMode to the photo viewer.
+// 'original' = chronological order (originalIndex)
+// 'ranked'   = top picks first, then sharp non-picks, then soft (rankedIndex)
+function dpApplyOrder() {
+  const dt = S.dpDeepTag;
+  if (!dt || !dt.perPhoto.length) return;
+  const ordering = dt.orderMode === 'ranked' ? 'rankedIndex' : 'originalIndex';
+  const sorted = dt.perPhoto.slice().sort((a, b) => (a[ordering] || 0) - (b[ordering] || 0));
+  // Build URL list — fetch from current S.dpImages by key
+  const urlByKey = new Map();
+  // Try to recover URLs from S._lastImgs (saved by loadDetailGallery) or fetch DB
+  if (S._lastDeepTagImgs) {
+    S._lastDeepTagImgs.forEach(i => urlByKey.set(i.sm_key || i.key, i.thumb_url || i.thumbUrl));
+  }
+  // If we don't have it, query DB to populate
+  if (!urlByKey.size) {
+    const keys = sorted.map(p => p.key).filter(Boolean);
+    const list = keys.map(k => `"${k}"`).join(',');
+    db(`smugmug_images?sm_key=in.(${list})&select=sm_key,thumb_url`).then(rows => {
+      (rows || []).forEach(r => urlByKey.set(r.sm_key, r.thumb_url));
+      const ordered = sorted.map(p => urlByKey.get(p.key)).filter(Boolean);
+      if (ordered.length) {
+        S.dpImages = ordered;
+        S.dpIndex = 0;
+        dpUpdateViewer();
+        dpUpdateOrderToggle();
+      }
+    }).catch(() => {});
+    return;
+  }
+  const ordered = sorted.map(p => urlByKey.get(p.key)).filter(Boolean);
+  if (ordered.length) {
+    S.dpImages = ordered;
+    S.dpIndex = 0;
+    dpUpdateViewer();
+    dpUpdateOrderToggle();
+  }
+}
+
+function dpUpdateOrderToggle() {
+  const tog = $('dp-order-toggle');
+  if (!tog) return;
+  const dt = S.dpDeepTag;
+  if (!dt) { tog.style.display = 'none'; return; }
+  tog.style.display = 'block';
+  if (dt.orderMode === 'ranked') {
+    tog.textContent = '↕ ranked';
+    tog.classList.add('ranked');
+  } else {
+    tog.textContent = '↕ original';
+    tog.classList.remove('ranked');
+  }
+}
+
+window.dpToggleOrder = function () {
+  const dt = S.dpDeepTag;
+  if (!dt) return;
+  dt.orderMode = (dt.orderMode === 'ranked') ? 'original' : 'ranked';
+  dpApplyOrder();
+};
+
+// Try to load existing deep-tag results for an album when the detail panel opens
+async function dpLoadExistingDeepTag(loc) {
+  if (!loc || !loc.smugmug_album_key) {
+    S.dpDeepTag = null;
+    dpUpdateOrderToggle();
+    return;
+  }
+  try {
+    const albumRes = await db(`album_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=consensus_tags,outlier_tags,photo_count,sharp_count,soft_count,top_pick_count`);
+    if (!albumRes || !albumRes.length) {
+      S.dpDeepTag = null;
+      dpUpdateOrderToggle();
+      return;
+    }
+    const a = albumRes[0];
+    const photoRes = await db(`photo_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=image_key,haiku_tags,sonnet_tags,is_sharp,composition,is_top_pick,original_index,ranked_index`);
+    const perPhoto = (photoRes || []).map(r => ({
+      key: r.image_key,
+      tags: r.haiku_tags || [],
+      sonnetTags: r.sonnet_tags || [],
+      is_sharp: r.is_sharp !== false,
+      composition: r.composition || 5,
+      isTopPick: !!r.is_top_pick,
+      originalIndex: r.original_index,
+      rankedIndex: r.ranked_index
+    }));
+    S.dpDeepTag = {
+      albumKey: loc.smugmug_album_key,
+      perPhoto,
+      consensusTags: a.consensus_tags || [],
+      sharpCount: a.sharp_count || 0,
+      softCount: a.soft_count || 0,
+      topPickCount: a.top_pick_count || 0,
+      photoCount: a.photo_count || 0,
+      orderMode: 'original'  // default to showing original order; user toggles to ranked
+    };
+    dpUpdateOrderToggle();
+  } catch (e) {
+    S.dpDeepTag = null;
+    dpUpdateOrderToggle();
   }
 }
 
