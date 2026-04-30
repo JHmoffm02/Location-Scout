@@ -394,7 +394,12 @@ async function getAccessToken(requestToken, requestTokenSecret, verifier) {
 }
 
 // ── Crawl: walk the entire library, parallelize at each level ──────────────
-async function crawlLibrary(accessToken, accessTokenSecret) {
+// Optionally skip work for albums whose LastUpdated hasn't changed since the cache.
+//   knownAlbums = { [albumKey]: lastUpdatedISO }
+//   When provided, unchanged albums skip the slow highlight-image fetch
+//   (still get returned with thumbUrl=null — server preserves existing).
+async function crawlLibrary(accessToken, accessTokenSecret, knownAlbums) {
+  const known = knownAlbums || {};
   const userRes = await smRequest('/!authuser', accessToken, accessTokenSecret);
   const rootNodeUri = userRes.Response?.User?.Uris?.Node?.Uri;
   if (!rootNodeUri) throw new Error('Could not get root node');
@@ -436,16 +441,27 @@ async function crawlLibrary(accessToken, accessTokenSecret) {
         const urlParts = webUrl.replace('https://jordanhoffman.smugmug.com/', '').split('/').filter(Boolean);
         const folderPath = urlParts.length > 1 ? urlParts.slice(0, -1).join('/') : '';
 
-        // Fetch the highlight image for the thumbnail (separate API call per album, but parallelized via pmap)
+        const lastUpdated = album.LastUpdated || null;
+        const imagesLastModified = album.ImagesLastModified || null;
+        // Use the more recent of the two as the freshness signal
+        const freshness = (imagesLastModified && lastUpdated && imagesLastModified > lastUpdated)
+          ? imagesLastModified : (lastUpdated || imagesLastModified);
+
+        // Change detection: skip highlight fetch if we already have this album with same timestamp
+        const knownTs = known[album.AlbumKey];
+        const isUnchanged = !!(knownTs && freshness && knownTs === freshness);
+
         let thumbUrl = null;
-        try {
-          const hlUri = album.Uris?.HighlightImage?.Uri;
-          if (hlUri) {
-            const hlRes = await smRequest(hlUri, accessToken, accessTokenSecret);
-            const hl = hlRes.Response?.Image;
-            if (hl) thumbUrl = hl.ThumbnailUrl || hl.SmallImageUrl || hl.MediumImageUrl || null;
-          }
-        } catch (e) { /* skip silently — album just won't have a thumb */ }
+        if (!isUnchanged) {
+          try {
+            const hlUri = album.Uris?.HighlightImage?.Uri;
+            if (hlUri) {
+              const hlRes = await smRequest(hlUri, accessToken, accessTokenSecret);
+              const hl = hlRes.Response?.Image;
+              if (hl) thumbUrl = hl.ThumbnailUrl || hl.SmallImageUrl || hl.MediumImageUrl || null;
+            }
+          } catch (e) { /* skip silently — album just won't have a thumb */ }
+        }
 
         return {
           album: {
@@ -456,7 +472,9 @@ async function crawlLibrary(accessToken, accessTokenSecret) {
             imageCount: album.ImageCount || 0,
             description: album.Description || '',
             keywords: album.Keywords || '',
-            thumbUrl: thumbUrl
+            thumbUrl: thumbUrl,
+            lastUpdated: freshness,
+            unchanged: isUnchanged
           },
           folderPath
         };
@@ -585,7 +603,16 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'crawl' || action === 'structure') {
-      const lib = await crawlLibrary(accessToken, accessTokenSecret);
+      let knownAlbums = {};
+      if (req.method === 'POST') {
+        try {
+          const b = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+          if (b.knownAlbums && typeof b.knownAlbums === 'object') {
+            knownAlbums = b.knownAlbums;
+          }
+        } catch (e) {}
+      }
+      const lib = await crawlLibrary(accessToken, accessTokenSecret, knownAlbums);
       return res.json({ ok: true, library: { ...lib, images: [] } });
     }
 
