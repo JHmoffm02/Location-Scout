@@ -148,12 +148,50 @@ module.exports = async function handler(req, res) {
     }).join('\n');
 
     const userText = `QUERY: ${query}\n\nLOCATIONS (${locations.length}):\n${lines}\n\nReturn the best matches.`;
-    const text = await callHaiku(SYSTEM_PROMPT, userText, apiKey, 3000);
+
+    // Call Anthropic and capture the actual usage numbers so the client can bill correctly
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+    let result;
+    try {
+      const anthRes = await fetch(ANTHROPIC_URL, {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: HAIKU,
+          max_tokens: 3000,
+          system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+          messages: [{ role: 'user', content: userText }]
+        }),
+        signal: ctrl.signal
+      });
+      if (!anthRes.ok) {
+        const t = await anthRes.text();
+        throw new Error(`Anthropic ${anthRes.status}: ${t.slice(0, 300)}`);
+      }
+      result = await anthRes.json();
+    } finally { clearTimeout(timer); }
+
+    const text = (result.content || []).find(b => b.type === 'text')?.text || '';
+    const usage = result.usage || {};
     const parsed = parseJSON(text);
     const matches = (parsed.matches || []).filter(m =>
       m && m.id && typeof m.score === 'number' && m.score >= 40
     );
-    return res.json({ ok: true, matches });
+    return res.json({
+      ok: true,
+      matches,
+      usage: {
+        input_tokens:               usage.input_tokens || 0,
+        output_tokens:              usage.output_tokens || 0,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
+        cache_read_input_tokens:     usage.cache_read_input_tokens || 0
+      }
+    });
   } catch (e) {
     console.error('ai_search error:', e);
     return res.status(500).json({ ok: false, error: e.message || 'search failed' });
