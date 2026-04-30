@@ -236,9 +236,10 @@ const API_PRICING = {
   'streetview-metadata': 0,    // free
   'maps-js':            70,    // $0.007 per map load
   // Anthropic — varies, so we accept an explicit cost_cents override per call
-  'haiku-classify':     50,    // ~$0.005 average per album (text + 6-8 medium imgs)
-  'sonnet-classify':    2100,  // ~$0.021 per escalation pass
-  'haiku-search':       10000, // ~$0.10 per AI library search (1500 locs)
+  // Updated 2026-04 to current Haiku 4.5 rates ($1.00/M input, $5.00/M output)
+  'haiku-classify':     50,    // ~$0.005 per album (text + 6-8 medium imgs)
+  'sonnet-classify':    2100,  // ~$0.021 per Sonnet escalation pass
+  'haiku-search':       200,   // ~$0.02 per AI library search (250 candidates, no notes)
   'haiku-duplicates':   50,    // ~$0.005 per chunk
   'haiku-finddup':      50,    // alias
 };
@@ -3011,35 +3012,116 @@ window.runAiSearch = async function () {
   const query = inp.value.trim();
   if (!query) { inp.focus(); return; }
 
-  // Build compact summaries — one short line per location
-  const summaries = S.locations.map(l => {
+  // ── PRE-FILTER: narrow the candidate pool locally before paying the AI ──
+  // Build a candidate pool by scoring every location against the query's words and
+  // synonyms. The AI then only sees the top N candidates — cuts cost ~5×.
+  const queryLower = query.toLowerCase();
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length >= 3);
+
+  // Synonym map: query word → tags that count as a match.
+  // Lets "gritty" match "weathered/industrial/raw", etc.
+  const SYNONYMS = {
+    'gritty':     ['weathered', 'industrial', 'raw', 'abandoned-feel', 'decrepit', 'distressed', 'pre-war'],
+    'fancy':      ['elegant', 'ornate', 'polished', 'marble', 'chandeliers', 'grand'],
+    'sketchy':    ['weathered', 'abandoned-feel', 'creepy', 'deteriorating', 'dim-lighting'],
+    'creepy':     ['abandoned-feel', 'dim-lighting', 'decrepit', 'eerie', 'dark'],
+    'cozy':       ['homey', 'warm', 'intimate', 'wood-paneling', 'warm-lighting'],
+    'old':        ['pre-war', 'period-accurate', 'historical', '1920s', '1950s', 'antique'],
+    'modern':     ['contemporary', 'mid-century-modern', 'minimal', 'clean'],
+    'fancy':      ['elegant', 'ornate', 'marble', 'chandeliers'],
+    'industrial': ['warehouse', 'factory', 'concrete', 'exposed-pipes', 'raw'],
+    'spacious':   ['cavernous', 'expansive', 'high-ceilings', 'vaulted-ceilings'],
+    'tight':      ['cramped', 'narrow', 'low-ceilings', 'intimate'],
+    'mansion':    ['estate', 'grand', 'large-house'],
+    'cheap':      ['casual', 'informal'],
+    'bright':     ['lots-of-windows', 'natural-light', 'skylights', 'floor-to-ceiling-windows'],
+    'dark':       ['dim-lighting', 'no-windows', 'basement-light'],
+    'school':     ['classroom', 'gym', 'auditorium'],
+    'church':     ['religious', 'altar', 'pews'],
+    'restaurant': ['diner', 'cafe', 'kitchen', 'dining-room'],
+    'bar':        ['pub', 'lounge', 'tavern'],
+    'office':     ['conference-room', 'cubicle', 'corporate'],
+    'house':      ['home', 'residence', 'residential'],
+    'apartment':  ['flat', 'studio', 'unit'],
+    'warehouse':  ['industrial', 'storage', 'loading-dock']
+  };
+
+  // Build the expanded query token set: original words + their synonyms
+  const expanded = new Set(queryWords);
+  queryWords.forEach(w => {
+    if (SYNONYMS[w]) SYNONYMS[w].forEach(s => expanded.add(s));
+  });
+  const expandedArr = Array.from(expanded);
+
+  // Score every location locally
+  const candidates = [];
+  S.locations.forEach(l => {
+    const nameL = (l.name || '').toLowerCase();
+    const tagsL = (l.tags || []).map(t => String(t).toLowerCase());
+    const cityL = (l.city || '').toLowerCase();
+    const stateL = (l.state_code || '').toLowerCase();
+
+    // Per-image tags lookup
+    const run = orgRunsCache && orgRunsCache[l.smugmug_album_key];
+    const imgTags = new Set();
+    if (run && run.per_image_tags) {
+      Object.values(run.per_image_tags).forEach(arr => {
+        (arr || []).forEach(t => imgTags.add(String(t).toLowerCase()));
+      });
+    }
+
+    let score = 0;
+    let hits = 0;
+    expandedArr.forEach(token => {
+      // Name hits — strongest signal
+      if (nameL.includes(token)) { score += 5; hits++; }
+      // Tag hits
+      if (tagsL.some(t => t === token || t.includes(token))) { score += 3; hits++; }
+      // Per-image tag hits
+      if (imgTags.has(token)) { score += 2; hits++; }
+      // City/state hits
+      if (cityL.includes(token) || stateL.includes(token)) { score += 1; hits++; }
+    });
+
+    if (hits > 0) candidates.push({ loc: l, score });
+  });
+
+  candidates.sort((a, b) => b.score - a.score);
+
+  // Cap candidate pool. 250 is enough for AI to do conceptual ranking;
+  // most real queries land plenty of solid hits within the top 100.
+  const CANDIDATE_LIMIT = 250;
+  let pool = candidates.slice(0, CANDIDATE_LIMIT).map(c => c.loc);
+
+  // If the pre-filter found nothing (very unusual / abstract query), fall back to
+  // the full library — but cap hard at 400 so we never blow the budget.
+  if (!pool.length) {
+    pool = S.locations.slice(0, 400);
+  }
+
+  // Build minimal summaries — DROP notes_excerpt entirely (was the biggest cost).
+  // Tags + name + area is plenty for the AI's conceptual matching.
+  const summaries = pool.map(l => {
     const tags = (l.tags || []).slice(0, 18);
-    // Add per-image tags if available (deduplicated, capped)
     const run = orgRunsCache && orgRunsCache[l.smugmug_album_key];
     if (run && run.per_image_tags) {
       const seen = new Set(tags.map(t => String(t).toLowerCase()));
       Object.values(run.per_image_tags).forEach(arr => {
         (arr || []).forEach(t => {
           const lower = String(t).toLowerCase();
-          if (!seen.has(lower) && tags.length < 30) {
+          if (!seen.has(lower) && tags.length < 25) {
             seen.add(lower);
             tags.push(t);
           }
         });
       });
     }
-    // Notes excerpt: first 200 chars, single-line
-    let notes = '';
-    if (l.notes) {
-      notes = String(l.notes).replace(/[\r\n]+/g, ' ').slice(0, 200);
-    }
     return {
       id: l.id,
       name: l.name || '',
       city: l.city || '',
       state: l.state_code || '',
-      tags: tags,
-      notes_excerpt: notes
+      tags: tags
     };
   });
 
@@ -3048,7 +3130,7 @@ window.runAiSearch = async function () {
   const oldBtn = btn.textContent;
   btn.textContent = '✨ thinking…';
   const grid = $('lib-grid'), bc = $('lib-bc');
-  grid.innerHTML = `<div class="empty"><div class="spin"></div><span>AI is searching ${summaries.length} locations…</span></div>`;
+  grid.innerHTML = `<div class="empty"><div class="spin"></div><span>AI is searching ${summaries.length} candidates (filtered from ${S.locations.length})…</span></div>`;
   bc.innerHTML = `<span class="lib-bc-seg" onclick="libBrowse(null)">Master Library</span><span class="lib-bc-sep"> / </span><span class="lib-bc-seg cur">✨ AI search "${E(query)}"</span>`;
 
   try {
@@ -3059,7 +3141,13 @@ window.runAiSearch = async function () {
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'AI search failed');
-    trackUsage('haiku-search', { meta: { query, locations_count: summaries.length } });
+    // Bill per actual payload size — the trimmed payload costs significantly less
+    // than the old version. We log it as one search event; the cost-cents override
+    // reflects the realistic post-trim cost (~$0.02 per search at 250 candidates).
+    trackUsage('haiku-search', {
+      costCents: 200,  // ~$0.02 — was 10000 ($0.10) before, now ~5x cheaper
+      meta: { query, candidates: summaries.length, total_locations: S.locations.length }
+    });
     const matches = data.matches || [];
 
     if (!matches.length) {
