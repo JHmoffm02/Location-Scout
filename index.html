@@ -559,6 +559,21 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   padding:6px 10px;line-height:1.4;
   border-top:1px solid var(--border);
 }
+
+/* Search-match highlights inside detail panel */
+mark.search-hit{
+  background:var(--accentd);
+  color:var(--accent);
+  padding:0 2px;
+  border-radius:2px;
+  font-weight:500;
+}
+.dp-tag.search-hit-tag{
+  background:var(--accentd);
+  color:var(--accent);
+  border-color:var(--accent2);
+}
+.dp-tag.search-hit-tag .dp-tag-x{color:var(--accent2)}
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
 .lib-sel{padding:5px 8px;font-size:10px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
