@@ -68,19 +68,34 @@ module.exports = async function handler(req, res) {
     // ── Albums upsert + locations sync ────────────────────────────────────
     for (const a of albums) {
       try {
+        // Build the album upsert. If a.unchanged is true, the crawl signaled this
+        // album hasn't changed — skip overwriting fields that involve work
+        // (highlight_url, description re-parse, location reconciliation).
+        const albumPatch = {
+          sm_key: a.id, name: a.name, path: a.path,
+          web_url: a.url, sm_uri: a.uri,
+          image_count: a.imageCount || 0,
+          keywords: a.keywords || '',
+          synced_at: new Date().toISOString()
+        };
+        if (a.lastUpdated) albumPatch.last_updated = a.lastUpdated;
+        // Only overwrite description/highlight_url when the album actually changed
+        if (!a.unchanged) {
+          albumPatch.description = a.description || '';
+          if (a.thumbUrl) albumPatch.highlight_url = a.thumbUrl;
+        }
         await sb('smugmug_albums?on_conflict=sm_key', {
           method: 'POST', prefer: 'resolution=merge-duplicates',
-          body: JSON.stringify({
-            sm_key: a.id, name: a.name, path: a.path,
-            web_url: a.url, sm_uri: a.uri,
-            image_count: a.imageCount || 0,
-            keywords: a.keywords || '',
-            description: a.description || '',
-            highlight_url: a.thumbUrl || null,
-            synced_at: new Date().toISOString()
-          })
+          body: JSON.stringify(albumPatch)
         });
         stats.albums++;
+
+        // If the album hasn't changed, skip the location reconciliation entirely
+        // (parser, candidates, tags, status — none of those derive from anything that changed).
+        if (a.unchanged) {
+          stats.unchanged = (stats.unchanged || 0) + 1;
+          continue;
+        }
 
         // Run shared parser on the album description
         const parsed = Parser.parse(a.description, { locName: a.name });
