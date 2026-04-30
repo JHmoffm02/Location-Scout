@@ -180,6 +180,30 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   padding:8px 10px;background:rgba(200,169,110,.05);
   border-left:2px solid var(--accent2);border-radius:0 4px 4px 0;
 }
+.dp-app-notes-line{
+  font-size:11px;color:var(--text2);line-height:1.55;
+  padding:4px 10px;background:rgba(200,169,110,.04);
+  border-left:2px solid var(--accent2);
+  word-break:break-word;
+}
+.dp-app-notes-line:first-child{border-radius:4px 0 0 0}
+.dp-app-notes-line:last-child{border-radius:0 0 0 4px}
+.dp-app-notes-row{
+  display:flex;align-items:flex-start;gap:8px;
+  padding:4px 10px 4px 10px;background:rgba(200,169,110,.04);
+  border-left:2px solid var(--accent2);
+}
+.dp-app-notes-row .dp-app-notes-line{
+  flex:1;background:transparent;border:none;padding:0;
+}
+.dp-app-notes-apply{
+  flex-shrink:0;font-size:9px;padding:3px 8px;
+  border-color:var(--accent2);color:var(--accent);
+  background:transparent;
+}
+.dp-app-notes-apply:hover{
+  background:var(--accentd);
+}
 .dp-tag{font-size:9px;padding:3px 8px;border-radius:3px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace}
 .dp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
 .dp-btn{padding:7px 14px;font-size:9px;font-family:'DM Mono',monospace;border-radius:var(--radius);cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .15s;letter-spacing:.06em}
@@ -528,6 +552,43 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 #dock-sm-btn:hover{background:rgba(76,175,130,.08)}
 #dock-actions.open{display:flex !important}
 
+/* ── Actions dropdown ── */
+.actions-menu{
+  position:absolute;top:36px;right:0;z-index:30;
+  width:340px;
+  background:var(--bg2);border:1px solid var(--border2);
+  border-radius:8px;overflow:hidden;
+  box-shadow:0 8px 32px rgba(0,0,0,.7);
+}
+.actions-item{
+  display:grid;grid-template-columns:24px 1fr;grid-template-rows:auto auto;
+  column-gap:10px;
+  width:100%;padding:10px 14px;
+  background:transparent;border:none;border-bottom:1px solid var(--border);
+  color:var(--text);text-align:left;cursor:pointer;
+  font-family:inherit;
+}
+.actions-item:hover{background:var(--bg3)}
+.actions-item:last-child{border-bottom:none}
+.actions-icon{
+  grid-row:1 / span 2;align-self:center;
+  font-size:14px;text-align:center;color:var(--text2);
+}
+.actions-label{
+  grid-column:2;grid-row:1;
+  font-size:12px;font-weight:500;color:var(--text);line-height:1.2;
+}
+.actions-desc{
+  grid-column:2;grid-row:2;
+  font-size:10px;color:var(--text3);line-height:1.4;margin-top:2px;
+}
+.actions-sep{
+  height:1px;background:var(--border2);margin:0;
+}
+.actions-danger .actions-icon,
+.actions-danger .actions-label{color:var(--red)}
+.actions-danger:hover{background:rgba(194,96,96,.08)}
+
 /* ── Shared ── */
 .modal-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
 .modal-ov.open{display:flex}
@@ -573,17 +634,42 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
     <button class="nav-btn" onclick="showPage('organize',this)" aria-label="Organize view">Organize</button>
     <div id="nav-status" style="position:absolute;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;right:0;top:0;height:44px;display:flex;align-items:center;pointer-events:none"></div>
     <div id="nav-right" style="position:absolute;right:10px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:nowrap">
-      <div id="dock-actions" style="display:none;align-items:center;gap:6px">
-        <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px">authorize ↗</button>
-        <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px"><span id="dock-sync-label">⟳ sync</span></button>
-        <button class="dock-btn" id="dock-regeo-btn" onclick="regeocodeBadPins()" style="display:none;height:28px;padding:0 10px" title="Re-geocode pins whose lat/lng seems wrong for their state">⌖ fix pins</button>
-        <button class="dock-btn" id="dock-pin-btn" onclick="runPlacePins()" style="display:none;height:28px;padding:0 10px" title="Place pins for any locations missing coordinates: photo GPS → address → name">📍 place pins</button>
-        <button class="dock-btn" id="dock-scrub-btn" onclick="scrubAndRepin()" style="display:none;height:28px;padding:0 10px;border-color:var(--amber);color:var(--amber)" title="Wipe all coordinates (except verified addresses), then re-run the pin chain. Use this to fix bad pins from earlier versions.">⚠ scrub & repin</button>
-        <button class="dock-btn" id="dock-thumbs-btn" onclick="fixMissingThumbnails()" style="display:none;height:28px;padding:0 10px" title="Backfill missing album thumbnails">🖼 fix thumbs</button>
-        <button class="dock-btn" id="dock-reextract-btn" onclick="reextractAddresses()" style="display:none;height:28px;padding:0 10px" title="Re-pull state/city/address from notes for any locations missing them (no network calls)">📋 fix addresses</button>
-        <button class="dock-btn" id="dock-signout-btn" onclick="signOutSmugMug()" style="display:none;height:28px;padding:0 10px;border-color:var(--red);color:var(--red)">sign out</button>
+      <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px" title="Connect this app to SmugMug">authorize ↗</button>
+      <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px" title="Pull all changes from SmugMug into the database (folders, albums, descriptions, thumbnails). Skips unchanged albums.">
+        <span id="dock-sync-label">⟳ sync</span>
+      </button>
+      <div id="actions-wrap" style="display:none;position:relative">
+        <button class="dock-btn" id="dock-actions-btn" onclick="toggleActionsMenu(event)" style="height:28px;padding:0 10px" title="Maintenance actions: fix pins / thumbnails / addresses, place pins, scrub & repin">⚙ actions ▾</button>
+        <div id="actions-menu" class="actions-menu" style="display:none">
+          <button class="actions-item" onclick="closeActionsMenu();runPlacePins()" title="Place pins for any locations missing coordinates. Tries photo GPS, then geocodes the address, then falls back to a Google Places lookup of the location name.">
+            <span class="actions-icon">📍</span><span class="actions-label">Place pins</span>
+            <span class="actions-desc">Pin any locations missing coordinates (photo GPS → address → name)</span>
+          </button>
+          <button class="actions-item" onclick="closeActionsMenu();reextractAddresses()" title="Re-run the parser on every location's notes and fill in any empty state/city/address fields. No network calls, no cost.">
+            <span class="actions-icon">📋</span><span class="actions-label">Fix addresses</span>
+            <span class="actions-desc">Re-extract street/city/state from notes for any blank fields (free)</span>
+          </button>
+          <button class="actions-item" onclick="closeActionsMenu();regeocodeBadPins()" title="Re-geocode all locations that haven't been manually verified. Bias by state code so NJ pins don't end up in NY.">
+            <span class="actions-icon">⌖</span><span class="actions-label">Fix pins</span>
+            <span class="actions-desc">Re-geocode unverified locations using their addresses (~1¢ each)</span>
+          </button>
+          <button class="actions-item" onclick="closeActionsMenu();fixMissingThumbnails()" title="For any album with no highlight thumbnail, fetch one from SmugMug. Updates folder previews and library card thumbnails.">
+            <span class="actions-icon">🖼</span><span class="actions-label">Fix thumbnails</span>
+            <span class="actions-desc">Backfill missing album highlight images so library cards aren't gray</span>
+          </button>
+          <div class="actions-sep"></div>
+          <button class="actions-item actions-danger" onclick="closeActionsMenu();scrubAndRepin()" title="Wipe ALL coordinates (including verified) and re-run the pin chain. Use after major data changes or to fix bad pins from old logic.">
+            <span class="actions-icon">⚠</span><span class="actions-label">Scrub &amp; repin</span>
+            <span class="actions-desc">Wipe every pin and re-run the priority chain from scratch</span>
+          </button>
+          <div class="actions-sep"></div>
+          <button class="actions-item actions-danger" onclick="closeActionsMenu();signOutSmugMug()" title="Disconnect this app from SmugMug. You can reconnect anytime.">
+            <span class="actions-icon">⏻</span><span class="actions-label">Sign out</span>
+            <span class="actions-desc">Disconnect from SmugMug</span>
+          </button>
+        </div>
       </div>
-      <button id="dock-sm-btn" class="dock-btn unconnected" onclick="toggleDock()" style="height:28px;padding:0 10px" aria-label="SmugMug menu"><span id="dock-sm-label">smugmug</span></button>
+      <button id="dock-sm-btn" class="dock-btn unconnected" style="height:28px;padding:0 10px;cursor:default" aria-label="SmugMug status"><span id="dock-sm-label">smugmug</span></button>
     </div>
   </div>
   <div id="pages">
