@@ -2081,15 +2081,25 @@ async function dpSavePhotoState(photo, action) {
   }
 }
 
-// ── Shift-drag: hold shift to grab a photo, arrows reorder, release shift to drop ──
+// ── Shift-drag: hold shift to grab a photo, arrows scroll through positions, release to drop ──
+// While grabbed:
+//   - The grabbed photo is "lifted" — viewer scrolls through the other photos as you arrow
+//   - The current viewer position represents WHERE the grabbed photo will land on release
+//   - The dashed outline stays on the viewer to remind you a photo is in flight
+// On release:
+//   - The grabbed photo is inserted at the current viewer position
+//   - Saves to DB + logs a 'move' correction
 let _grabbedKey = null;
-let _grabStartIndex = -1;       // index in S.dpImages at time of grab
-let _grabStartCustomMap = null; // snapshot of {key: customIndex} at grab start (for cancel)
+let _grabStartIndex = -1;       // index where the photo originally was at grab start
+let _grabStartCustomMap = null; // snapshot for cancel
+let _grabbedThumbUrl = null;    // the URL of the grabbed photo (so we can reinsert it)
+
 function dpStartGrab() {
   const photo = dpActivePhoto();
   if (!photo) return;
   _grabbedKey = photo.key;
   _grabStartIndex = S.dpIndex;
+  _grabbedThumbUrl = S.dpImages[S.dpIndex];
   // Snapshot every photo's current customIndex so we can restore on cancel
   _grabStartCustomMap = new Map();
   const dt = S.dpDeepTag;
@@ -2097,29 +2107,28 @@ function dpStartGrab() {
   const lbOpen = $('lightbox') && $('lightbox').classList.contains('open');
   const ind = lbOpen ? $('lb-grab-indicator') : $('dp-grab-indicator');
   if (ind) {
-    ind.textContent = lbOpen ? '↕ SHIFT + arrows to move · SPACE to cancel' : '↕ hold SHIFT + arrow keys to move · SPACE to cancel';
+    ind.textContent = lbOpen ? '↕ SHIFT + arrows · release to drop · SPACE cancels' : '↕ scroll to a target position · release to drop · SPACE cancels';
     ind.style.display = 'block';
   }
   if (lbOpen) $('lightbox').classList.add('grabbing');
   else $('dp-viewer') && $('dp-viewer').classList.add('grabbing');
 }
+
 function dpEndGrab() {
   if (_grabbedKey) {
-    const dt = S.dpDeepTag;
-    const photo = dt && dt.perPhoto.find(p => p.key === _grabbedKey);
-    if (photo) dpSavePhotoState(photo, 'move');
+    // Apply the move: insert the grabbed photo at the current viewer position
+    dpFinalizeGrab();
   }
   _grabbedKey = null;
   _grabStartIndex = -1;
   _grabStartCustomMap = null;
+  _grabbedThumbUrl = null;
   if ($('dp-grab-indicator')) $('dp-grab-indicator').style.display = 'none';
   if ($('lb-grab-indicator')) $('lb-grab-indicator').style.display = 'none';
   if ($('dp-viewer')) $('dp-viewer').classList.remove('grabbing');
   if ($('lightbox')) $('lightbox').classList.remove('grabbing');
 }
 
-// Cancel the grab — restore each photo's customIndex to what it was at grab-start,
-// re-render the order so the grabbed photo snaps back to where it was, and don't save.
 function dpCancelGrab() {
   if (!_grabbedKey) return;
   const dt = S.dpDeepTag;
@@ -2128,63 +2137,89 @@ function dpCancelGrab() {
       if (_grabStartCustomMap.has(p.key)) p.customIndex = _grabStartCustomMap.get(p.key);
     });
   }
-  // Clear grab state WITHOUT saving
   _grabbedKey = null;
   _grabStartIndex = -1;
   _grabStartCustomMap = null;
+  _grabbedThumbUrl = null;
   if ($('dp-grab-indicator')) $('dp-grab-indicator').style.display = 'none';
   if ($('lb-grab-indicator')) $('lb-grab-indicator').style.display = 'none';
   if ($('dp-viewer')) $('dp-viewer').classList.remove('grabbing');
   if ($('lightbox')) $('lightbox').classList.remove('grabbing');
-  // Re-render the original order
   dpApplyOrder();
   toast('move cancelled', 'inf');
 }
 
-// Move the grabbed photo by one step in the given direction (1 = forward, -1 = back)
-// in the current order. Updates customIndex on the moved photo + neighbor.
-function dpMoveGrabbed(dir) {
-  const dt = S.dpDeepTag;
-  if (!_grabbedKey || !dt) return;
-  // Switch to custom mode so the user sees their changes accumulating
-  if (dt.orderMode !== 'custom') {
-    dt.orderMode = 'custom';
+// While shift+arrow during grab, scroll through the order WITH the grabbed photo
+// REMOVED from the visible list. Viewer shows the photo at the new "drop target" position.
+function dpScrollDuringGrab(dir) {
+  if (!_grabbedKey) return;
+  // Build a list of URLs WITHOUT the grabbed photo
+  const filtered = S.dpImages.filter(url => url !== _grabbedThumbUrl);
+  if (!filtered.length) return;
+  // Find current viewer index in the filtered list
+  let curFilteredIdx = filtered.indexOf(S.dpImages[S.dpIndex]);
+  if (curFilteredIdx < 0) {
+    // The currently-shown photo IS the grabbed one (just-grabbed state)
+    // Position the cursor at where the grabbed photo was in the full list
+    curFilteredIdx = Math.min(_grabStartIndex, filtered.length - 1);
   }
-  // Find current ordered list of keys
-  if (!S._lastDeepTagImgs || !S.dpImages.length) return;
-  const urlByKey = new Map();
-  S._lastDeepTagImgs.forEach(i => urlByKey.set(i.sm_key || i.key, i.thumb_url || i.thumbUrl));
-  const keyByUrl = new Map();
-  urlByKey.forEach((url, key) => keyByUrl.set(url, key));
-  const currentOrder = S.dpImages.map(url => keyByUrl.get(url)).filter(Boolean);
-  const grabIdx = currentOrder.indexOf(_grabbedKey);
-  if (grabIdx < 0) return;
-  const newIdx = grabIdx + dir;
-  if (newIdx < 0 || newIdx >= currentOrder.length) return;
+  const newIdx = Math.max(0, Math.min(filtered.length - 1, curFilteredIdx + dir));
+  const targetUrl = filtered[newIdx];
+  // Update viewer to show the photo at the target position (NOT the grabbed photo)
+  const newDpIdx = S.dpImages.indexOf(targetUrl);
+  if (newDpIdx >= 0) {
+    S.dpIndex = newDpIdx;
+    dpUpdateViewer();
+    const lbOpen = $('lightbox') && $('lightbox').classList.contains('open');
+    if (lbOpen) {
+      $('lb-img').src = smXL(S.dpImages[S.dpIndex]);
+      if (typeof updateLbCounter === 'function') updateLbCounter();
+    }
+  }
+}
 
-  // Swap in the array
-  const newOrder = currentOrder.slice();
-  [newOrder[grabIdx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[grabIdx]];
-
-  // Reassign customIndex based on new position. Use floats between neighbors so we
-  // don't have to renumber everything every move.
-  // Simpler: just renumber the entire list. Cheap enough for 100-200 photos.
-  newOrder.forEach((key, idx) => {
+// Commit the grab: insert the grabbed photo at the current viewer position
+// in the user's custom order. The viewer position represents "drop AFTER this photo"
+// (or "drop BEFORE this photo" if we're at index 0 and moving backward).
+function dpFinalizeGrab() {
+  const dt = S.dpDeepTag;
+  if (!_grabbedKey || !dt || !S.dpImages.length || !S._lastDeepTagImgs) return;
+  // Build current order minus the grabbed photo
+  const filtered = S.dpImages.filter(url => url !== _grabbedThumbUrl);
+  // Where is the viewer right now in the filtered list?
+  const curFiltered = S.dpImages[S.dpIndex];
+  let dropIdx = filtered.indexOf(curFiltered);
+  if (dropIdx < 0) dropIdx = filtered.length;  // grabbed is currently shown — drop at end
+  // If the user moved past the original position, drop AFTER current; otherwise drop BEFORE
+  // Simpler: drop at dropIdx (i.e., the grabbed photo lands at this position, current photo shifts right)
+  const newOrderUrls = filtered.slice(0, dropIdx).concat([_grabbedThumbUrl]).concat(filtered.slice(dropIdx));
+  // Build URL → key map
+  const urlByKey = new Map(), keyByUrl = new Map();
+  S._lastDeepTagImgs.forEach(i => {
+    const k = i.sm_key || i.key, u = i.thumb_url || i.thumbUrl;
+    urlByKey.set(k, u);
+    keyByUrl.set(u, k);
+  });
+  // Renumber customIndex on every photo to match the new order
+  newOrderUrls.forEach((url, idx) => {
+    const key = keyByUrl.get(url);
     const p = dt.perPhoto.find(pp => pp.key === key);
     if (p) p.customIndex = idx;
   });
-
-  // Update the in-memory image list to match
-  S.dpImages = newOrder.map(k => urlByKey.get(k)).filter(Boolean);
-  S.dpIndex = newOrder.indexOf(_grabbedKey);
+  // Update viewer state
+  S.dpImages = newOrderUrls;
+  S.dpIndex = newOrderUrls.indexOf(_grabbedThumbUrl);
+  if (dt.orderMode !== 'custom') dt.orderMode = 'custom';
   dpUpdateViewer();
-  // Update lightbox image too if it's open
-  const lbOpen = $('lightbox') && $('lightbox').classList.contains('open');
-  if (lbOpen) {
-    $('lb-img').src = smXL(S.dpImages[S.dpIndex]);
-    if (typeof updateLbCounter === 'function') updateLbCounter();
-  }
   dpUpdateOrderToggle();
+  // Save the moved photo
+  const moved = dt.perPhoto.find(p => p.key === _grabbedKey);
+  if (moved) dpSavePhotoState(moved, 'move');
+}
+
+// Legacy alias (still referenced from keyboard handler) — now delegates to scroll-during-grab
+function dpMoveGrabbed(dir) {
+  dpScrollDuringGrab(dir);
 }
 
 // Try to load existing deep-tag results for an album when the detail panel opens
