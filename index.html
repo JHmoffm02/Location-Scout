@@ -210,6 +210,67 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   font-family:'DM Mono',monospace;
 }
 .dp-role-pill{color:var(--text)}
+
+/* Favorite + reject buttons (overlay on photo viewer) */
+.dp-photo-actions{
+  position:absolute;top:10px;right:10px;display:flex;gap:6px;z-index:5;
+}
+.lb-photo-actions{
+  position:absolute;top:64px;right:18px;display:flex;gap:8px;z-index:50;
+}
+.dp-fav-btn, .dp-reject-btn{
+  width:30px;height:30px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.25);
+  background:rgba(0,0,0,.6);backdrop-filter:blur(6px);
+  color:rgba(255,255,255,.6);cursor:pointer;
+  font-size:14px;line-height:1;font-family:'DM Mono',monospace;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .12s;padding:0;
+}
+.dp-fav-btn:hover{
+  border-color:rgba(76,175,130,.7);color:#4caf82;background:rgba(76,175,130,.18);
+}
+.dp-fav-btn.active{
+  background:rgba(76,175,130,.6);color:#fff;border-color:#4caf82;
+}
+.dp-reject-btn:hover{
+  border-color:rgba(194,96,96,.7);color:var(--red);background:rgba(194,96,96,.18);
+}
+.dp-reject-btn.active{
+  background:rgba(194,96,96,.6);color:#fff;border-color:var(--red);
+}
+.lb-photo-actions .dp-fav-btn,
+.lb-photo-actions .dp-reject-btn{
+  width:36px;height:36px;font-size:16px;
+}
+
+/* Grab/drag indicator */
+.dp-grab-indicator, .lb-grab-indicator{
+  position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;
+  font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.04em;
+  color:var(--accent);background:rgba(200,169,110,.18);
+  padding:5px 12px;border-radius:14px;
+  border:1px solid var(--accent2);backdrop-filter:blur(6px);
+  pointer-events:none;
+  animation:grab-pulse 1.4s infinite;
+}
+.lb-grab-indicator{top:64px;font-size:11px}
+@keyframes grab-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.6; }
+}
+
+/* Photo viewer styling when a photo is being "grabbed" */
+.dp-viewer.grabbing .dp-viewer-img,
+#lightbox.grabbing #lb-img{
+  outline: 3px dashed var(--accent);
+  outline-offset: -3px;
+  animation: grab-glow 1.4s infinite;
+}
+@keyframes grab-glow {
+  0%, 100% { outline-color: var(--accent); }
+  50%      { outline-color: rgba(200,169,110,.4); }
+}
 .dp-hint{position:absolute;bottom:10px;right:10px;font-size:8px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.3);pointer-events:none}
 .dp-body{padding:16px 18px 24px}
 .dp-status-row{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
@@ -947,8 +1008,13 @@ mark.search-hit{
       <img id="dp-viewer-img" class="dp-viewer-img" src="" style="display:none" onclick="openLightbox(this.src)" alt="Location photo">
       <button class="dp-arrow prev" id="dp-prev" style="display:none" aria-label="Previous photo">&#8249;</button>
       <button class="dp-arrow next" id="dp-next" style="display:none" aria-label="Next photo">&#8250;</button>
+      <div class="dp-photo-actions" id="dp-photo-actions" style="display:none">
+        <button class="dp-fav-btn" id="dp-fav-btn" onclick="dpToggleFavorite()" title="Favorite — pin to front of custom order">★</button>
+        <button class="dp-reject-btn" id="dp-reject-btn" onclick="dpToggleReject()" title="Reject — push to back of custom order">✕</button>
+      </div>
+      <div class="dp-grab-indicator" id="dp-grab-indicator" style="display:none">↕ hold SHIFT + arrow keys to move this photo</div>
       <div class="dp-counter" id="dp-counter" style="display:none"></div>
-      <button class="dp-order-toggle" id="dp-order-toggle" style="display:none" onclick="dpToggleOrder()" title="Switch between AI-ranked order (top picks first) and original chronological order">↕ order</button>
+      <button class="dp-order-toggle" id="dp-order-toggle" style="display:none" onclick="dpToggleOrder()" title="Switch between AI-ranked, custom, and original order">↕ order</button>
       <div class="dp-hint" id="dp-hint" style="display:none">space · lightbox &nbsp; enter · switch view</div>
     </div>
     <div class="dp-body" id="dp-body"></div>
@@ -1061,6 +1127,11 @@ mark.search-hit{
 <div id="lightbox" onclick="closeLightbox()" role="dialog" aria-label="Photo lightbox">
   <button id="lb-close" onclick="closeLightbox()" aria-label="Close lightbox">×</button>
   <img id="lb-img" src="" alt="">
+  <div class="lb-photo-actions" id="lb-photo-actions" onclick="event.stopPropagation()">
+    <button class="dp-fav-btn" id="lb-fav-btn" onclick="event.stopPropagation();dpToggleFavorite()" title="Favorite">★</button>
+    <button class="dp-reject-btn" id="lb-reject-btn" onclick="event.stopPropagation();dpToggleReject()" title="Reject">✕</button>
+  </div>
+  <div class="lb-grab-indicator" id="lb-grab-indicator" style="display:none">↕ SHIFT + arrows to move</div>
   <div id="lb-counter"></div>
 </div>
 
