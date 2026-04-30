@@ -260,16 +260,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   50%      { opacity: 0.6; }
 }
 
-/* Photo viewer styling when a photo is being "grabbed" */
+/* Photo viewer styling when a photo is being "grabbed" — solid outline so the
+   image swap (src change) on each move doesn't reset a pulse animation. */
 .dp-viewer.grabbing .dp-viewer-img,
 #lightbox.grabbing #lb-img{
   outline: 3px dashed var(--accent);
   outline-offset: -3px;
-  animation: grab-glow 1.4s infinite;
-}
-@keyframes grab-glow {
-  0%, 100% { outline-color: var(--accent); }
-  50%      { outline-color: rgba(200,169,110,.4); }
+  box-shadow: 0 0 0 3px rgba(200,169,110,.25);
 }
 .dp-hint{position:absolute;bottom:10px;right:10px;font-size:8px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.3);pointer-events:none}
 .dp-body{padding:16px 18px 24px}
