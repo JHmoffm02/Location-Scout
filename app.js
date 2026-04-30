@@ -2178,6 +2178,12 @@ function dpMoveGrabbed(dir) {
   S.dpImages = newOrder.map(k => urlByKey.get(k)).filter(Boolean);
   S.dpIndex = newOrder.indexOf(_grabbedKey);
   dpUpdateViewer();
+  // Update lightbox image too if it's open
+  const lbOpen = $('lightbox') && $('lightbox').classList.contains('open');
+  if (lbOpen) {
+    $('lb-img').src = smXL(S.dpImages[S.dpIndex]);
+    if (typeof updateLbCounter === 'function') updateLbCounter();
+  }
   dpUpdateOrderToggle();
 }
 
