@@ -175,19 +175,25 @@ ALBUM CONTEXT:
 
 FOR EACH PHOTO, output:
   • tags: 5-8 concrete descriptive tags (architecture, materials, mood, lighting, room types, distinctive features). Multi-word tags use hyphens. No location names. No generic words like "interior"/"building".
-  • is_sharp: TRUE if the main subject is in good focus, FALSE if motion-blurred, badly focused, or an accidental shot.
-  • composition: integer 1-10 of overall photo quality (10 = striking and well-composed; 1 = blurry/mistaken).
-  • role: ONE of these labels:
-      - "hero-exterior"  — establishing shot of the front/main facade of the building/property
-      - "side-exterior"  — exterior from a side or back angle, or supporting exterior context
-      - "entry-in"       — looking INTO the space from outside (e.g. from the front door looking in, from sidewalk looking at storefront)
-      - "entry-out"      — looking OUT FROM inside the space toward the entry/door
-      - "room-overview"  — a WIDE SHOT establishing a particular interior room or distinct space
-      - "room-detail"    — a closer/featured detail of furniture, art, materials, or a corner of a room
-      - "outdoor-feature" — a yard, garden, pool, patio, deck, courtyard — distinct outdoor features that aren't the front facade
-      - "logistic"       — accidental, redundant, plain, or low-value (partial wall, single stair without context, doorbell closeup, signage shot, parking lot ground, blurry mistake, navigational shot like an empty hallway with no character)
-      - "transition"     — passages between rooms with no notable features (plain hallways, stairwells without character, vestibules)
-  • room: short label of which room/area this is (e.g. "kitchen", "primary-bedroom", "living-room", "bath-1", "back-yard", "front-exterior", "entry"). Use a consistent label across photos of the same room. Empty string if unknown.
+  • is_sharp: TRUE if the main subject is in good focus, FALSE if motion-blurred, badly focused, accidentally taken, or BLANK (mostly black/white/featureless).
+  • composition: integer 1-10 of overall photo quality.
+      - 1-2: blurry, blank, mistake shot, or empty/featureless frame
+      - 3-4: usable but not striking
+      - 5-6: solid documentation shot
+      - 7-8: well-composed, balanced, good lighting
+      - 9-10: striking, would lead a presentation
+    PANORAMA HANDLING: very wide images (panoramas) often look "smushed" but are useful establishing shots. Judge a panorama by what's in its central area — don't penalize it for the format. A well-shot interior pano of a ballroom might be a 7-8 even if it looks crammed in this preview.
+  • role: ONE of:
+      - "hero-exterior"  — establishing front facade
+      - "side-exterior"  — supporting exterior
+      - "entry-in"       — looking INTO the space from outside
+      - "entry-out"      — looking OUT FROM inside toward entry/door
+      - "room-overview"  — WIDE establishing shot of a distinct interior space
+      - "room-detail"    — closer/featured detail (furniture, art, materials, corner)
+      - "outdoor-feature" — distinct outdoor space (yard, pool, patio, garden)
+      - "logistic"       — accidental/redundant/blank/low-value: partial walls, single stairs, doorbell closeups, signage, parking-lot ground, navigational shots, BLANK or near-blank frames
+      - "transition"     — passages without features (plain hallway, plain stairwell, vestibule)
+  • room: short consistent label (e.g. "kitchen", "primary-bedroom", "ballroom", "bath-1", "front-exterior"). Empty string if unknown.
 
 OUTPUT — return ONLY this JSON, no prose, no markdown fences:
 {
