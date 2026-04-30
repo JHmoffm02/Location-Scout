@@ -290,6 +290,8 @@ function rebuildLookups() {
     S.locById.set(l.id, l);
     if (l.smugmug_album_key) S.locByAlbumKey.set(l.smugmug_album_key, l);
   });
+  // Refresh the state filter row to reflect any new states in the data
+  rebuildStateCheckboxes();
 }
 
 function getCatForLoc(loc)  { return loc ? (S.catByAlbumKey.get(loc.smugmug_album_key) || '')  : ''; }
@@ -320,20 +322,65 @@ function getActiveStatusKeys() {
 }
 function zoneFilterActive() { return $('f-zone')?.checked; }
 
+// Build/refresh the State filter checkboxes based on actual data.
+// One checkbox per state code that appears in S.locations, sorted with NY/NJ first
+// (the most common cases), then alphabetical. A "(none)" checkbox covers locations
+// that have no state_code yet — including unlinked albums.
+function rebuildStateCheckboxes() {
+  const container = $('state-checkboxes');
+  if (!container) return;
+
+  // Read previous checkbox states so toggles persist across rebuilds
+  const prev = {};
+  Array.from(container.querySelectorAll('input[type=checkbox]')).forEach(cb => {
+    prev[cb.id] = cb.checked;
+  });
+  // Also read from saved filter settings (for the very first render)
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('mapFilters') || '{}'); } catch (e) {}
+
+  // Tally states from data
+  const counts = {};
+  S.locations.forEach(l => {
+    const sc = (l.state_code || '').toUpperCase().trim();
+    const key = sc || 'NONE';
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  // Always show NY and NJ even if zero (so user has visibility / can re-enable later)
+  if (!counts['NY']) counts['NY'] = 0;
+  if (!counts['NJ']) counts['NJ'] = 0;
+
+  // Sort: NY first, NJ second, then other states alphabetically, NONE last
+  const keys = Object.keys(counts).sort((a, b) => {
+    if (a === 'NY') return -1;
+    if (b === 'NY') return 1;
+    if (a === 'NJ') return -1;
+    if (b === 'NJ') return 1;
+    if (a === 'NONE') return 1;
+    if (b === 'NONE') return -1;
+    return a.localeCompare(b);
+  });
+
+  // Render
+  container.innerHTML = keys.map(key => {
+    const id = 'f-state-' + key;
+    const label = key === 'NONE' ? '(none)' : key;
+    // Default to checked. Restore from prev (current session) or saved (cross-session) if available.
+    let checked = true;
+    if (Object.prototype.hasOwnProperty.call(prev, id))            checked = prev[id];
+    else if (Object.prototype.hasOwnProperty.call(saved, id))      checked = saved[id];
+    return `<div class="fi"><input type="checkbox" id="${id}" ${checked ? 'checked' : ''} onchange="applyFilters()"><label for="${id}">${label} <span class="state-count">${counts[key]}</span></label></div>`;
+  }).join('');
+}
+
 function locPassesGlobalFilter(l) {
-  // ── State filter ────────────────────────────────────────────────────────
-  const ny    = $('f-ny')?.checked;
-  const nj    = $('f-nj')?.checked;
-  const other = $('f-other')?.checked;
+  // ── State filter (dynamic) ──────────────────────────────────────────────
+  // Each state checkbox controls visibility for that state's locations.
+  // A location with no state_code (or one we haven't seen yet) falls under "(none)".
   const sc = (l.state_code || '').toUpperCase().trim();
-  if (sc === 'NY') {
-    if (!ny) return false;
-  } else if (sc === 'NJ') {
-    if (!nj) return false;
-  } else {
-    // Any other state, or empty/null state_code → counts as "other"
-    if (!other) return false;
-  }
+  const key = sc || 'NONE';
+  const cb = $('f-state-' + key);
+  if (cb && !cb.checked) return false;
 
   // ── Status filter (chips: pending, clear) ──────────────────────────────
   const pendingChecked = $('f-pending')?.checked;
@@ -341,7 +388,6 @@ function locPassesGlobalFilter(l) {
   if (l.status === 'pending') {
     if (!pendingChecked) return false;
   } else {
-    // Anything not 'pending' counts as "clear" for filter purposes
     if (!clearChecked) return false;
   }
 
@@ -367,8 +413,13 @@ window.applyFilters = function () {
 
 function saveFilterSettings() {
   const s = {};
-  ['ny','nj','other','pending','clear','zone','flatten'].forEach(id => {
+  // Static fields
+  ['pending','clear','zone','flatten'].forEach(id => {
     const el = $('f-' + id); if (el) s['f-'+id] = el.checked;
+  });
+  // Dynamic state checkboxes (whatever's currently rendered)
+  document.querySelectorAll('#state-checkboxes input[type=checkbox]').forEach(cb => {
+    s[cb.id] = cb.checked;
   });
   try { localStorage.setItem('mapFilters', JSON.stringify(s)); } catch (e) {}
 }
@@ -376,10 +427,13 @@ function saveFilterSettings() {
 function loadFilterSettings() {
   try {
     const s = JSON.parse(localStorage.getItem('mapFilters') || '{}');
-    ['ny','nj','other','pending','clear','zone','flatten'].forEach(id => {
+    // Static fields
+    ['pending','clear','zone','flatten'].forEach(id => {
       const el = $('f-' + id);
       if (el && s.hasOwnProperty('f-'+id)) el.checked = s['f-'+id];
     });
+    // Dynamic state checkboxes will pick up their saved values from rebuildStateCheckboxes()
+    // (which reads localStorage directly each time it renders).
   } catch (e) {}
 }
 
@@ -2240,8 +2294,8 @@ function libRender() {
     if (loc) {
       if (!locPassesGlobalFilter(loc)) return false;
     } else {
-      // Album with no linked location — apply the "other" + "clear" check (treated as default)
-      if (!$('f-other')?.checked) return false;
+      // Album with no linked location — treat as state=(none), status=clear (defaults)
+      if (!$('f-state-NONE')?.checked) return false;
       if (!$('f-clear')?.checked) return false;
     }
     return true;
@@ -2256,8 +2310,8 @@ function libRender() {
       if (p !== f.path && p.indexOf(f.path + '/') !== 0) return false;
       const loc = locByAlbumKey.get(a.sm_key);
       if (loc) return locPassesGlobalFilter(loc);
-      // Unlinked: only show if other + clear are both checked (the "default everywhere" condition)
-      return ($('f-other')?.checked) && ($('f-clear')?.checked);
+      // Unlinked albums: use the "(none)" + clear state defaults
+      return ($('f-state-NONE')?.checked) && ($('f-clear')?.checked);
     });
     if (!children.length) return;
     const name = f.name || f.path.split('/').pop().replace(/-/g, ' ');
