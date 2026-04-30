@@ -261,20 +261,23 @@ function distillConsensus(perPhoto) {
   };
 }
 
-// ── Pick the walkthrough — top ~30% structured as a scout's tour ──
+// ── Pick the walkthrough — at least 5 photos, target ~30% of the album ──
 // Order of priorities:
 //   1. 1-2 best hero-exterior  (capped — lead-in only)
 //   2. 1 best entry-in
 //   3. 1 best entry-out
-//   4. For each unique room: 1 best room-overview
-//   5. Fill remaining slots from room-detail (best per room not already represented)
-//      and additional room-overview / outdoor-feature shots
+//   4. ROOMS, ranked by RELEVANCE to the album's purpose:
+//      - "core" rooms (whose photos heavily match album consensus tags) get up to 2 photos each
+//      - "secondary" rooms (lightly matching) get 1 photo max
+//      - room weight ranks them by core/secondary status, then by composition
+//   5. Fill remaining slots with room-detail / outdoor-feature
 //   6. Skip logistic + transition entirely
 //
-// Returns the SET of chosen image keys + a tour-ordered list (by role priority).
-function pickWalkthrough(perPhoto, targetCount) {
-  // Only consider sharp photos
+// Returns a Set of chosen image keys.
+function pickWalkthrough(perPhoto, targetCount, consensusTags) {
   const sharp = perPhoto.filter(p => p.is_sharp);
+  const consensusSet = new Set((consensusTags || []).map(t => String(t).toLowerCase()));
+
   // Group by role
   const byRole = {};
   sharp.forEach(p => {
@@ -282,10 +285,49 @@ function pickWalkthrough(perPhoto, targetCount) {
     if (!byRole[r]) byRole[r] = [];
     byRole[r].push(p);
   });
-  // Sort each bucket by composition (high first), then by originalIndex (chronological)
   Object.keys(byRole).forEach(r => {
     byRole[r].sort((a, b) => (b.composition - a.composition) || (a.originalIndex - b.originalIndex));
   });
+
+  // ── Score each ROOM by relevance to the album's purpose ──
+  // For each room, count how many of its photos' tags overlap with consensus.
+  // Higher overlap → core room. Ties broken by total photo count (more = more documented).
+  const roomStats = {};
+  sharp.forEach(p => {
+    const room = p.room || '';
+    if (!room) return;
+    if (!roomStats[room]) roomStats[room] = { photoCount: 0, consensusHits: 0, photos: [] };
+    roomStats[room].photoCount++;
+    roomStats[room].photos.push(p);
+    (p.tags || []).forEach(t => {
+      if (consensusSet.has(String(t).toLowerCase())) roomStats[room].consensusHits++;
+    });
+  });
+
+  // Compute relevance score per room: avg consensus hits per photo.
+  // Rooms with high avg are CORE — they ARE what this album is about.
+  const roomEntries = Object.entries(roomStats).map(([room, s]) => ({
+    room,
+    avgRelevance: s.photoCount > 0 ? s.consensusHits / s.photoCount : 0,
+    photoCount: s.photoCount,
+    photos: s.photos
+  }));
+  // Sort: high relevance first, then high photo count
+  roomEntries.sort((a, b) => (b.avgRelevance - a.avgRelevance) || (b.photoCount - a.photoCount));
+
+  // Tier rooms: core (top half by relevance, or any with relevance >= 1.0), secondary (the rest)
+  // If no consensus tags exist, treat all rooms as equal (fall back to original behavior).
+  let coreRooms = new Set(), secondaryRooms = new Set();
+  if (consensusSet.size && roomEntries.some(r => r.avgRelevance > 0)) {
+    const cutoff = Math.max(0.5, roomEntries[0].avgRelevance * 0.5);
+    roomEntries.forEach(r => {
+      if (r.avgRelevance >= cutoff) coreRooms.add(r.room);
+      else secondaryRooms.add(r.room);
+    });
+  } else {
+    // No consensus to lean on — every room is "core", picker uses photo-count ordering
+    roomEntries.forEach(r => coreRooms.add(r.room));
+  }
 
   const picked = [];
   const pickedKeys = new Set();
@@ -296,57 +338,79 @@ function pickWalkthrough(perPhoto, targetCount) {
     return true;
   }
 
-  // (1) Up to 2 hero-exteriors — but cap at min(2, target * 0.15) so they don't dominate
+  // (1) Up to 2 hero-exteriors
   const heroLimit = Math.min(2, Math.max(1, Math.floor(targetCount * 0.15)));
   (byRole['hero-exterior'] || []).slice(0, heroLimit).forEach(pick);
-
   // (2) 1 entry-in
-  const entryIn = (byRole['entry-in'] || [])[0];
-  if (entryIn) pick(entryIn);
-
+  if (byRole['entry-in'] && byRole['entry-in'][0]) pick(byRole['entry-in'][0]);
   // (3) 1 entry-out
-  const entryOut = (byRole['entry-out'] || [])[0];
-  if (entryOut) pick(entryOut);
+  if (byRole['entry-out'] && byRole['entry-out'][0]) pick(byRole['entry-out'][0]);
 
-  // (4) For each unique room (excluding entries / exterior / outdoor), best room-overview
+  // (4) For each room, in relevance order: best room-overview from that room first,
+  //     then up to 1 more from CORE rooms only (to prevent secondary-room over-representation)
   const roomOverviews = byRole['room-overview'] || [];
-  const seenRooms = new Set();
+  const overviewsByRoom = {};
   roomOverviews.forEach(p => {
-    if (picked.length >= targetCount) return;
-    const room = p.room || `room-${p.originalIndex}`;
-    if (seenRooms.has(room)) return;
-    seenRooms.add(room);
-    pick(p);
+    const r = p.room || '';
+    if (!overviewsByRoom[r]) overviewsByRoom[r] = [];
+    overviewsByRoom[r].push(p);
   });
 
-  // (5) Fill remaining slots — interleave by quality:
-  //     room-detail shots (1 per uncovered room first), additional overviews, outdoor-feature, side-exterior
-  const remaining = [];
-  // Room-details for rooms NOT yet represented by an overview (best per room)
+  // Pass 1: best overview per room, walking rooms in relevance order
+  for (const re of roomEntries) {
+    if (picked.length >= targetCount) break;
+    const list = overviewsByRoom[re.room] || [];
+    if (list.length) pick(list[0]);
+  }
+
+  // Pass 2: a SECOND overview from CORE rooms only, if any (and if we still need photos)
+  for (const re of roomEntries) {
+    if (picked.length >= targetCount) break;
+    if (!coreRooms.has(re.room)) continue;
+    const list = overviewsByRoom[re.room] || [];
+    if (list.length > 1) pick(list[1]);
+  }
+
+  // (5) Fill remaining slots — prioritize details from CORE rooms, then anything else
   const detailsByRoom = {};
   (byRole['room-detail'] || []).forEach(p => {
-    const r = p.room || `room-${p.originalIndex}`;
+    const r = p.room || '';
     if (!detailsByRoom[r]) detailsByRoom[r] = [];
     detailsByRoom[r].push(p);
   });
-  Object.keys(detailsByRoom).forEach(r => {
-    if (!seenRooms.has(r) && detailsByRoom[r].length) {
-      remaining.push(detailsByRoom[r][0]);
-    }
-  });
-  // Then any other top-quality shots from the remaining pool
-  const fallbackPool = [
-    ...(byRole['room-overview'] || []).slice(seenRooms.size),
-    ...(byRole['room-detail']    || []),
-    ...(byRole['outdoor-feature'] || []),
-    ...(byRole['side-exterior']   || []).slice(0, 2),  // cap supporting exteriors
-    ...(byRole['unknown']         || [])
-  ];
-  fallbackPool.sort((a, b) => (b.composition - a.composition) || (a.originalIndex - b.originalIndex));
-  remaining.push(...fallbackPool);
 
-  // Pick from remaining until we hit target
-  for (const p of remaining) {
+  // Pass A: 1 detail per CORE room
+  for (const re of roomEntries) {
+    if (picked.length >= targetCount) break;
+    if (!coreRooms.has(re.room)) continue;
+    const list = detailsByRoom[re.room] || [];
+    if (list.length) pick(list[0]);
+  }
+
+  // Pass B: outdoor-feature shots if relevant
+  if (picked.length < targetCount) {
+    (byRole['outdoor-feature'] || []).slice(0, 2).forEach(pick);
+  }
+
+  // Pass C: more details from core rooms (composition-sorted)
+  const moreDetails = (byRole['room-detail'] || [])
+    .filter(p => coreRooms.has(p.room || ''))
+    .filter(p => !pickedKeys.has(p.key));
+  for (const p of moreDetails) {
+    if (picked.length >= targetCount) break;
+    pick(p);
+  }
+
+  // Pass D: side exteriors as last resort (capped)
+  if (picked.length < targetCount) {
+    (byRole['side-exterior'] || []).slice(0, 2).forEach(pick);
+  }
+
+  // Pass E: anything left from secondary rooms (last priority — won't overrepresent)
+  const leftoverSecondary = sharp
+    .filter(p => secondaryRooms.has(p.room) && !pickedKeys.has(p.key) && p.role !== 'logistic' && p.role !== 'transition')
+    .sort((a, b) => b.composition - a.composition);
+  for (const p of leftoverSecondary) {
     if (picked.length >= targetCount) break;
     pick(p);
   }
@@ -486,11 +550,10 @@ module.exports = async function handler(req, res) {
     const sharpPhotos = perPhoto.filter(p => p.is_sharp);
     const softCount = perPhoto.length - sharpPhotos.length;
 
-    // ── STAGE 4: walkthrough-style top picks (~30%) ──
-    // Roles drive selection (hero exterior → entry → rooms → details), composition breaks ties.
-    // Logistic + transition shots are excluded entirely.
-    const targetCount = Math.max(1, Math.ceil(perPhoto.length * 0.30));
-    const topPickKeys = pickWalkthrough(perPhoto, targetCount);
+    // ── STAGE 4: walkthrough-style top picks (~30%, but always at least 5) ──
+    // Roles + room relevance drive selection. Logistic + transition are excluded.
+    const targetCount = Math.max(5, Math.ceil(perPhoto.length * 0.30));
+    const topPickKeys = pickWalkthrough(perPhoto, targetCount, consensus_tags);
     perPhoto.forEach(p => { p.isTopPick = topPickKeys.has(p.key); });
 
     // Build batches of top picks with their URLs (from the original images list)
