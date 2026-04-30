@@ -527,6 +527,38 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .lib-bc-seg.cur:hover{background:transparent}
 .lib-bc-sep{font-size:11px;color:var(--text3);padding:0 1px;flex-shrink:0}
 .lib-search{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:5px 10px;font-size:12px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;width:150px;flex-shrink:0}
+.lib-ai-search{
+  width:240px;
+  border-color:var(--accent2);
+}
+.lib-ai-search:focus{border-color:var(--accent)}
+.lib-ai-search::placeholder{color:var(--accent2);opacity:0.65}
+.lib-ai-btn{
+  height:28px;padding:0 10px;
+  background:var(--accent);color:var(--bg);border:none;border-radius:var(--radius);
+  font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.04em;
+  cursor:pointer;flex-shrink:0;transition:opacity .12s;font-weight:500;
+}
+.lib-ai-btn:hover:not(:disabled){opacity:.88}
+.lib-ai-btn:disabled{opacity:.5;cursor:wait}
+
+/* AI search result cards */
+.ai-result-card .gcard-tw{position:relative}
+.ai-score-pill{
+  position:absolute;top:6px;right:6px;z-index:3;
+  padding:2px 8px;border-radius:10px;
+  font-size:10px;font-family:'DM Mono',monospace;font-weight:500;
+  background:rgba(0,0,0,.7);backdrop-filter:blur(4px);
+  letter-spacing:.04em;
+}
+.ai-score-high{color:#4caf82;border:1px solid rgba(76,175,130,.6)}
+.ai-score-med{color:var(--accent);border:1px solid var(--accent2)}
+.ai-score-low{color:var(--text3);border:1px solid var(--border2)}
+.ai-reason{
+  font-size:10px;color:var(--text3);font-style:italic;
+  padding:6px 10px;line-height:1.4;
+  border-top:1px solid var(--border);
+}
 .lib-search:focus{border-color:var(--accent2)}
 .lib-search::placeholder{color:var(--text3)}
 .lib-sel{padding:5px 8px;font-size:10px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
@@ -704,7 +736,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
     <div class="page" id="library-page">
       <div class="lib-header">
         <div class="lib-bc" id="lib-bc"></div>
-        <input class="lib-search" id="lib-q" placeholder="search locations..." oninput="libSearch()" aria-label="Search locations">
+        <input class="lib-search" id="lib-q" placeholder="search words…" oninput="libSearch()" aria-label="Keyword search">
+        <input class="lib-search lib-ai-search" id="lib-ai-q" placeholder="✨ ask AI: gritty industrial space…" aria-label="AI search" onkeydown="if(event.key==='Enter'){runAiSearch()}">
+        <button class="lib-ai-btn" id="lib-ai-btn" onclick="runAiSearch()" title="Search with AI — interprets descriptive language, combines tag synonyms">✨ ask</button>
         <select class="lib-sel" id="lib-status-sel" onchange="libSearch()" aria-label="Filter by status">
           <option value="">all status</option>
           <option value="pending">pending</option>
