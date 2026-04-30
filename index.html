@@ -84,6 +84,11 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .mc-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .mc-label{font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.16em;color:var(--text3);text-transform:uppercase;margin-right:2px}
 .mc-sep{width:1px;height:18px;background:var(--border2);flex-shrink:0}
+.state-checkboxes-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.state-count{
+  font-size:9px;color:var(--text3);margin-left:2px;
+  font-family:'DM Mono',monospace;
+}
 .fi{display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .fi input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
 .fi label{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer}
@@ -659,9 +664,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   <div id="map-controls">
     <div class="mc-group">
       <span class="mc-label">State</span>
-      <div class="fi"><input type="checkbox" id="f-ny" checked onchange="applyFilters()"><label for="f-ny">NY</label></div>
-      <div class="fi"><input type="checkbox" id="f-nj" checked onchange="applyFilters()"><label for="f-nj">NJ</label></div>
-      <div class="fi"><input type="checkbox" id="f-other" checked onchange="applyFilters()"><label for="f-other">Other</label></div>
+      <div id="state-checkboxes" class="state-checkboxes-row"></div>
     </div>
     <div class="mc-sep"></div>
     <div class="mc-group">
