@@ -222,6 +222,252 @@ function db(path, opts) {
   );
 }
 
+// Paginated GET for tables that may exceed Supabase's 1000-row default cap.
+// Walks Range: 0-999, 1000-1999, etc. until a partial page is returned.
+// ── API usage tracking ──
+// Pricing in 1/100ths of a cent (so $0.005 = 50, $0.10 = 1000).
+// Lets us store as INTEGER and avoid floating-point drift across thousands of rows.
+const API_PRICING = {
+  // Google Maps Platform
+  'geocode':            50,    // $0.005 per call
+  'places-text':        320,   // $0.032 per call
+  'places-details':     170,   // $0.017 per call
+  'streetview-static':  70,    // $0.007 per call
+  'streetview-metadata': 0,    // free
+  'maps-js':            70,    // $0.007 per map load
+  // Anthropic — varies, so we accept an explicit cost_cents override per call
+  'haiku-classify':     50,    // ~$0.005 average per album (text + 6-8 medium imgs)
+  'sonnet-classify':    2100,  // ~$0.021 per escalation pass
+  'haiku-search':       10000, // ~$0.10 per AI library search (1500 locs)
+  'haiku-duplicates':   50,    // ~$0.005 per chunk
+  'haiku-finddup':      50,    // alias
+};
+
+// Fire-and-forget. Don't block real flow on logging.
+async function trackUsage(api, opts) {
+  opts = opts || {};
+  const provider = opts.provider || (
+    api.startsWith('haiku') || api.startsWith('sonnet') ? 'anthropic' : 'google'
+  );
+  const count = opts.count || 1;
+  const baseCost = API_PRICING[api];
+  const costCents = (typeof opts.costCents === 'number')
+    ? opts.costCents
+    : (baseCost != null ? baseCost * count : 0);
+  // Cache running session totals immediately so the UI feels live
+  S.usageSession = S.usageSession || { google: 0, anthropic: 0, calls: {} };
+  S.usageSession[provider] = (S.usageSession[provider] || 0) + costCents;
+  S.usageSession.calls[api] = (S.usageSession.calls[api] || 0) + count;
+
+  try {
+    await fetch(`${SB_URL}/rest/v1/api_usage`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json', Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({
+        provider, api, count, cost_cents: costCents,
+        meta: opts.meta || null
+      })
+    });
+  } catch (e) { /* silent — never break a real flow */ }
+}
+
+// Wrappers around the /api/geocode endpoint that auto-log usage.
+// Use these instead of bare fetch() so every billable call is counted.
+
+async function geocodeAddress(query, stateCode, meta) {
+  if (!query) return { ok: false, error: 'empty query' };
+  const stateParam = stateCode ? '&state=' + encodeURIComponent(stateCode) : '';
+  const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
+  const data = await r.json().catch(() => ({}));
+  // Don't bill if the server returned a cache hit
+  const fromCache = (r.headers.get('X-Cache') === 'HIT');
+  if (!fromCache) trackUsage('geocode', { meta: meta || { query } });
+  return data;
+}
+
+async function placeByName(name, hint, meta) {
+  if (!name) return { ok: false, error: 'empty name' };
+  const hintParam = hint ? '&hint=' + encodeURIComponent(hint) : '';
+  const r = await fetch(`${SM_BASE}/api/geocode?action=place&name=${encodeURIComponent(name)}${hintParam}`);
+  const data = await r.json().catch(() => ({}));
+  const fromCache = (r.headers.get('X-Cache') === 'HIT');
+  if (!fromCache) trackUsage('places-text', { meta: meta || { name, hint } });
+  return data;
+}
+
+// ── Usage panel UI ──
+const API_DISPLAY = {
+  'geocode':            { label: 'Geocode address',         desc: 'Address → lat/lng',                        provider: 'google' },
+  'places-text':        { label: 'Places search',           desc: 'Find by name (e.g. "Joe\'s Pizza")',       provider: 'google' },
+  'places-details':     { label: 'Places details',          desc: 'Phone, hours, website lookup',             provider: 'google' },
+  'streetview-static':  { label: 'Street View thumbnail',   desc: 'The little SV image in the detail panel',  provider: 'google' },
+  'streetview-metadata':{ label: 'Street View check',       desc: 'Free — checks if SV exists at a spot',     provider: 'google' },
+  'maps-js':            { label: 'Map load',                desc: 'Each time the map first renders',          provider: 'google' },
+  'haiku-classify':     { label: 'AI classify (cheap pass)',desc: 'Haiku — text-only or simple albums',        provider: 'anthropic' },
+  'sonnet-classify':    { label: 'AI classify (deep)',      desc: 'Sonnet — full image-rich classification',   provider: 'anthropic' },
+  'haiku-search':       { label: 'AI library search',       desc: 'Each "✨ ask AI" query',                    provider: 'anthropic' },
+  'haiku-finddup':      { label: 'AI find-duplicates',      desc: 'Folder consolidation suggestions',          provider: 'anthropic' },
+  'haiku-duplicates':   { label: 'AI find-duplicates',      desc: 'Folder consolidation (legacy alias)',       provider: 'anthropic' }
+};
+
+function fmtUsd(cents100ths) {
+  // Input is 1/100ths of a cent. $0.05 = 500.
+  const dollars = (cents100ths || 0) / 10000;
+  if (dollars === 0) return '$0';
+  if (dollars < 0.01) return '<$0.01';
+  if (dollars < 1)    return '$' + dollars.toFixed(2);
+  return '$' + dollars.toFixed(2);
+}
+
+window.openUsagePanel = function () {
+  $('usage-modal').style.display = 'flex';
+  renderUsage(S.usageView || 'session');
+};
+
+window.renderUsage = async function (period) {
+  S.usageView = period;
+  // Active button styling
+  document.querySelectorAll('.usage-period-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.p === period);
+  });
+  const body = $('usage-body');
+  body.innerHTML = '<div class="empty"><div class="spin"></div><span>loading…</span></div>';
+
+  let rows = [];
+  try {
+    if (period === 'session') {
+      // Synthesize from in-memory counters — instant, no DB call
+      const sess = S.usageSession || { google: 0, anthropic: 0, calls: {} };
+      const googleCents  = sess.google || 0;
+      const anthropicCents = sess.anthropic || 0;
+      const totalCents = googleCents + anthropicCents;
+      // Convert calls map to a row list
+      const callRows = Object.keys(sess.calls || {}).map(api => {
+        const info = API_DISPLAY[api] || { label: api, desc: '', provider: 'google' };
+        const count = sess.calls[api];
+        const baseCost = API_PRICING[api] || 0;
+        const costCents = baseCost * count;
+        return { api, info, count, costCents };
+      });
+      renderUsageContent(body, googleCents, anthropicCents, callRows);
+      return;
+    }
+
+    // DB-backed views
+    let filter = '';
+    if (period === 'day') {
+      const since = new Date(Date.now() - 86400000).toISOString();
+      filter = `&created_at=gte.${since}`;
+    } else if (period === 'month') {
+      const d = new Date();
+      const since = new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
+      filter = `&created_at=gte.${since}`;
+    }
+    rows = await dbAll(`api_usage?select=provider,api,count,cost_cents${filter}`);
+  } catch (e) {
+    body.innerHTML = `<div class="empty" style="color:var(--red)">Error loading usage: ${E(e.message || 'unknown')}</div>`;
+    return;
+  }
+
+  // Aggregate per-api
+  const agg = {};
+  let googleCents = 0, anthropicCents = 0;
+  rows.forEach(row => {
+    const a = agg[row.api] || { count: 0, costCents: 0, provider: row.provider };
+    a.count += row.count || 1;
+    a.costCents += row.cost_cents || 0;
+    agg[row.api] = a;
+    if (row.provider === 'google') googleCents += row.cost_cents || 0;
+    else if (row.provider === 'anthropic') anthropicCents += row.cost_cents || 0;
+  });
+  const callRows = Object.keys(agg).map(api => ({
+    api, info: API_DISPLAY[api] || { label: api, desc: '', provider: agg[api].provider },
+    count: agg[api].count, costCents: agg[api].costCents
+  }));
+  renderUsageContent(body, googleCents, anthropicCents, callRows);
+};
+
+function renderUsageContent(body, googleCents, anthropicCents, callRows) {
+  const totalCents = googleCents + anthropicCents;
+  callRows.sort((a, b) => b.costCents - a.costCents || (a.info.label || '').localeCompare(b.info.label || ''));
+
+  let html = '';
+  html += '<div class="usage-totals">';
+  html += `<div class="usage-total-card google">
+    <div class="usage-total-label">Google Maps</div>
+    <div class="usage-total-amount">${fmtUsd(googleCents)}</div>
+    <div class="usage-total-calls">${callRows.filter(r => r.info.provider === 'google').reduce((s, r) => s + r.count, 0)} calls</div>
+  </div>`;
+  html += `<div class="usage-total-card anthropic">
+    <div class="usage-total-label">Anthropic AI</div>
+    <div class="usage-total-amount">${fmtUsd(anthropicCents)}</div>
+    <div class="usage-total-calls">${callRows.filter(r => r.info.provider === 'anthropic').reduce((s, r) => s + r.count, 0)} calls</div>
+  </div>`;
+  html += '</div>';
+
+  html += `<div class="usage-grand">
+    <span class="usage-grand-label">Total</span>
+    <span class="usage-grand-amount">${fmtUsd(totalCents)}</span>
+  </div>`;
+
+  if (!callRows.length) {
+    html += '<div class="empty" style="padding:20px 0;color:var(--text3);text-align:center">No tracked API calls in this period.</div>';
+  } else {
+    html += '<div class="usage-breakdown-title">Breakdown</div>';
+    html += `<div class="usage-row" style="border-bottom:1px solid var(--border2);padding-bottom:5px;color:var(--text3);font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.06em">
+      <div>API</div><div style="text-align:right">Calls</div><div style="text-align:right">Cost</div>
+    </div>`;
+    callRows.forEach(r => {
+      html += `<div class="usage-row">
+        <div>
+          <div class="usage-row-name">${E(r.info.label)}</div>
+          ${r.info.desc ? `<div class="usage-row-name-sub">${E(r.info.desc)}</div>` : ''}
+        </div>
+        <div class="usage-row-count">${r.count.toLocaleString()}</div>
+        <div class="usage-row-cost">${fmtUsd(r.costCents)}</div>
+      </div>`;
+    });
+  }
+
+  // Note about free credit
+  if (googleCents > 0) {
+    html += `<div style="margin-top:14px;padding:10px 12px;background:rgba(91,155,213,.06);border:1px solid rgba(91,155,213,.2);border-radius:6px;font-size:10px;color:var(--text2);line-height:1.5">
+      <strong style="color:#5b9bd5">Heads up:</strong> Google gives every account ~$200/month of free Maps Platform credit. Your real bill is whatever's left over after that — for personal use, almost always $0.
+    </div>`;
+  }
+
+  body.innerHTML = html;
+}
+
+async function dbAll(path, pageSize) {
+  const limit = pageSize || 1000;
+  const all = [];
+  let offset = 0;
+  while (true) {
+    const headers = {
+      apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+      'Content-Type': 'application/json',
+      // Range-based pagination — PostgREST honors `Range` even when limit/offset are absent
+      Range: `${offset}-${offset + limit - 1}`,
+      'Range-Unit': 'items'
+    };
+    const r = await fetch(SB_URL + '/rest/v1/' + path, { headers });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ message: r.statusText }));
+      throw err;
+    }
+    const chunk = await r.json();
+    if (!Array.isArray(chunk) || !chunk.length) break;
+    all.push(...chunk);
+    if (chunk.length < limit) break;
+    offset += limit;
+  }
+  return all;
+}
+
 async function loadLocations(forceRefresh) {
   if (!forceRefresh) {
     try {
@@ -240,7 +486,7 @@ async function loadLocations(forceRefresh) {
 async function fetchLocations() {
   // Try v2 schema first (post-migration)
   try {
-    const data = await db(`locations?select=${LOC_SELECT}&order=name.asc`);
+    const data = await dbAll(`locations?select=${LOC_SELECT}&order=name.asc`);
     S.locations = data;
     rebuildLookups();
     try { localStorage.setItem(LOC_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch (e) {}
@@ -249,7 +495,7 @@ async function fetchLocations() {
     // Fall back to legacy schema (pre-migration)
     console.warn('v2 schema failed, trying legacy:', e1.message || e1);
     try {
-      const data = await db(`locations?select=${LOC_SELECT_LEGACY}&order=name.asc`);
+      const data = await dbAll(`locations?select=${LOC_SELECT_LEGACY}&order=name.asc`);
       // Backfill missing fields with defaults so the rest of the app works
       S.locations = data.map(l => Object.assign({
         address_verified: false,
@@ -258,7 +504,7 @@ async function fetchLocations() {
         zip: null,
         app_notes: null
       }, l));
-      S.migrationRan = false;   // suppress verification UI in legacy mode
+      S.migrationRan = false;
       rebuildLookups();
       try { localStorage.setItem(LOC_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: S.locations })); } catch (e) {}
       toast('⚠ Migration not run — run migration.sql for full features', 'err');
@@ -276,9 +522,9 @@ async function refreshLocationsBackground() {
   try {
     let data;
     try {
-      data = await db(`locations?select=${LOC_SELECT}&order=name.asc`);
+      data = await dbAll(`locations?select=${LOC_SELECT}&order=name.asc`);
     } catch (e1) {
-      data = await db(`locations?select=${LOC_SELECT_LEGACY}&order=name.asc`);
+      data = await dbAll(`locations?select=${LOC_SELECT_LEGACY}&order=name.asc`);
       data = data.map(l => Object.assign({
         address_verified: false, address_candidates: null,
         address_cross: null, zip: null, app_notes: null
@@ -519,6 +765,7 @@ function loadMapScript() {
 
 window.initMap = async function () {
   S.mapReady = true;
+  trackUsage('maps-js');  // Each Map instance counts as one billable load
   S.gmap = new google.maps.Map($('the-map'), {
     zoom: 11, center: { lat: 40.73, lng: -73.97 },
     backgroundColor: '#08090b',
@@ -532,8 +779,8 @@ window.initMap = async function () {
   });
 
   await Promise.all([
-    db('smugmug_albums?select=sm_key,name,web_url').then(r => { S.mapAlbums = r; }),
-    db('smugmug_folders?select=name,path&order=path.asc').then(r => { S.mapFolders = r; })
+    dbAll('smugmug_albums?select=sm_key,name,web_url').then(r => { S.mapAlbums = r; }),
+    dbAll('smugmug_folders?select=name,path&order=path.asc').then(r => { S.mapFolders = r; })
   ]);
   rebuildLookups();
   buildLeftPanel();
@@ -1054,17 +1301,23 @@ window.openDetail = function (loc) {
   checkStreetViewAvailable(loc);
 };
 
-// Query the Street View metadata endpoint — if no panorama exists at this location, hide the thumb
+// Query the Street View metadata endpoint — if no panorama exists at this location, hide the thumb.
+// Metadata is free; the static-image fetch (which the IMG tag triggers) costs $0.007 per impression.
+// We only count the cost if the metadata says imagery is available — otherwise the thumb gets hidden
+// before the IMG actually loads and we don't bill.
 async function checkStreetViewAvailable(loc) {
   if (!hasCoords(loc)) return;
   const myToken = S.dpRequestToken;
   try {
     const r = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?location=${loc.lat},${loc.lng}&key=${GM_KEY}`);
     const data = await r.json();
-    if (myToken !== S.dpRequestToken) return;  // user opened another loc
+    if (myToken !== S.dpRequestToken) return;
     if (data.status !== 'OK') {
       const el = $('dp-sv-thumb');
       if (el) el.style.display = 'none';
+    } else {
+      // Imagery exists — the static IMG below has loaded a thumbnail; bill it
+      trackUsage('streetview-static', { meta: { loc_id: loc.id } });
     }
   } catch (e) { /* leave thumb visible if check fails */ }
 }
@@ -1668,8 +1921,7 @@ async function runRegeocodeBatch(locs, label) {
     const stateForBias = loc.state_code || detectStateFromText((loc.address || '') + ' ' + (loc.city || ''));
     try {
       const stateParam = stateForBias ? '&state=' + stateForBias : '';
-      const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
-      const d = await r.json();
+      const d = await geocodeAddress(query, stateForBias || (loc && loc.state_code) || null, { trigger: 'address-geocode', loc_id: loc && loc.id });
       if (d.ok && d.lat) {
         const updates = { lat: d.lat, lng: d.lng };
         // If state_code wasn't set but we detected one, save it
@@ -1710,9 +1962,7 @@ window.dpFindAddress = async function () {
   try {
     // Use state code or "NY" as the bias hint
     const hint = loc.state_code || loc.city || '';
-    const url = `${SM_BASE}/api/geocode?action=place&name=${encodeURIComponent(loc.name)}${hint ? '&hint=' + encodeURIComponent(hint) : ''}`;
-    const r = await fetch(url);
-    const d = await r.json();
+    const d = await placeByName(loc.name, hint, { trigger: 'find-from-name', loc_id: loc.id });
     if (!d.ok || !d.formatted) {
       toast(`No match found (${d.status || 'no results'})`, 'err');
       return;
@@ -1795,9 +2045,7 @@ window.dpApplyTentativeAddress = async function (lineIdx, formatted) {
   // Geocode with state biasing
   let lat = null, lng = null;
   try {
-    const stateParam = state ? '&state=' + state : '';
-    const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(formatted)}${stateParam}`);
-    const d = await r.json();
+    const d = await geocodeAddress(formatted, state || null, { trigger: 'apply-tentative', loc_id: loc.id });
     if (d.ok && d.lat) { lat = d.lat; lng = d.lng; }
     else { toast('Geocode failed', 'err'); return; }
   } catch (e) { toast('Geocode error: ' + e.message, 'err'); return; }
@@ -1845,8 +2093,7 @@ window.regeocodeCurrent = async function () {
   toast('Re-geocoding…', 'inf');
   try {
     const stateParam = loc.state_code ? '&state=' + loc.state_code : '';
-    const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
-    const d = await r.json();
+    const d = await geocodeAddress(query, (loc && loc.state_code) || null, { trigger: 'address-geocode', loc_id: loc && loc.id });
     if (!d.ok || !d.lat) { toast('Geocode failed: ' + (d.status || 'no result'), 'err'); return; }
     const updates = { lat: d.lat, lng: d.lng };
     await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
@@ -2265,8 +2512,7 @@ window.saveEdit = async function () {
     try {
       const query = [addrParts.street, addrParts.city, addrParts.state, addrParts.zip].filter(Boolean).join(', ');
       const stateParam = addrParts.state ? '&state=' + addrParts.state : '';
-      const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
-      const d = await r.json();
+      const d = await geocodeAddress(query, stateForBias || (loc && loc.state_code) || null, { trigger: 'address-geocode', loc_id: loc && loc.id });
       if (d.ok && d.lat) { updates.lat = d.lat; updates.lng = d.lng; }
     } catch (e) { /* keep existing coords */ }
     btn.textContent = 'Saving...';
@@ -2431,8 +2677,8 @@ async function libInit() {
   if (S.libLoaded) { libRender(); return; }
   $('lib-grid').innerHTML = '<div class="empty"><div class="spin"></div><span>loading library...</span></div>';
   try {
-    S.libFolders = await db('smugmug_folders?select=name,path&order=path.asc');
-    S.libAlbums  = await db('smugmug_albums?select=sm_key,name,path,web_url,image_count,highlight_url&order=name.asc');
+    S.libFolders = await dbAll('smugmug_folders?select=name,path&order=path.asc');
+    S.libAlbums  = await dbAll('smugmug_albums?select=sm_key,name,path,web_url,image_count,highlight_url&order=name.asc');
     S.libLoaded = true;
     S.libStack = [];
     libRender();
@@ -2813,6 +3059,7 @@ window.runAiSearch = async function () {
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'AI search failed');
+    trackUsage('haiku-search', { meta: { query, locations_count: summaries.length } });
     const matches = data.matches || [];
 
     if (!matches.length) {
@@ -3187,7 +3434,7 @@ window.startFullSync = async function () {
     // Build "knownAlbums" map from current DB cache so the crawl can skip unchanged ones
     let knownAlbums = {};
     try {
-      const known = await db('smugmug_albums?select=sm_key,last_updated&last_updated=not.is.null');
+      const known = await dbAll('smugmug_albums?select=sm_key,last_updated&last_updated=not.is.null');
       (known || []).forEach(a => {
         if (a.sm_key && a.last_updated) knownAlbums[a.sm_key] = a.last_updated;
       });
@@ -3217,7 +3464,7 @@ window.startFullSync = async function () {
     });
 
     // Fetch missing album images (parallelized in groups)
-    const allAlbums = await db('smugmug_albums?select=sm_key,name');
+    const allAlbums = await dbAll('smugmug_albums?select=sm_key,name');
     const syncedKeys = new Set((await db('smugmug_images?select=album_key')).map(i => i.album_key));
     const missing = allAlbums.filter(a => !syncedKeys.has(a.sm_key));
 
@@ -3292,8 +3539,8 @@ window.startFullSync = async function () {
 
   S.mapFolders = []; S.mapAlbums = [];
   await Promise.all([
-    db('smugmug_albums?select=sm_key,name,web_url').then(r => { S.mapAlbums = r; }),
-    db('smugmug_folders?select=name,path&order=path.asc').then(r => { S.mapFolders = r; })
+    dbAll('smugmug_albums?select=sm_key,name,web_url').then(r => { S.mapAlbums = r; }),
+    dbAll('smugmug_folders?select=name,path&order=path.asc').then(r => { S.mapFolders = r; })
   ]);
   rebuildLookups();
   buildLeftPanel();
@@ -3332,7 +3579,7 @@ async function backgroundIncrementalSync() {
     const tb = btoa(JSON.stringify(S.smTokens));
     let knownAlbums = {};
     try {
-      const known = await db('smugmug_albums?select=sm_key,last_updated&last_updated=not.is.null');
+      const known = await dbAll('smugmug_albums?select=sm_key,last_updated&last_updated=not.is.null');
       (known || []).forEach(a => {
         if (a.sm_key && a.last_updated) knownAlbums[a.sm_key] = a.last_updated;
       });
@@ -3461,8 +3708,7 @@ async function placePins(opts) {
     const query = [street, city, state, zip].filter(Boolean).join(', ');
     try {
       const stateParam = state ? '&state=' + state : '';
-      const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(query)}${stateParam}`);
-      const d = await r.json();
+      const d = await geocodeAddress(query, stateForBias || (loc && loc.state_code) || null, { trigger: 'address-geocode', loc_id: loc && loc.id });
       if (d.ok && d.lat) {
         // If state_code wasn't stored but we picked one up from notes, save it too
         const updates = { lat: d.lat, lng: d.lng };
@@ -3493,8 +3739,7 @@ async function placePins(opts) {
     // Use Places Text Search — better than raw geocode for "Joe's Diner Brooklyn" style queries
     const hint = loc.state_code || '';
     try {
-      const r = await fetch(`${SM_BASE}/api/geocode?action=place&name=${encodeURIComponent(loc.name)}${hint ? '&hint=' + encodeURIComponent(hint) : ''}`);
-      const d = await r.json();
+      const d = await placeByName(loc.name, hint, { trigger: 'place-pins-pass3', loc_id: loc.id });
       if (d.ok && d.lat && d.lng) {
         await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
           method: 'PATCH',
@@ -3858,10 +4103,10 @@ async function orgLoadUploads() {
   $('org-list').innerHTML = '<div class="empty"><div class="spin"></div><span>loading uploads...</span></div>';
   try {
     // Pull all albums with path matching Master-Library/Uploads*
-    const albums = await db('smugmug_albums?select=sm_key,name,path,web_url,description,image_count,highlight_url&order=name.asc');
+    const albums = await dbAll('smugmug_albums?select=sm_key,name,path,web_url,description,image_count,highlight_url&order=name.asc');
     // Need libFolders too if not loaded
     if (!S.libFolders.length) {
-      S.libFolders = await db('smugmug_folders?select=name,path&order=path.asc');
+      S.libFolders = await dbAll('smugmug_folders?select=name,path&order=path.asc');
     }
     if (!S.libAlbums.length) S.libAlbums = albums;
 
@@ -4087,6 +4332,17 @@ async function orgClassifyBatch(albums) {
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'classify failed');
+
+    // Track usage: each album = either Haiku (text-only or simple) or Sonnet (image-rich)
+    let haikuCount = 0, sonnetCount = 0;
+    (data.results || []).forEach(res => {
+      if (res && res.key) {
+        if (res.model && res.model.indexOf('sonnet') >= 0) sonnetCount++;
+        else haikuCount++;
+      }
+    });
+    if (haikuCount)  trackUsage('haiku-classify',  { count: haikuCount,  meta: { batch_size: albums.length } });
+    if (sonnetCount) trackUsage('sonnet-classify', { count: sonnetCount, meta: { batch_size: albums.length } });
 
     // Build a lookup from album_key → prepared list (for thumb URLs)
     const prepLookup = {};
@@ -4406,7 +4662,7 @@ window.orgApplyMoves = async function () {
   S.libLoaded = false;
   // Soft refresh of folders for the taxonomy display
   setTimeout(async () => {
-    try { S.libFolders = await db('smugmug_folders?select=name,path&order=path.asc'); } catch (e) {}
+    try { S.libFolders = await dbAll('smugmug_folders?select=name,path&order=path.asc'); } catch (e) {}
     renderTaxonomyTree();
   }, 500);
 };
@@ -4423,7 +4679,7 @@ window.orgFindDuplicateFolders = async function () {
   body.innerHTML = '<div class="empty"><div class="spin"></div><span>analyzing folder names…</span></div>';
 
   try {
-    const folders = await db('smugmug_folders?select=name,path&order=path.asc');
+    const folders = await dbAll('smugmug_folders?select=name,path&order=path.asc');
     const albums  = await db('smugmug_albums?select=sm_key,name,path,web_url');
 
     const folderRecords = [];
@@ -4469,6 +4725,9 @@ window.orgFindDuplicateFolders = async function () {
     }
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'find_duplicates failed');
+    // Server chunks at 200 folders per Haiku call
+    const chunks = Math.ceil(folderRecords.length / 200);
+    if (chunks > 0) trackUsage('haiku-finddup', { count: chunks, meta: { folders_count: folderRecords.length } });
 
     const clusters = data.clusters || [];
     if (!clusters.length) {
@@ -4571,7 +4830,7 @@ window.orgMergeCluster = async function (ci) {
   }
 
   // Get all albums in source folders
-  const allAlbums = await db('smugmug_albums?select=sm_key,name,web_url');
+  const allAlbums = await dbAll('smugmug_albums?select=sm_key,name,web_url');
   const sourceAlbums = [];
   sources.forEach(srcPath => {
     allAlbums.forEach(a => {
@@ -4662,7 +4921,7 @@ window.orgMergeCluster = async function (ci) {
   toast(`${isGroup ? 'Group' : 'Merge'} complete · ${moved} albums moved`, 'ok');
 
   S.libLoaded = false;
-  try { S.libFolders = await db('smugmug_folders?select=name,path&order=path.asc'); } catch (e) {}
+  try { S.libFolders = await dbAll('smugmug_folders?select=name,path&order=path.asc'); } catch (e) {}
   setTimeout(() => orgDismissCluster(ci), 1500);
 };
 
