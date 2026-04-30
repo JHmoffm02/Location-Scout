@@ -364,7 +364,7 @@ function rebuildStateCheckboxes() {
   // Render
   container.innerHTML = keys.map(key => {
     const id = 'f-state-' + key;
-    const label = key === 'NONE' ? 'Other' : key;
+    const label = key === 'NONE' ? 'None' : key;
     // Default to checked. Restore from prev (current session) or saved (cross-session) if available.
     let checked = true;
     if (Object.prototype.hasOwnProperty.call(prev, id))            checked = prev[id];
@@ -926,7 +926,26 @@ window.openDetail = function (loc) {
 
   // App notes (separate from raw notes; populated by AI lookups, etc)
   if (loc.app_notes && loc.app_notes.trim()) {
-    html += `<div class="dp-section"><div class="dp-label">App Notes <span class="dp-label-sub">(app-generated · ✏ Edit to remove)</span></div><div class="dp-app-notes">${E(loc.app_notes)}</div></div>`;
+    html += '<div class="dp-section"><div class="dp-label">App Notes <span class="dp-label-sub">(app-generated · ✏ Edit to remove)</span></div>';
+    // Render line by line — each "Tentative address" line gets an [Apply] button
+    const lines = loc.app_notes.split(/\r?\n/);
+    const tentativeRe = /Tentative address[^:]*:\s*(.+?)(?:\s+—\s+|—|\s+-\s+)(.+)$/i;
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) { html += '<div style="height:6px"></div>'; return; }
+      const m = trimmed.match(tentativeRe);
+      if (m) {
+        // Has a tentative address — extract it and add Apply button
+        const formatted = m[2].trim();
+        html += '<div class="dp-app-notes-row">';
+        html += `<div class="dp-app-notes-line">${E(trimmed)}</div>`;
+        html += `<button class="dp-btn dp-app-notes-apply" onclick="dpApplyTentativeAddress(${idx}, ${E(JSON.stringify(formatted))})" title="Set this address as the location's address and update the pin">⌖ Apply</button>`;
+        html += '</div>';
+      } else {
+        html += `<div class="dp-app-notes-line">${E(trimmed)}</div>`;
+      }
+    });
+    html += '</div>';
   }
 
   // Notes (rendered via shared parser)
@@ -1679,6 +1698,79 @@ window.dpFindAddress = async function () {
   } catch (e) {
     toast('Place search failed: ' + (e.message || 'unknown'), 'err');
   }
+};
+
+// Apply a tentative address from App Notes — geocode it and save as the real address.
+window.dpApplyTentativeAddress = async function (lineIdx, formatted) {
+  const loc = S.currentDetailLoc;
+  if (!loc) return;
+  if (!confirm(`Apply this address as the location's address?\n\n"${formatted}"\n\nThis will:\n  • Set street/city/state/zip from this address\n  • Re-geocode and update the pin\n  • Mark as address_verified (sync won't overwrite it)`)) return;
+
+  toast('Geocoding…', 'inf');
+  // Try to extract street/city/state/zip from the formatted string
+  // Typical format: "100 W 23rd St, New York, NY 10011, USA"
+  let street = '', city = '', state = '', zip = '';
+  const cleaned = formatted.replace(/,\s*USA\s*$/, '').trim();
+  const parts = cleaned.split(',').map(p => p.trim()).filter(Boolean);
+  if (parts.length >= 3) {
+    street = parts[0];
+    city = parts[1];
+    // Last part: "NY 10011" or just "NY"
+    const last = parts[parts.length - 1];
+    const lm = last.match(/^([A-Z]{2})\s*(\d{5}(?:-\d{4})?)?/);
+    if (lm) { state = lm[1]; if (lm[2]) zip = lm[2]; }
+  } else if (parts.length === 2) {
+    street = parts[0];
+    const last = parts[1];
+    const lm = last.match(/^(.+?)\s+([A-Z]{2})\s*(\d{5})?/);
+    if (lm) { city = lm[1]; state = lm[2]; if (lm[3]) zip = lm[3]; }
+  } else {
+    street = parts[0] || formatted;
+  }
+
+  // Geocode with state biasing
+  let lat = null, lng = null;
+  try {
+    const stateParam = state ? '&state=' + state : '';
+    const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(formatted)}${stateParam}`);
+    const d = await r.json();
+    if (d.ok && d.lat) { lat = d.lat; lng = d.lng; }
+    else { toast('Geocode failed', 'err'); return; }
+  } catch (e) { toast('Geocode error: ' + e.message, 'err'); return; }
+
+  const updates = {
+    address: street || null,
+    city: city || null,
+    state_code: state || null,
+    address_verified: true,
+    lat: lat,
+    lng: lng
+  };
+  if (S.migrationRan && zip) updates.zip = zip;
+
+  try {
+    await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json', Prefer: 'return=minimal'
+      },
+      body: JSON.stringify(updates)
+    });
+    Object.assign(loc, updates);
+    try {
+      const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+      if (cached && cached.data) {
+        const li = cached.data.findIndex(l => l.id === loc.id);
+        if (li >= 0) Object.assign(cached.data[li], updates);
+        localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+      }
+    } catch (e) {}
+    rebuildLookups();
+    if (S.gmap) refreshPins();
+    openDetail(loc);
+    toast('Address applied + pin updated', 'ok');
+  } catch (e) { toast('Save failed: ' + e.message, 'err'); }
 };
 
 window.regeocodeCurrent = async function () {
@@ -2725,12 +2817,19 @@ function showColorPicker(ck, x, y, onPick) {
 // ══════════════════════════════════════════════════════════════════════════
 // SMUGMUG SYNC
 // ══════════════════════════════════════════════════════════════════════════
-window.toggleDock = function () {
-  S.dockOpen = !S.dockOpen;
-  $('dock-actions').style.display = S.dockOpen ? 'flex' : 'none';
-  posNavStatus();
+window.toggleActionsMenu = function (e) {
+  if (e) e.stopPropagation();
+  const menu = $('actions-menu');
+  if (!menu) return;
+  S.dockOpen = menu.style.display !== 'block';
+  menu.style.display = S.dockOpen ? 'block' : 'none';
 };
-function closeDock() { S.dockOpen = false; $('dock-actions').style.display = 'none'; }
+window.closeActionsMenu = function () {
+  const menu = $('actions-menu');
+  if (menu) menu.style.display = 'none';
+  S.dockOpen = false;
+};
+function closeDock() { closeActionsMenu(); }
 
 function posNavStatus() {
   const nr = $('nav-right'), ns = $('nav-status');
@@ -2767,32 +2866,18 @@ function checkAuth() {
 
 function updateAuthUI(ok) {
   const lbl = $('dock-sm-label'), btn = $('dock-sm-btn');
-  const ab = $('dock-auth-btn'), sb = $('dock-sync-btn'), so = $('dock-signout-btn');
-  const rg = $('dock-regeo-btn');
-  const th = $('dock-thumbs-btn');
-  const pp = $('dock-pin-btn');
-  const sc = $('dock-scrub-btn');
-  const re = $('dock-reextract-btn');
+  const ab = $('dock-auth-btn'), sb = $('dock-sync-btn');
+  const aw = $('actions-wrap');
   if (ok) {
     lbl.textContent = 'smugmug ✓'; btn.classList.remove('unconnected');
     if (ab) ab.style.display = 'none';
     if (sb) sb.style.display = 'flex';
-    if (so) so.style.display = 'flex';
-    if (rg) rg.style.display = 'flex';
-    if (th) th.style.display = 'flex';
-    if (pp) pp.style.display = 'flex';
-    if (sc) sc.style.display = 'flex';
-    if (re) re.style.display = 'flex';
+    if (aw) aw.style.display = 'block';
   } else {
     lbl.textContent = 'smugmug'; btn.classList.add('unconnected');
     if (ab) ab.style.display = 'flex';
     if (sb) sb.style.display = 'none';
-    if (so) so.style.display = 'none';
-    if (rg) rg.style.display = 'none';
-    if (th) th.style.display = 'none';
-    if (pp) pp.style.display = 'none';
-    if (sc) sc.style.display = 'none';
-    if (re) re.style.display = 'none';
+    if (aw) aw.style.display = 'none';
   }
 }
 
@@ -4414,8 +4499,11 @@ document.addEventListener('keydown', function (e) {
 }, true);  // capture phase — beats anything that might consume arrow keys downstream
 
 document.addEventListener('click', function (e) {
-  const smBtn = $('dock-sm-btn'), smAct = $('dock-actions');
-  if (S.dockOpen && smBtn && !smBtn.contains(e.target) && smAct && !smAct.contains(e.target)) closeDock();
+  const wrap = $('actions-wrap');
+  const menu = $('actions-menu');
+  if (!menu || menu.style.display !== 'block') return;
+  if (wrap && wrap.contains(e.target)) return;  // click was inside wrap (button or menu)
+  closeActionsMenu();
 });
 
 // hcard mouseleave
