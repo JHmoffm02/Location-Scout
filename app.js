@@ -1873,20 +1873,45 @@ async function dpSaveDeepTagResults(loc, data) {
 }
 
 // Apply the current orderMode to the photo viewer.
-// 'original' = chronological order (originalIndex)
-// 'ranked'   = top picks first, then sharp non-picks, then soft (rankedIndex)
+// 'original' = chronological (originalIndex)
+// 'ranked'   = AI walkthrough (rankedIndex)
+// 'custom'   = user-edited order (customIndex if set, falls back to ranked then original)
 function dpApplyOrder() {
   const dt = S.dpDeepTag;
   if (!dt || !dt.perPhoto.length) return;
-  const ordering = dt.orderMode === 'ranked' ? 'rankedIndex' : 'originalIndex';
-  const sorted = dt.perPhoto.slice().sort((a, b) => (a[ordering] || 0) - (b[ordering] || 0));
+  const mode = dt.orderMode || 'ranked';
+  const sortKey = mode === 'original' ? 'originalIndex' : (mode === 'custom' ? 'customIndex' : 'rankedIndex');
+
+  // For custom mode: also apply favorite/reject pinning since custom_index alone might not exist for every photo yet
+  let sorted;
+  if (mode === 'custom') {
+    sorted = dt.perPhoto.slice().sort((a, b) => {
+      // Favorites come first (sorted by their custom_index or originalIndex)
+      const aFav = a.isFavorite ? 0 : 1;
+      const bFav = b.isFavorite ? 0 : 1;
+      if (aFav !== bFav) return aFav - bFav;
+      // Rejects come last
+      const aRej = a.isRejected ? 1 : 0;
+      const bRej = b.isRejected ? 1 : 0;
+      if (aRej !== bRej) return aRej - bRej;
+      // Within each band: customIndex if set, else fall back to rankedIndex
+      const aIdx = (a.customIndex != null) ? a.customIndex
+                 : (a.rankedIndex != null) ? a.rankedIndex
+                 : (a.originalIndex || 0);
+      const bIdx = (b.customIndex != null) ? b.customIndex
+                 : (b.rankedIndex != null) ? b.rankedIndex
+                 : (b.originalIndex || 0);
+      return aIdx - bIdx;
+    });
+  } else {
+    sorted = dt.perPhoto.slice().sort((a, b) => (a[sortKey] || 0) - (b[sortKey] || 0));
+  }
+
   // Build URL list — fetch from current S.dpImages by key
   const urlByKey = new Map();
-  // Try to recover URLs from S._lastImgs (saved by loadDetailGallery) or fetch DB
   if (S._lastDeepTagImgs) {
     S._lastDeepTagImgs.forEach(i => urlByKey.set(i.sm_key || i.key, i.thumb_url || i.thumbUrl));
   }
-  // If we don't have it, query DB to populate
   if (!urlByKey.size) {
     const keys = sorted.map(p => p.key).filter(Boolean);
     const list = keys.map(k => `"${k}"`).join(',');
@@ -1915,24 +1940,246 @@ function dpUpdateOrderToggle() {
   const tog = $('dp-order-toggle');
   if (!tog) return;
   const dt = S.dpDeepTag;
-  if (!dt) { tog.style.display = 'none'; dpRenderDeepTagSection(); return; }
+  if (!dt) { tog.style.display = 'none'; dpRenderDeepTagSection(); dpUpdatePhotoActions(); return; }
   tog.style.display = 'block';
-  if (dt.orderMode === 'ranked') {
-    tog.textContent = '↕ ranked';
-    tog.classList.add('ranked');
-  } else {
-    tog.textContent = '↕ original';
-    tog.classList.remove('ranked');
-  }
+  const mode = dt.orderMode || 'ranked';
+  // Show mode + cycle hint
+  const labels = { custom: '↕ custom', ranked: '↕ ranked', original: '↕ original' };
+  tog.textContent = labels[mode] || '↕ order';
+  tog.classList.remove('ranked', 'custom', 'original');
+  tog.classList.add(mode);
   dpRenderDeepTagSection();
+  dpUpdatePhotoActions();
 }
 
 window.dpToggleOrder = function () {
   const dt = S.dpDeepTag;
   if (!dt) return;
-  dt.orderMode = (dt.orderMode === 'ranked') ? 'original' : 'ranked';
+  // Cycle: custom → ranked → original → custom
+  const cur = dt.orderMode || 'ranked';
+  const next = cur === 'custom'   ? 'ranked'
+             : cur === 'ranked'   ? 'original'
+             :                       'custom';
+  dt.orderMode = next;
   dpApplyOrder();
 };
+
+// Find the active photo (the one the user is currently viewing in the photo viewer)
+function dpActivePhoto() {
+  const dt = S.dpDeepTag;
+  if (!dt || !S.dpImages.length || !S._lastDeepTagImgs) return null;
+  const activeUrl = S.dpImages[S.dpIndex];
+  const matchedImg = S._lastDeepTagImgs.find(i => (i.thumb_url || i.thumbUrl) === activeUrl);
+  if (!matchedImg) return null;
+  const key = matchedImg.sm_key || matchedImg.key;
+  return dt.perPhoto.find(p => p.key === key) || null;
+}
+
+// Update the ★ / ✕ button states + visibility based on the active photo + deep-tag state
+function dpUpdatePhotoActions() {
+  const acts = $('dp-photo-actions');
+  const lbActs = $('lb-photo-actions');
+  const lbOpen = $('lightbox') && $('lightbox').classList.contains('open');
+  const photo = dpActivePhoto();
+  if (acts) acts.style.display = photo ? 'flex' : 'none';
+  if (lbActs) lbActs.style.display = (photo && lbOpen) ? 'flex' : 'none';
+  const fav = $('dp-fav-btn'), rej = $('dp-reject-btn');
+  const lbFav = $('lb-fav-btn'), lbRej = $('lb-reject-btn');
+  [fav, lbFav].forEach(b => { if (b) b.classList.toggle('active', !!(photo && photo.isFavorite)); });
+  [rej, lbRej].forEach(b => { if (b) b.classList.toggle('active', !!(photo && photo.isRejected)); });
+}
+
+// Toggle favorite — adds to front of custom order, never appears in rejected.
+window.dpToggleFavorite = async function () {
+  const photo = dpActivePhoto();
+  if (!photo) return;
+  const dt = S.dpDeepTag;
+  const wasFav = photo.isFavorite;
+  photo.isFavorite = !wasFav;
+  if (photo.isFavorite) photo.isRejected = false;  // mutual exclusion
+
+  // Compute new customIndex: favorites get negative indices (smaller = earlier)
+  // -1, -2, -3 etc. so the most recently favorited shows first
+  if (photo.isFavorite) {
+    const minFav = Math.min(0, ...dt.perPhoto.filter(p => p.isFavorite && p !== photo).map(p => p.customIndex || 0));
+    photo.customIndex = minFav - 1;
+  } else {
+    // Unfavoriting: clear custom index so it falls back to ranked-order placement
+    photo.customIndex = null;
+  }
+
+  // Switch to custom view to show the result
+  if (dt.orderMode !== 'custom') dt.orderMode = 'custom';
+
+  await dpSavePhotoState(photo, wasFav ? 'unfavorite' : 'favorite');
+  dpApplyOrder();  // re-renders the viewer with the new order
+  toast(photo.isFavorite ? '★ favorited' : 'unfavorited', 'ok');
+};
+
+// Toggle reject — pushes to back of custom order, never appears in favorites.
+window.dpToggleReject = async function () {
+  const photo = dpActivePhoto();
+  if (!photo) return;
+  const dt = S.dpDeepTag;
+  const wasRej = photo.isRejected;
+  photo.isRejected = !wasRej;
+  if (photo.isRejected) photo.isFavorite = false;
+
+  // Rejects get high indices (after the last regular position)
+  if (photo.isRejected) {
+    const maxRej = Math.max(0, ...dt.perPhoto.filter(p => p.isRejected && p !== photo).map(p => p.customIndex || 0));
+    photo.customIndex = Math.max(maxRej + 1, dt.perPhoto.length + 1000);
+  } else {
+    photo.customIndex = null;
+  }
+
+  if (dt.orderMode !== 'custom') dt.orderMode = 'custom';
+
+  await dpSavePhotoState(photo, wasRej ? 'unreject' : 'reject');
+  dpApplyOrder();
+  toast(photo.isRejected ? '✕ rejected' : 'unrejected', 'ok');
+};
+
+// Save photo state to DB + log a correction event
+async function dpSavePhotoState(photo, action) {
+  const dt = S.dpDeepTag;
+  if (!dt || !photo) return;
+  try {
+    await fetch(`${SB_URL}/rest/v1/photo_deep_tags?image_key=eq.${photo.key}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json', Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({
+        is_favorite: photo.isFavorite,
+        is_rejected: photo.isRejected,
+        custom_index: photo.customIndex
+      })
+    });
+  } catch (e) { console.warn('save photo state failed:', e); }
+
+  // Log a correction event for AI training
+  if (action) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/photo_corrections`, {
+        method: 'POST',
+        headers: {
+          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=minimal'
+        },
+        body: JSON.stringify({
+          album_key: dt.albumKey,
+          image_key: photo.key,
+          action,
+          ai_role: photo.role || null,
+          ai_composition: photo.composition || null,
+          ai_tags: photo.tags || []
+        })
+      });
+    } catch (e) { console.warn('save correction failed:', e); }
+  }
+}
+
+// ── Shift-drag: hold shift to grab a photo, arrows reorder, release shift to drop ──
+let _grabbedKey = null;
+let _grabStartIndex = -1;       // index in S.dpImages at time of grab
+let _grabStartCustomMap = null; // snapshot of {key: customIndex} at grab start (for cancel)
+function dpStartGrab() {
+  const photo = dpActivePhoto();
+  if (!photo) return;
+  _grabbedKey = photo.key;
+  _grabStartIndex = S.dpIndex;
+  // Snapshot every photo's current customIndex so we can restore on cancel
+  _grabStartCustomMap = new Map();
+  const dt = S.dpDeepTag;
+  if (dt) dt.perPhoto.forEach(p => _grabStartCustomMap.set(p.key, p.customIndex == null ? null : p.customIndex));
+  const lbOpen = $('lightbox') && $('lightbox').classList.contains('open');
+  const ind = lbOpen ? $('lb-grab-indicator') : $('dp-grab-indicator');
+  if (ind) {
+    ind.textContent = lbOpen ? '↕ SHIFT + arrows to move · SPACE to cancel' : '↕ hold SHIFT + arrow keys to move · SPACE to cancel';
+    ind.style.display = 'block';
+  }
+  if (lbOpen) $('lightbox').classList.add('grabbing');
+  else $('dp-viewer') && $('dp-viewer').classList.add('grabbing');
+}
+function dpEndGrab() {
+  if (_grabbedKey) {
+    const dt = S.dpDeepTag;
+    const photo = dt && dt.perPhoto.find(p => p.key === _grabbedKey);
+    if (photo) dpSavePhotoState(photo, 'move');
+  }
+  _grabbedKey = null;
+  _grabStartIndex = -1;
+  _grabStartCustomMap = null;
+  if ($('dp-grab-indicator')) $('dp-grab-indicator').style.display = 'none';
+  if ($('lb-grab-indicator')) $('lb-grab-indicator').style.display = 'none';
+  if ($('dp-viewer')) $('dp-viewer').classList.remove('grabbing');
+  if ($('lightbox')) $('lightbox').classList.remove('grabbing');
+}
+
+// Cancel the grab — restore each photo's customIndex to what it was at grab-start,
+// re-render the order so the grabbed photo snaps back to where it was, and don't save.
+function dpCancelGrab() {
+  if (!_grabbedKey) return;
+  const dt = S.dpDeepTag;
+  if (dt && _grabStartCustomMap) {
+    dt.perPhoto.forEach(p => {
+      if (_grabStartCustomMap.has(p.key)) p.customIndex = _grabStartCustomMap.get(p.key);
+    });
+  }
+  // Clear grab state WITHOUT saving
+  _grabbedKey = null;
+  _grabStartIndex = -1;
+  _grabStartCustomMap = null;
+  if ($('dp-grab-indicator')) $('dp-grab-indicator').style.display = 'none';
+  if ($('lb-grab-indicator')) $('lb-grab-indicator').style.display = 'none';
+  if ($('dp-viewer')) $('dp-viewer').classList.remove('grabbing');
+  if ($('lightbox')) $('lightbox').classList.remove('grabbing');
+  // Re-render the original order
+  dpApplyOrder();
+  toast('move cancelled', 'inf');
+}
+
+// Move the grabbed photo by one step in the given direction (1 = forward, -1 = back)
+// in the current order. Updates customIndex on the moved photo + neighbor.
+function dpMoveGrabbed(dir) {
+  const dt = S.dpDeepTag;
+  if (!_grabbedKey || !dt) return;
+  // Switch to custom mode so the user sees their changes accumulating
+  if (dt.orderMode !== 'custom') {
+    dt.orderMode = 'custom';
+  }
+  // Find current ordered list of keys
+  if (!S._lastDeepTagImgs || !S.dpImages.length) return;
+  const urlByKey = new Map();
+  S._lastDeepTagImgs.forEach(i => urlByKey.set(i.sm_key || i.key, i.thumb_url || i.thumbUrl));
+  const keyByUrl = new Map();
+  urlByKey.forEach((url, key) => keyByUrl.set(url, key));
+  const currentOrder = S.dpImages.map(url => keyByUrl.get(url)).filter(Boolean);
+  const grabIdx = currentOrder.indexOf(_grabbedKey);
+  if (grabIdx < 0) return;
+  const newIdx = grabIdx + dir;
+  if (newIdx < 0 || newIdx >= currentOrder.length) return;
+
+  // Swap in the array
+  const newOrder = currentOrder.slice();
+  [newOrder[grabIdx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[grabIdx]];
+
+  // Reassign customIndex based on new position. Use floats between neighbors so we
+  // don't have to renumber everything every move.
+  // Simpler: just renumber the entire list. Cheap enough for 100-200 photos.
+  newOrder.forEach((key, idx) => {
+    const p = dt.perPhoto.find(pp => pp.key === key);
+    if (p) p.customIndex = idx;
+  });
+
+  // Update the in-memory image list to match
+  S.dpImages = newOrder.map(k => urlByKey.get(k)).filter(Boolean);
+  S.dpIndex = newOrder.indexOf(_grabbedKey);
+  dpUpdateViewer();
+  dpUpdateOrderToggle();
+}
 
 // Try to load existing deep-tag results for an album when the detail panel opens
 async function dpLoadExistingDeepTag(loc) {
@@ -1949,7 +2196,7 @@ async function dpLoadExistingDeepTag(loc) {
       return;
     }
     const a = albumRes[0];
-    const photoRes = await db(`photo_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=image_key,haiku_tags,sonnet_tags,is_sharp,composition,role,room,is_top_pick,original_index,ranked_index`);
+    const photoRes = await db(`photo_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=image_key,haiku_tags,sonnet_tags,is_sharp,composition,role,room,is_top_pick,is_favorite,is_rejected,original_index,ranked_index,custom_index`);
     const perPhoto = (photoRes || []).map(r => ({
       key: r.image_key,
       tags: r.haiku_tags || [],
@@ -1959,9 +2206,14 @@ async function dpLoadExistingDeepTag(loc) {
       role: r.role || '',
       room: r.room || '',
       isTopPick: !!r.is_top_pick,
+      isFavorite: !!r.is_favorite,
+      isRejected: !!r.is_rejected,
       originalIndex: r.original_index,
-      rankedIndex: r.ranked_index
+      rankedIndex: r.ranked_index,
+      customIndex: r.custom_index
     }));
+    // Default to custom mode if any custom edits exist; otherwise ranked
+    const hasCustomEdits = perPhoto.some(p => p.isFavorite || p.isRejected || p.customIndex != null);
     S.dpDeepTag = {
       albumKey: loc.smugmug_album_key,
       perPhoto,
@@ -1970,7 +2222,7 @@ async function dpLoadExistingDeepTag(loc) {
       softCount: a.soft_count || 0,
       topPickCount: a.top_pick_count || 0,
       photoCount: a.photo_count || 0,
-      orderMode: 'original'  // default to showing original order; user toggles to ranked
+      orderMode: hasCustomEdits ? 'custom' : 'ranked'
     };
     dpUpdateOrderToggle();
   } catch (e) {
@@ -2999,10 +3251,14 @@ window.openLightbox = function (url) {
   $('lb-img').src = smXL(url);
   $('lightbox').classList.add('open');
   updateLbCounter();
+  if (typeof dpUpdatePhotoActions === 'function') dpUpdatePhotoActions();
 };
 window.closeLightbox = function () {
   $('lightbox').classList.remove('open');
   $('lb-img').src = '';
+  // Drop any grabbed photo when closing
+  if (_grabbedKey) dpEndGrab();
+  if (typeof dpUpdatePhotoActions === 'function') dpUpdatePhotoActions();
 };
 function updateLbCounter() {
   const el = $('lb-counter');
@@ -5395,6 +5651,31 @@ document.addEventListener('keydown', function (e) {
     if (lbOpen || panelOpen) {
       e.preventDefault();
       e.stopPropagation();
+
+      // Shift+arrow → reorder the grabbed photo (if any)
+      if (e.shiftKey && _grabbedKey) {
+        dpMoveGrabbed(fwd ? 1 : -1);
+        if (lbOpen) {
+          $('lb-img').src = smXL(S.dpImages[S.dpIndex]);
+          updateLbCounter();
+        }
+        return;
+      }
+      // Shift+arrow without grab yet → start grab on the active photo
+      if (e.shiftKey && !_grabbedKey) {
+        dpStartGrab();
+        // Then immediately move it one step in the requested direction
+        if (_grabbedKey) {
+          dpMoveGrabbed(fwd ? 1 : -1);
+          if (lbOpen) {
+            $('lb-img').src = smXL(S.dpImages[S.dpIndex]);
+            updateLbCounter();
+          }
+        }
+        return;
+      }
+
+      // Normal nav (no shift)
       if (S.dpImages.length) {
         S.dpIndex = fwd
           ? (S.dpIndex + 1) % S.dpImages.length
@@ -5437,6 +5718,9 @@ document.addEventListener('keydown', function (e) {
 
   if (e.key === ' ') {
     e.preventDefault();
+    // If a photo is currently grabbed via shift, space cancels the move
+    // instead of opening the lightbox.
+    if (_grabbedKey) { dpCancelGrab(); return; }
     if (lbOpen) { closeLightbox(); return; }
     if (panelOpen) {
       const src = $('dp-viewer-img').src;
@@ -5472,6 +5756,11 @@ document.addEventListener('keydown', function (e) {
     return;
   }
 }, true);  // capture phase — beats anything that might consume arrow keys downstream
+
+// Releasing shift drops the grabbed photo at its current position
+document.addEventListener('keyup', function (e) {
+  if (e.key === 'Shift' && _grabbedKey) dpEndGrab();
+}, true);
 
 document.addEventListener('click', function (e) {
   const wrap = $('actions-wrap');
