@@ -1257,6 +1257,10 @@ window.openDetail = function (loc) {
     html += '</div></div>';
   }
 
+  // Deep-tag consensus + per-photo display.
+  // Slot rendered as a placeholder; populated by dpRenderDeepTagSection() once data loads.
+  html += '<div id="dp-deep-tag-slot"></div>';
+
   // (Best Picks intentionally not shown in the detail panel — they're available in
   //  the Edit panel for review/training, and are still saved in org_album_runs.)
 
@@ -1495,6 +1499,8 @@ function dpUpdateViewer() {
   if (!none) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length;
   prev.onclick = () => dpNav(-1);
   next.onclick = () => dpNav(1);
+  // Refresh per-photo tag display when active photo changes
+  if (typeof dpRenderDeepTagSection === 'function') dpRenderDeepTagSection();
 }
 
 function dpNav(dir) {
@@ -1651,7 +1657,74 @@ async function loadDetailGallery(loc) {
   }
 }
 
-// ── Deep-tag pipeline (per-photo Haiku + top-25% Sonnet) ─────────────────────
+// ── Deep-tag pipeline (per-photo Haiku + top-30% Sonnet) ─────────────────────
+// State for the current detail panel's deep-tag run, kept in S.dpDeepTag:
+//   { albumKey, perPhoto: [{key, tags, sonnetTags, isSharp, composition, role, room, isTopPick, originalIndex, rankedIndex}],
+//     consensusTags, sharpCount, softCount, topPickCount, photoCount,
+//     orderMode: 'original' | 'ranked' }
+
+// Render the Deep Tag section — consensus tags + per-photo tags for the active photo.
+// Called after deep-tag results load, after they're freshly computed, and whenever
+// the user navigates to a different photo.
+function dpRenderDeepTagSection() {
+  const slot = $('dp-deep-tag-slot');
+  if (!slot) return;
+  const dt = S.dpDeepTag;
+  if (!dt || !dt.consensusTags || !dt.consensusTags.length) {
+    slot.innerHTML = '';
+    return;
+  }
+  // Find the active photo and its tags
+  // Map S.dpImages[S.dpIndex] (a thumb_url) → photo record via the keyed image list
+  let activePhoto = null;
+  if (S._lastDeepTagImgs && S.dpImages.length) {
+    const activeUrl = S.dpImages[S.dpIndex];
+    const matchedImg = S._lastDeepTagImgs.find(i => (i.thumb_url || i.thumbUrl) === activeUrl);
+    if (matchedImg) {
+      const key = matchedImg.sm_key || matchedImg.key;
+      activePhoto = dt.perPhoto.find(p => p.key === key);
+    }
+  }
+
+  let html = '<div class="dp-section">';
+  html += `<div class="dp-label">Deep Tags <span class="dp-label-sub">(${dt.photoCount} photos · ${dt.sharpCount} sharp · ${dt.softCount} soft · ${dt.topPickCount} top picks)</span></div>`;
+
+  // Consensus tags — chips
+  html += '<div class="dp-deep-consensus">';
+  html += '<div class="dp-deep-sublabel">Album consensus</div>';
+  html += '<div class="dp-tags">';
+  dt.consensusTags.slice(0, 30).forEach(t => {
+    html += `<span class="dp-tag dp-tag-deep">${E(t)}</span>`;
+  });
+  html += '</div></div>';
+
+  // Per-photo tags for the current image
+  if (activePhoto) {
+    const role = activePhoto.role || '';
+    const room = activePhoto.room || '';
+    const isPick = activePhoto.isTopPick;
+    const isSharp = activePhoto.is_sharp;
+    const comp = activePhoto.composition || 0;
+    const allTags = []
+      .concat(activePhoto.sonnetTags && activePhoto.sonnetTags.length ? activePhoto.sonnetTags : activePhoto.tags || []);
+
+    html += '<div class="dp-deep-current">';
+    html += '<div class="dp-deep-sublabel">This photo';
+    const meta = [];
+    if (isPick) meta.push('<span class="dp-pick-pill">★ top pick</span>');
+    if (!isSharp) meta.push('<span class="dp-soft-pill">soft</span>');
+    if (role) meta.push(`<span class="dp-role-pill">${E(role)}</span>`);
+    if (room) meta.push(`<span class="dp-room-pill">${E(room)}</span>`);
+    meta.push(`<span class="dp-comp-pill" title="composition score 1-10">${comp}/10</span>`);
+    if (meta.length) html += ' · ' + meta.join(' ');
+    html += '</div>';
+    html += '<div class="dp-tags">';
+    allTags.forEach(t => { html += `<span class="dp-tag dp-tag-deep">${E(t)}</span>`; });
+    html += '</div></div>';
+  }
+  html += '</div>';
+  slot.innerHTML = html;
+}
 // State for the current detail panel's deep-tag run, kept in S.dpDeepTag:
 //   { albumKey, perPhoto: [{key, tags, sonnetTags, isSharp, composition, isTopPick, originalIndex, rankedIndex}],
 //     consensusTags, sharpCount, softCount, topPickCount, photoCount,
@@ -1702,6 +1775,7 @@ window.dpDeepTag = async function () {
         albumName: loc.name,
         albumNotes: loc.notes || '',
         albumTags: loc.tags || [],
+        albumCategory: getCatForLoc(loc) || '',
         images: imageList.map(i => ({ key: i.sm_key, url: i.thumb_url }))
       })
     });
@@ -1752,6 +1826,8 @@ async function dpSaveDeepTagResults(loc, data) {
       sonnet_tags: p.sonnetTags || [],
       is_sharp: p.is_sharp !== false,
       composition: p.composition || 5,
+      role: p.role || null,
+      room: p.room || null,
       is_top_pick: !!p.isTopPick,
       original_index: p.originalIndex,
       ranked_index: p.rankedIndex,
@@ -1839,7 +1915,7 @@ function dpUpdateOrderToggle() {
   const tog = $('dp-order-toggle');
   if (!tog) return;
   const dt = S.dpDeepTag;
-  if (!dt) { tog.style.display = 'none'; return; }
+  if (!dt) { tog.style.display = 'none'; dpRenderDeepTagSection(); return; }
   tog.style.display = 'block';
   if (dt.orderMode === 'ranked') {
     tog.textContent = '↕ ranked';
@@ -1848,6 +1924,7 @@ function dpUpdateOrderToggle() {
     tog.textContent = '↕ original';
     tog.classList.remove('ranked');
   }
+  dpRenderDeepTagSection();
 }
 
 window.dpToggleOrder = function () {
@@ -1872,13 +1949,15 @@ async function dpLoadExistingDeepTag(loc) {
       return;
     }
     const a = albumRes[0];
-    const photoRes = await db(`photo_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=image_key,haiku_tags,sonnet_tags,is_sharp,composition,is_top_pick,original_index,ranked_index`);
+    const photoRes = await db(`photo_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=image_key,haiku_tags,sonnet_tags,is_sharp,composition,role,room,is_top_pick,original_index,ranked_index`);
     const perPhoto = (photoRes || []).map(r => ({
       key: r.image_key,
       tags: r.haiku_tags || [],
       sonnetTags: r.sonnet_tags || [],
       is_sharp: r.is_sharp !== false,
       composition: r.composition || 5,
+      role: r.role || '',
+      room: r.room || '',
       isTopPick: !!r.is_top_pick,
       originalIndex: r.original_index,
       rankedIndex: r.ranked_index
