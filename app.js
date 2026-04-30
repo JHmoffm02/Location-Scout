@@ -325,7 +325,9 @@ function fmtUsd(cents100ths) {
 
 window.openUsagePanel = function () {
   $('usage-modal').style.display = 'flex';
-  renderUsage(S.usageView || 'session');
+  // Default to "Today" so the count survives page refresh.
+  // (Session counter is in-memory and resets on reload.)
+  renderUsage(S.usageView || 'day');
 };
 
 window.renderUsage = async function (period) {
@@ -3141,13 +3143,33 @@ window.runAiSearch = async function () {
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'AI search failed');
-    // Bill per actual payload size — the trimmed payload costs significantly less
-    // than the old version. We log it as one search event; the cost-cents override
-    // reflects the realistic post-trim cost (~$0.02 per search at 250 candidates).
+
+    // Bill from actual token usage (Haiku 4.5: $1/M input, $5/M output, cached input 90% off)
+    const u = data.usage || {};
+    const inputTok       = u.input_tokens || 0;
+    const cacheReadTok   = u.cache_read_input_tokens || 0;
+    const cacheWriteTok  = u.cache_creation_input_tokens || 0;
+    const outputTok      = u.output_tokens || 0;
+    // 1/100ths of a cent per token at $1/M = 0.0001 cents per token = 0.01 of our unit
+    // So input_tokens × 1.00 in our cost-cents-100ths units when rate is $1/M
+    // Our unit: cost_cents stored as integer, where 100 = $0.01 → $1/M tokens = 100 / 1,000,000 = 0.0001
+    // Multiplied by 100ths-of-cent precision (×100) → 0.01 cost-cents-100ths per token.
+    // For Haiku: input $1/M → 0.01 per token. Output $5/M → 0.05. Cache read 10% of input → 0.001. Cache write 1.25× input → 0.0125.
+    const costCents = Math.round(
+      inputTok      * 0.01  +
+      outputTok     * 0.05  +
+      cacheReadTok  * 0.001 +
+      cacheWriteTok * 0.0125
+    );
     trackUsage('haiku-search', {
-      costCents: 200,  // ~$0.02 — was 10000 ($0.10) before, now ~5x cheaper
-      meta: { query, candidates: summaries.length, total_locations: S.locations.length }
+      costCents,
+      meta: {
+        query, candidates: summaries.length, total_locations: S.locations.length,
+        input_tokens: inputTok, output_tokens: outputTok,
+        cache_read: cacheReadTok, cache_write: cacheWriteTok
+      }
     });
+    console.log(`[ai-search] tokens: in=${inputTok} out=${outputTok} cache-read=${cacheReadTok} cache-write=${cacheWriteTok} → cost=${(costCents/10000).toFixed(4)}`);
     const matches = data.matches || [];
 
     if (!matches.length) {
