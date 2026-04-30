@@ -148,24 +148,51 @@ async function callAnthropic(model, system, userContent, apiKey, maxTokens) {
   throw lastErr || new Error('Anthropic call failed');
 }
 
-// ── Stage 1: Haiku tags + focus + composition ────────────────────────────────
-function stage1SystemPrompt(albumName, albumNotes, albumTags) {
-  return `You analyze film/TV scout photos. For each photo in this batch, return:
-  • 5-8 concrete descriptive tags (architecture, materials, mood, lighting, subjects, room types)
-  • is_sharp: TRUE if the main subject is in good focus, FALSE if motion-blurred, out of focus, or a logistic mistake shot
-  • composition: integer 1-10 of overall photo quality / aesthetic appeal (10 = striking, well-composed; 1 = blurry or accidental)
+// ── Stage 1: Haiku tags + focus + composition + ROLE ────────────────────────
+function stage1SystemPrompt(albumName, albumNotes, albumTags, albumCategory) {
+  // Try to detect what kind of place this is so the prompt can prioritize accordingly
+  const cat = (albumCategory || '').toLowerCase();
+  const isResidence = /residence|house|home|mansion|apartment|brownstone|townhouse|loft/.test(cat);
+  const isCommercial = /restaurant|bar|cafe|store|shop|hotel|office|warehouse/.test(cat);
+  const isOutdoor = /park|garden|street|beach|lot/.test(cat);
 
-ALBUM CONTEXT (use to bias your tagging — bias tags toward what's notable for this album):
+  let typeGuidance = '';
+  if (isResidence) {
+    typeGuidance = `\nThis is a RESIDENTIAL location. The most important photos are: (1) the hero exterior of the front, (2) the entry views, (3) wide establishing shots of each interior room. Most photos should be interior. Outdoor/garden shots are useful but secondary.`;
+  } else if (isCommercial) {
+    typeGuidance = `\nThis is a COMMERCIAL location. The most important photos are: (1) the storefront/entrance from outside, (2) the entry view from inside, (3) wide establishing shots of the main interior spaces, (4) any distinctive features (bar, dining room, kitchen). Most photos should be interior.`;
+  } else if (isOutdoor) {
+    typeGuidance = `\nThis is an OUTDOOR location. Wide establishing shots and varied angles of the space are most important.`;
+  }
+
+  return `You analyze film/TV scout photos. For each photo in this batch, return concrete useful metadata.
+
+ALBUM CONTEXT:
   Album: ${albumName || '(unnamed)'}
+  ${albumCategory ? `Category: ${albumCategory}` : ''}
   ${albumNotes ? `Notes excerpt: ${String(albumNotes).slice(0, 400)}` : ''}
-  ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}
+  ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}
 
-TAG GUIDELINES — multi-word tags use hyphens. Pick whichever genuinely apply. Don't include the location name. Don't include generic words like "interior" / "building".
+FOR EACH PHOTO, output:
+  • tags: 5-8 concrete descriptive tags (architecture, materials, mood, lighting, room types, distinctive features). Multi-word tags use hyphens. No location names. No generic words like "interior"/"building".
+  • is_sharp: TRUE if the main subject is in good focus, FALSE if motion-blurred, badly focused, or an accidental shot.
+  • composition: integer 1-10 of overall photo quality (10 = striking and well-composed; 1 = blurry/mistaken).
+  • role: ONE of these labels:
+      - "hero-exterior"  — establishing shot of the front/main facade of the building/property
+      - "side-exterior"  — exterior from a side or back angle, or supporting exterior context
+      - "entry-in"       — looking INTO the space from outside (e.g. from the front door looking in, from sidewalk looking at storefront)
+      - "entry-out"      — looking OUT FROM inside the space toward the entry/door
+      - "room-overview"  — a WIDE SHOT establishing a particular interior room or distinct space
+      - "room-detail"    — a closer/featured detail of furniture, art, materials, or a corner of a room
+      - "outdoor-feature" — a yard, garden, pool, patio, deck, courtyard — distinct outdoor features that aren't the front facade
+      - "logistic"       — accidental, redundant, plain, or low-value (partial wall, single stair without context, doorbell closeup, signage shot, parking lot ground, blurry mistake, navigational shot like an empty hallway with no character)
+      - "transition"     — passages between rooms with no notable features (plain hallways, stairwells without character, vestibules)
+  • room: short label of which room/area this is (e.g. "kitchen", "primary-bedroom", "living-room", "bath-1", "back-yard", "front-exterior", "entry"). Use a consistent label across photos of the same room. Empty string if unknown.
 
 OUTPUT — return ONLY this JSON, no prose, no markdown fences:
 {
   "photos": [
-    { "i": 0, "tags": ["..."], "is_sharp": true, "composition": 7 },
+    { "i": 0, "tags": ["..."], "is_sharp": true, "composition": 7, "role": "room-overview", "room": "kitchen" },
     { "i": 1, ... }
   ]
 }`;
@@ -185,24 +212,24 @@ async function stage1Batch(album, batch, apiKey) {
     userParts.push({ type: 'image', source: p.src });
   });
 
-  const sys = stage1SystemPrompt(album.name, album.notes, album.tags);
-  const r = await callAnthropic(HAIKU, sys, userParts, apiKey, 1500);
+  const sys = stage1SystemPrompt(album.name, album.notes, album.tags, album.category);
+  const r = await callAnthropic(HAIKU, sys, userParts, apiKey, 1800);
   const parsed = parseJSON(r.text);
   const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
 
-  // Map back to image keys via local index
   const results = [];
   validPairs.forEach((p, i) => {
     const m = photos.find(x => x && x.i === i);
     if (!m) {
-      // No record for this photo — assume sharp, default composition
-      results.push({ key: p.img.key, tags: [], is_sharp: true, composition: 5 });
+      results.push({ key: p.img.key, tags: [], is_sharp: true, composition: 5, role: 'unknown', room: '' });
     } else {
       results.push({
         key: p.img.key,
         tags: Array.isArray(m.tags) ? m.tags : [],
-        is_sharp: m.is_sharp !== false,  // default to sharp on missing field
-        composition: typeof m.composition === 'number' ? Math.max(1, Math.min(10, m.composition)) : 5
+        is_sharp: m.is_sharp !== false,
+        composition: typeof m.composition === 'number' ? Math.max(1, Math.min(10, m.composition)) : 5,
+        role: typeof m.role === 'string' ? m.role : 'unknown',
+        room: typeof m.room === 'string' ? m.room.toLowerCase().trim() : ''
       });
     }
   });
@@ -234,7 +261,98 @@ function distillConsensus(perPhoto) {
   };
 }
 
-// ── Stage 4: Sonnet enriched tags for top picks ─────────────────────────────
+// ── Pick the walkthrough — top ~30% structured as a scout's tour ──
+// Order of priorities:
+//   1. 1-2 best hero-exterior  (capped — lead-in only)
+//   2. 1 best entry-in
+//   3. 1 best entry-out
+//   4. For each unique room: 1 best room-overview
+//   5. Fill remaining slots from room-detail (best per room not already represented)
+//      and additional room-overview / outdoor-feature shots
+//   6. Skip logistic + transition entirely
+//
+// Returns the SET of chosen image keys + a tour-ordered list (by role priority).
+function pickWalkthrough(perPhoto, targetCount) {
+  // Only consider sharp photos
+  const sharp = perPhoto.filter(p => p.is_sharp);
+  // Group by role
+  const byRole = {};
+  sharp.forEach(p => {
+    const r = p.role || 'unknown';
+    if (!byRole[r]) byRole[r] = [];
+    byRole[r].push(p);
+  });
+  // Sort each bucket by composition (high first), then by originalIndex (chronological)
+  Object.keys(byRole).forEach(r => {
+    byRole[r].sort((a, b) => (b.composition - a.composition) || (a.originalIndex - b.originalIndex));
+  });
+
+  const picked = [];
+  const pickedKeys = new Set();
+  function pick(p) {
+    if (!p || pickedKeys.has(p.key)) return false;
+    pickedKeys.add(p.key);
+    picked.push(p);
+    return true;
+  }
+
+  // (1) Up to 2 hero-exteriors — but cap at min(2, target * 0.15) so they don't dominate
+  const heroLimit = Math.min(2, Math.max(1, Math.floor(targetCount * 0.15)));
+  (byRole['hero-exterior'] || []).slice(0, heroLimit).forEach(pick);
+
+  // (2) 1 entry-in
+  const entryIn = (byRole['entry-in'] || [])[0];
+  if (entryIn) pick(entryIn);
+
+  // (3) 1 entry-out
+  const entryOut = (byRole['entry-out'] || [])[0];
+  if (entryOut) pick(entryOut);
+
+  // (4) For each unique room (excluding entries / exterior / outdoor), best room-overview
+  const roomOverviews = byRole['room-overview'] || [];
+  const seenRooms = new Set();
+  roomOverviews.forEach(p => {
+    if (picked.length >= targetCount) return;
+    const room = p.room || `room-${p.originalIndex}`;
+    if (seenRooms.has(room)) return;
+    seenRooms.add(room);
+    pick(p);
+  });
+
+  // (5) Fill remaining slots — interleave by quality:
+  //     room-detail shots (1 per uncovered room first), additional overviews, outdoor-feature, side-exterior
+  const remaining = [];
+  // Room-details for rooms NOT yet represented by an overview (best per room)
+  const detailsByRoom = {};
+  (byRole['room-detail'] || []).forEach(p => {
+    const r = p.room || `room-${p.originalIndex}`;
+    if (!detailsByRoom[r]) detailsByRoom[r] = [];
+    detailsByRoom[r].push(p);
+  });
+  Object.keys(detailsByRoom).forEach(r => {
+    if (!seenRooms.has(r) && detailsByRoom[r].length) {
+      remaining.push(detailsByRoom[r][0]);
+    }
+  });
+  // Then any other top-quality shots from the remaining pool
+  const fallbackPool = [
+    ...(byRole['room-overview'] || []).slice(seenRooms.size),
+    ...(byRole['room-detail']    || []),
+    ...(byRole['outdoor-feature'] || []),
+    ...(byRole['side-exterior']   || []).slice(0, 2),  // cap supporting exteriors
+    ...(byRole['unknown']         || [])
+  ];
+  fallbackPool.sort((a, b) => (b.composition - a.composition) || (a.originalIndex - b.originalIndex));
+  remaining.push(...fallbackPool);
+
+  // Pick from remaining until we hit target
+  for (const p of remaining) {
+    if (picked.length >= targetCount) break;
+    pick(p);
+  }
+
+  return pickedKeys;
+}
 function stage4SystemPrompt(albumName, consensusTags) {
   return `You are providing enriched, high-detail keywords for the BEST photos in a film/TV scout album.
 
@@ -323,7 +441,8 @@ module.exports = async function handler(req, res) {
       key: albumKey,
       name: body.albumName || '',
       notes: body.albumNotes || '',
-      tags: Array.isArray(body.albumTags) ? body.albumTags : []
+      tags: Array.isArray(body.albumTags) ? body.albumTags : [],
+      category: body.albumCategory || ''  // e.g. "residences", "restaurants" — drives prompt bias
     };
     if (!albumKey) return res.status(400).json({ ok: false, error: 'albumKey required' });
     if (!images.length) return res.status(400).json({ ok: false, error: 'images required' });
@@ -363,14 +482,15 @@ module.exports = async function handler(req, res) {
     // ── STAGE 2: distill consensus tags ──
     const { consensus_tags, outlier_tags } = distillConsensus(perPhoto);
 
-    // ── STAGE 3: focus check (already merged into Stage 1 — just count) ──
+    // ── STAGE 3: focus check (already merged into Stage 1) ──
     const sharpPhotos = perPhoto.filter(p => p.is_sharp);
     const softCount = perPhoto.length - sharpPhotos.length;
 
-    // ── STAGE 4: top 25% by composition score, run Sonnet ──
-    sharpPhotos.sort((a, b) => (b.composition || 0) - (a.composition || 0));
-    const topCount = Math.max(1, Math.ceil(sharpPhotos.length * 0.25));
-    const topPickKeys = new Set(sharpPhotos.slice(0, topCount).map(p => p.key));
+    // ── STAGE 4: walkthrough-style top picks (~30%) ──
+    // Roles drive selection (hero exterior → entry → rooms → details), composition breaks ties.
+    // Logistic + transition shots are excluded entirely.
+    const targetCount = Math.max(1, Math.ceil(perPhoto.length * 0.30));
+    const topPickKeys = pickWalkthrough(perPhoto, targetCount);
     perPhoto.forEach(p => { p.isTopPick = topPickKeys.has(p.key); });
 
     // Build batches of top picks with their URLs (from the original images list)
@@ -403,21 +523,39 @@ module.exports = async function handler(req, res) {
       else p.sonnetTags = [];
     });
 
-    // Compute ranked_index: chronological order within top picks first, then everything else
-    perPhoto.sort((a, b) => (a.originalIndex || 0) - (b.originalIndex || 0));
-    let rankedPos = 0;
-    // Pass 1: top picks in chrono order
-    perPhoto.forEach(p => {
-      if (p.isTopPick) p.rankedIndex = rankedPos++;
+    // Compute ranked_index: top picks in TOUR ORDER, then sharp non-picks chronologically, then soft.
+    // Tour order = hero → entry-in → entry-out → room-overviews (chrono) → room-details (chrono) → other (chrono).
+    const ROLE_ORDER = {
+      'hero-exterior':   1,
+      'entry-in':        2,
+      'entry-out':       3,
+      'room-overview':   4,
+      'room-detail':     5,
+      'outdoor-feature': 6,
+      'side-exterior':   7,
+      'unknown':         8,
+      'transition':      9,
+      'logistic':       10
+    };
+    const tourSorted = perPhoto.slice().sort((a, b) => {
+      // Top picks first (and within them, by tour-role then chrono)
+      const aPick = a.isTopPick ? 0 : 1;
+      const bPick = b.isTopPick ? 0 : 1;
+      if (aPick !== bPick) return aPick - bPick;
+      if (aPick === 0) {
+        // Both top picks — order by role priority, then chronologically within role
+        const ra = ROLE_ORDER[a.role] || 99;
+        const rb = ROLE_ORDER[b.role] || 99;
+        if (ra !== rb) return ra - rb;
+        return (a.originalIndex || 0) - (b.originalIndex || 0);
+      }
+      // Both NOT top picks — sharp first (chrono), then soft (chrono)
+      const aSharp = a.is_sharp ? 0 : 1;
+      const bSharp = b.is_sharp ? 0 : 1;
+      if (aSharp !== bSharp) return aSharp - bSharp;
+      return (a.originalIndex || 0) - (b.originalIndex || 0);
     });
-    // Pass 2: sharp non-top in chrono order
-    perPhoto.forEach(p => {
-      if (!p.isTopPick && p.is_sharp) p.rankedIndex = rankedPos++;
-    });
-    // Pass 3: soft photos at the end, chrono order
-    perPhoto.forEach(p => {
-      if (!p.is_sharp) p.rankedIndex = rankedPos++;
-    });
+    tourSorted.forEach((p, idx) => { p.rankedIndex = idx; });
 
     const costCents = calcCost(haikuUsage, sonnetUsage);
 
@@ -429,7 +567,7 @@ module.exports = async function handler(req, res) {
       photoCount: perPhoto.length,
       sharpCount: sharpPhotos.length,
       softCount,
-      topPickCount: topCount,
+      topPickCount: topPickKeys.size,
       usage: {
         haiku:  haikuUsage,
         sonnet: sonnetUsage
