@@ -160,6 +160,19 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .dp-arrow.prev{left:0;border-radius:0 4px 4px 0}
 .dp-arrow.next{right:0;border-radius:4px 0 0 4px}
 .dp-counter{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:9px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.6);background:rgba(0,0,0,.5);padding:3px 10px;border-radius:10px;backdrop-filter:blur(4px);letter-spacing:.06em}
+.dp-order-toggle{
+  position:absolute;bottom:10px;right:10px;
+  font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
+  color:rgba(255,255,255,.6);background:rgba(0,0,0,.5);
+  padding:3px 10px;border-radius:10px;backdrop-filter:blur(4px);
+  border:1px solid rgba(255,255,255,.15);cursor:pointer;
+  transition:all .12s;
+}
+.dp-order-toggle:hover{color:#fff;border-color:rgba(255,255,255,.3)}
+.dp-order-toggle.ranked{
+  color:var(--accent);border-color:var(--accent2);
+  background:rgba(200,169,110,.15);
+}
 .dp-hint{position:absolute;bottom:10px;right:10px;font-size:8px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.3);pointer-events:none}
 .dp-body{padding:16px 18px 24px}
 .dp-status-row{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
@@ -898,6 +911,7 @@ mark.search-hit{
       <button class="dp-arrow prev" id="dp-prev" style="display:none" aria-label="Previous photo">&#8249;</button>
       <button class="dp-arrow next" id="dp-next" style="display:none" aria-label="Next photo">&#8250;</button>
       <div class="dp-counter" id="dp-counter" style="display:none"></div>
+      <button class="dp-order-toggle" id="dp-order-toggle" style="display:none" onclick="dpToggleOrder()" title="Switch between AI-ranked order (top picks first) and original chronological order">↕ order</button>
       <div class="dp-hint" id="dp-hint" style="display:none">space · lightbox &nbsp; enter · switch view</div>
     </div>
     <div class="dp-body" id="dp-body"></div>
