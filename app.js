@@ -1400,6 +1400,71 @@ Cost: up to ~$${(total * 0.03).toFixed(2)}, typically much less.`
   if (ns) ns.textContent = '';
 };
 
+// Re-extract structured address fields from notes for any locations missing them.
+// Useful after the first migration wiped these fields — pulls them back via the parser
+// without needing a SmugMug sync round-trip.
+window.reextractAddresses = async function () {
+  closeDock();
+  if (!window.NotesParser) { toast('Parser not loaded', 'err'); return; }
+
+  // Find candidates: locations where address fields look empty but notes exist
+  const candidates = S.locations.filter(l =>
+    (l.notes && l.notes.trim()) &&
+    (!l.state_code || !l.city || !l.address)
+  );
+  if (!candidates.length) { toast('Nothing to re-extract — all addresses populated', 'inf'); return; }
+
+  // Run the parser on each — locally, no network
+  const updates = [];
+  for (const loc of candidates) {
+    const parsed = NotesParser.parse(loc.notes, { locName: loc.name });
+    const a = parsed && parsed.address;
+    if (!a) continue;
+    const patch = {};
+    if (!loc.address    && a.street) patch.address    = a.street;
+    if (!loc.city       && a.city)   patch.city       = a.city;
+    if (!loc.state_code && a.state)  patch.state_code = a.state;
+    if (!loc.zip        && a.zip && S.migrationRan) patch.zip = a.zip;
+    if (!loc.address_cross && a.cross && S.migrationRan) patch.address_cross = a.cross;
+    if (Object.keys(patch).length) updates.push({ id: loc.id, patch, loc });
+  }
+
+  if (!updates.length) { toast('Found no parseable addresses in unfilled locations', 'inf'); return; }
+
+  if (!confirm(`Re-extract address fields from notes for ${updates.length} location${updates.length !== 1 ? 's' : ''}?\n\nThis only fills in EMPTY fields — anything you've manually set is preserved. No network calls; no cost.`)) return;
+
+  const ns = $('nav-status');
+  let written = 0;
+  for (let i = 0; i < updates.length; i++) {
+    const u = updates[i];
+    if (ns) ns.textContent = `re-extracting ${i + 1}/${updates.length}…`;
+    try {
+      await fetch(`${SB_URL}/rest/v1/locations?id=eq.${u.id}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=minimal'
+        },
+        body: JSON.stringify(u.patch)
+      });
+      Object.assign(u.loc, u.patch);
+      written++;
+    } catch (e) { console.warn('reextract patch failed:', e); }
+  }
+  // Refresh cache + lookups + state checkboxes
+  try {
+    const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+    if (cached && cached.data) {
+      cached.data = S.locations;
+      localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+    }
+  } catch (e) {}
+  rebuildLookups();
+  if (S.gmap) refreshPins();
+  if (ns) ns.textContent = '';
+  toast(`Re-extracted addresses for ${written} location${written !== 1 ? 's' : ''}`, 'ok');
+};
+
 window.fixMissingThumbnails = async function () {
   if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
   closeDock();
@@ -2707,6 +2772,7 @@ function updateAuthUI(ok) {
   const th = $('dock-thumbs-btn');
   const pp = $('dock-pin-btn');
   const sc = $('dock-scrub-btn');
+  const re = $('dock-reextract-btn');
   if (ok) {
     lbl.textContent = 'smugmug ✓'; btn.classList.remove('unconnected');
     if (ab) ab.style.display = 'none';
@@ -2716,6 +2782,7 @@ function updateAuthUI(ok) {
     if (th) th.style.display = 'flex';
     if (pp) pp.style.display = 'flex';
     if (sc) sc.style.display = 'flex';
+    if (re) re.style.display = 'flex';
   } else {
     lbl.textContent = 'smugmug'; btn.classList.add('unconnected');
     if (ab) ab.style.display = 'flex';
@@ -2725,6 +2792,7 @@ function updateAuthUI(ok) {
     if (th) th.style.display = 'none';
     if (pp) pp.style.display = 'none';
     if (sc) sc.style.display = 'none';
+    if (re) re.style.display = 'none';
   }
 }
 
