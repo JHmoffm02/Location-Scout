@@ -1,1182 +1,698 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Jordan B. Hoffman — Locations</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
-<style>
-:root{
-  --bg:#08090b;--bg2:#0e0f12;--bg3:#15171a;--bg4:#1c1e22;
-  --border:rgba(255,255,255,.05);--border2:rgba(255,255,255,.1);--border3:rgba(255,255,255,.18);
-  --text:#e6e4de;--text2:#7a7874;--text3:#3a3836;
-  --accent:#c8a96e;--accent2:#8a6d3e;--accentd:rgba(200,169,110,.12);
-  --green:#4caf82;--blue:#5b9bd5;--amber:#d4943a;--red:#c26060;
-  --radius:6px;--shadow:0 8px 32px rgba(0,0,0,.8);
-}
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;overflow:hidden}
-button{font-family:inherit}
+// api/deep_tag.js — multi-stage album analysis pipeline.
+//
+// PIPELINE (driven by ?stage= query param so the frontend runs in steps):
+//
+//   stage=classify  Haiku on MEDIUM images. Per photo, returns:
+//                     - description (1 sentence, ~15-25 words)
+//                     - tags (5-8 keywords)
+//                     - role / room / composition / is_sharp
+//                     - reject (boolean — strict, includes blank/blurry/contextless)
+//                   Optionally takes contextImageUrls (1-5 centerpieces) as priming.
+//                   Frontend pre-filters obviously-blank images via local blur detection
+//                   before this stage runs, so we never pay to look at junk.
+//
+//   stage=organize  Sonnet WITH IMAGES of up to 60 best candidates.
+//                   Receives centerpieces + actual photos + per-photo descriptions/tags.
+//                   Returns the walkthrough order + top-pick set.
+//
+//   stage=enrich    Sonnet on LARGE images of top picks. Adds richer keywords.
+//
+// (The old separate "triage" stage is gone — its job was redundant with classify
+//  once we added is_sharp + reject + role=logistic detection. Local blur filtering
+//  handles the obvious junk; AI handles the judgment calls.)
 
-/* Focus visibility — accessibility */
-button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
-.nav-btn:focus-visible,.gcard:focus-visible,.dp-btn:focus-visible,.dock-btn:focus-visible{
-  outline:2px solid var(--accent);outline-offset:2px;
-}
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+const HAIKU = 'claude-haiku-4-5';
+const SONNET = 'claude-sonnet-4-5';
 
-/* ── Shell ── */
-#shell{display:flex;flex-direction:column;height:100vh}
-#header{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0;position:relative;z-index:10}
-#header h1{font-family:'DM Mono',monospace;font-size:11px;font-weight:400;letter-spacing:.25em;color:var(--accent);text-transform:uppercase}
-#nav{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;position:relative;z-index:10}
-#nav-status{position:absolute;left:14px;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap}
-.nav-btn{padding:0 28px;height:44px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:color .15s;text-transform:uppercase;display:inline-flex;align-items:center;justify-content:center;vertical-align:top;line-height:1}
-.nav-btn:hover{color:var(--text2)}
-.nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
-#pages{flex:1;overflow:hidden;position:relative}
-.page{position:absolute;inset:0;display:none;flex-direction:column}
-.page.active{display:flex}
+const ALLOWED_ORIGINS = new Set([
+  'https://location-scout-sand.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5173'
+]);
 
-/* ── Home ── */
-#home-page{background:var(--bg);overflow:hidden;display:flex;flex-direction:row}
+const CLASSIFY_BATCH_SIZE = 8;    // medium-image batches; smaller = less memory peak
+const ENRICH_BATCH_SIZE   = 6;
+const PARALLEL_BATCHES    = 1;    // sequential — predictable memory profile, avoids OOM on Vercel
+const MAX_RETRIES         = 3;
 
-/* ── Left Filter Panel ── */
-#left-panel{width:180px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-#lp-head{padding:10px 12px 8px;font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.16em;color:var(--text3);text-transform:uppercase;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;justify-content:space-between;align-items:center}
-#lp-head button{font-size:8px;font-family:'DM Mono',monospace;color:var(--text3);background:none;border:none;cursor:pointer;letter-spacing:.06em;padding:2px 4px;border-radius:3px}
-#lp-head button:hover{color:var(--accent);background:var(--accentd)}
-#lp-body{flex:1;overflow-y:auto;padding:4px 0 40px}
-#lp-body::-webkit-scrollbar{width:2px}
-#lp-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.lp-cat{border-bottom:1px solid var(--border)}
-.lp-cat-row{display:flex;align-items:center;gap:6px;padding:6px 10px;user-select:none;cursor:pointer}
-.lp-cat-row:hover{background:var(--bg3)}
-.lp-col{width:10px;height:10px;border-radius:50%;flex-shrink:0;transition:all .15s;border:1.5px solid rgba(0,0,0,.4)}
-.lp-col.active{box-shadow:0 0 7px currentColor}
-.lp-cat-name{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s;cursor:pointer}
-.lp-cat-name:hover{color:var(--text)}
-.lp-cat-name.active{color:var(--text);font-weight:500}
-.lp-cat-name.dimmed{color:var(--text3)}
-.lp-tog{font-size:15px;color:var(--text2);cursor:pointer;padding:0 2px;transition:transform .2s;flex-shrink:0;line-height:1;font-weight:300}
-.lp-tog:hover{color:var(--text)}
-.lp-tog.open{transform:rotate(90deg)}
-.lp-areas{display:none;padding-bottom:2px}
-.lp-areas.open{display:block}
-.lp-area-row{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;user-select:none;cursor:pointer}
-.lp-area-row:hover{background:var(--bg3)}
-.lp-area-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--border2);transition:all .15s}
-.lp-area-dot.active{box-shadow:0 0 4px currentColor}
-.lp-area-name{font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .15s}
-.lp-area-name.active{color:var(--text2)}
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function smThumb(url)  { return url ? url.replace(/\/(Ti|S|M|L|XL|X2|X3|X4|X5|O)\//, '/Th/') : ''; }
+function smMedium(url) { return url ? url.replace(/\/(Th|Ti|S|L|XL|X2|X3|X4|X5|O)\//, '/M/') : ''; }
+function smLarge(url)  { return url ? url.replace(/\/(Th|Ti|S|M|XL|X2|X3|X4|X5|O)\//, '/L/') : ''; }
 
-/* ── Map ── */
-#map-wrap{flex:1;position:relative;overflow:hidden}
-#the-map{position:absolute;inset:0}
-#map-controls{
-  position:fixed;bottom:0;left:180px;right:0;z-index:15;
-  background:linear-gradient(transparent,rgba(8,9,11,.95) 30%);
-  padding:24px 20px 12px;
-  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  pointer-events:none;
-}
-#map-controls > *{pointer-events:auto}
-.mc-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.mc-label{font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.16em;color:var(--text3);text-transform:uppercase;margin-right:2px}
-.mc-sep{width:1px;height:18px;background:var(--border2);flex-shrink:0}
-.state-checkboxes-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.state-count{
-  font-size:9px;color:var(--text3);margin-left:2px;
-  font-family:'DM Mono',monospace;
-}
-.fi{display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
-.fi input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
-.fi label{font-size:10px;font-family:'DM Mono',monospace;color:var(--text2);cursor:pointer}
-.zone-tog{display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border2);border-radius:20px;background:rgba(0,0,0,.4);cursor:pointer;transition:all .15s}
-.zone-tog:hover{border-color:var(--red)}
-.zone-tog.on{border-color:var(--red);background:rgba(194,96,96,.1)}
-.zdot{width:6px;height:6px;border-radius:50%;border:1.5px solid var(--red);flex-shrink:0}
-.zone-tog.on .zdot{background:var(--red)}
-
-/* ── Hover card ── */
-.hcard{position:absolute;z-index:20;width:300px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;overflow:hidden;pointer-events:none;opacity:0;transform:translateY(6px) scale(.97);transition:opacity .15s,transform .15s;box-shadow:var(--shadow)}
-.hcard.show{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
-.hcard-img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;cursor:pointer;background:var(--bg4)}
-.hcard-ph{width:100%;aspect-ratio:16/9;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.08em}
-.hcard-body{padding:10px 12px}
-.hcard-name{font-size:13px;font-weight:500;margin-bottom:3px;cursor:pointer;line-height:1.3}
-.hcard-name:hover{color:var(--accent)}
-.hcard-meta{font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:6px;display:flex;gap:8px;align-items:center}
-.hcard-cat-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block}
-.hcard-foot{display:flex;justify-content:space-between;align-items:center}
-.hcard-status{font-size:9px;font-family:'DM Mono',monospace}
-.hcard-btns{display:flex;gap:4px}
-.hcard-btn{font-size:9px;font-family:'DM Mono',monospace;cursor:pointer;padding:3px 8px;border:1px solid var(--border2);border-radius:3px;background:transparent;color:var(--text3);transition:all .12s}
-.hcard-btn:hover{border-color:var(--accent2);color:var(--accent)}
-.hcard-btn.pri{color:var(--accent);border-color:var(--accent2)}
-
-/* ── Detail panel ── */
-#detail-panel{position:fixed;top:0;right:0;width:48vw;min-width:380px;max-width:820px;height:100vh;z-index:600;background:var(--bg2);border-left:1px solid var(--border2);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);box-shadow:-12px 0 48px rgba(0,0,0,.9)}
-#detail-panel.open{transform:translateX(0)}
-.dp-header{padding:14px 16px 12px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
-.dp-name{font-size:17px;font-weight:500;line-height:1.3;flex:1}
-.dp-header-bar{
-  display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;
-}
-.dp-header-bar .dp-cat-pill,
-.dp-header-bar .dp-status-pill,
-.dp-header-bar .dp-zone-pill{
-  font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.08em;
-  padding:2px 8px;border-radius:10px;text-transform:uppercase;line-height:1.6;
-  white-space:nowrap;
-}
-.dp-zone-pill{color:var(--green);border:1px solid rgba(76,175,130,.35)}
-.dp-header-bar .dp-asof-pill{
-  font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.06em;
-  padding:2px 8px;border-radius:10px;line-height:1.6;white-space:nowrap;
-  color:var(--text3);border:1px solid var(--border2);
-}
-.dp-header-bar .dp-hbtn{
-  font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
-  padding:3px 9px;border-radius:10px;cursor:pointer;
-  background:transparent;color:var(--text3);
-  border:1px solid var(--border2);transition:all .12s;
-  margin-left:2px;
-}
-.dp-header-bar .dp-hbtn:hover{border-color:var(--accent2);color:var(--accent)}
-.dp-header-bar .dp-hbtn-sep{
-  width:1px;height:14px;background:var(--border);margin:0 2px;
-}
-.dp-close{background:none;border:1px solid var(--border2);color:var(--text3);font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0;width:28px;height:28px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;transition:all .12s}
-.dp-close:hover{border-color:var(--border3);color:var(--text)}
-.dp-scroll{flex:1;overflow-y:auto}
-.dp-scroll::-webkit-scrollbar{width:3px}
-.dp-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.dp-viewer{position:relative;background:var(--bg4);flex-shrink:0}
-.dp-viewer-img{width:100%;aspect-ratio:16/9;object-fit:contain;background:var(--bg);display:block;cursor:zoom-in}
-/* Pano mode: when the viewer detects a very wide image, switch to native-height pan view.
-   Image overflows horizontally, container clips, JS handles drag-to-pan. */
-.dp-viewer.pano-mode{
-  aspect-ratio:16/9;
-  overflow:hidden;
-  position:relative;
-  background:var(--bg);
-}
-.dp-viewer.pano-mode .dp-viewer-img{
-  aspect-ratio:auto;
-  width:auto;height:100%;max-width:none;
-  object-fit:none;
-  cursor:grab;
-  user-select:none;
-  -webkit-user-drag:none;
-  position:absolute;top:0;left:0;
-  transition:none;
-}
-.dp-viewer.pano-mode .dp-viewer-img.dragging{cursor:grabbing}
-.dp-viewer.pano-mode .dp-pano-hint{
-  position:absolute;bottom:36px;left:50%;transform:translateX(-50%);
-  font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
-  color:rgba(255,255,255,.6);background:rgba(0,0,0,.55);
-  padding:3px 10px;border-radius:10px;backdrop-filter:blur(4px);
-  pointer-events:none;z-index:4;
-}
-.dp-viewer-ph{width:100%;aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3)}
-.dp-arrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.5);border:none;color:rgba(255,255,255,.8);font-size:24px;cursor:pointer;padding:16px 10px;line-height:1;transition:background .15s;z-index:5;backdrop-filter:blur(4px)}
-.dp-arrow:hover{background:rgba(0,0,0,.85);color:#fff}
-.dp-arrow.prev{left:0;border-radius:0 4px 4px 0}
-.dp-arrow.next{right:0;border-radius:4px 0 0 4px}
-.dp-counter{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:9px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.6);background:rgba(0,0,0,.5);padding:3px 10px;border-radius:10px;backdrop-filter:blur(4px);letter-spacing:.06em}
-.dp-order-toggle{
-  position:absolute;bottom:10px;right:10px;
-  font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
-  color:rgba(255,255,255,.6);background:rgba(0,0,0,.5);
-  padding:3px 10px;border-radius:10px;backdrop-filter:blur(4px);
-  border:1px solid rgba(255,255,255,.15);cursor:pointer;
-  transition:all .12s;
-}
-.dp-order-toggle:hover{color:#fff;border-color:rgba(255,255,255,.3)}
-.dp-order-toggle.ranked{
-  color:var(--accent);border-color:var(--accent2);
-  background:rgba(200,169,110,.15);
-}
-/* Deep-tag display */
-.dp-deep-consensus, .dp-deep-current{
-  margin-top:8px;padding-top:8px;border-top:1px solid var(--border);
-}
-.dp-deep-consensus:first-child{border-top:none;padding-top:0}
-.dp-deep-sublabel{
-  font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;
-  letter-spacing:.04em;text-transform:uppercase;margin-bottom:5px;
-  display:flex;align-items:center;gap:4px;flex-wrap:wrap;
-}
-.dp-tag.dp-tag-deep{
-  background:rgba(200,169,110,.08);
-  border-color:rgba(200,169,110,.25);
-  color:var(--accent);
-  cursor:default;
-}
-.dp-tag.dp-tag-deep:hover{
-  background:rgba(200,169,110,.14);
-  border-color:rgba(200,169,110,.4);
-  color:var(--accent);
-}
-.dp-deep-desc{
-  font-size:11px;color:var(--text2);line-height:1.45;
-  margin:6px 0 8px;font-style:italic;
-  padding:6px 10px;background:rgba(200,169,110,.05);
-  border-left:2px solid var(--accent2);border-radius:0 4px 4px 0;
-}
-.dp-pick-pill{
-  background:rgba(76,175,130,.15);color:var(--green);
-  padding:1px 6px;border-radius:3px;font-size:9px;
-  font-family:'DM Mono',monospace;font-weight:500;
-}
-.dp-soft-pill{
-  background:rgba(212,148,58,.15);color:#d4943a;
-  padding:1px 6px;border-radius:3px;font-size:9px;
-  font-family:'DM Mono',monospace;
-}
-.dp-role-pill, .dp-room-pill, .dp-comp-pill{
-  background:var(--bg4);color:var(--text2);
-  padding:1px 6px;border-radius:3px;font-size:9px;
-  font-family:'DM Mono',monospace;
-}
-.dp-role-pill{color:var(--text)}
-
-.cover-cell:hover{
-  border-color: var(--accent2) !important;
-  transform: translateY(-1px);
-}
-.cover-cell.selected{
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 2px rgba(200,169,110,.3);
+async function pmap(items, fn, concurrency) {
+  const out = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const idx = next++;
+      if (idx >= items.length) return;
+      try { out[idx] = await fn(items[idx], idx); }
+      catch (e) { out[idx] = { __error: e.message || String(e) }; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return out;
 }
 
-/* Favorite + reject buttons (overlay on photo viewer) */
-.dp-photo-actions{
-  position:absolute;top:10px;right:10px;display:flex;gap:6px;z-index:5;
-}
-.lb-photo-actions{
-  position:absolute;top:64px;right:18px;display:flex;gap:8px;z-index:50;
-}
-.dp-fav-btn, .dp-reject-btn{
-  width:30px;height:30px;border-radius:50%;
-  border:1px solid rgba(255,255,255,.25);
-  background:rgba(0,0,0,.6);backdrop-filter:blur(6px);
-  color:rgba(255,255,255,.6);cursor:pointer;
-  font-size:14px;line-height:1;font-family:'DM Mono',monospace;
-  display:flex;align-items:center;justify-content:center;
-  transition:all .12s;padding:0;
-}
-.dp-fav-btn:hover{
-  border-color:rgba(76,175,130,.7);color:#4caf82;background:rgba(76,175,130,.18);
-}
-.dp-fav-btn.active{
-  background:rgba(76,175,130,.6);color:#fff;border-color:#4caf82;
-}
-.dp-reject-btn:hover{
-  border-color:rgba(194,96,96,.7);color:var(--red);background:rgba(194,96,96,.18);
-}
-.dp-reject-btn.active{
-  background:rgba(194,96,96,.6);color:#fff;border-color:var(--red);
-}
-.lb-photo-actions .dp-fav-btn,
-.lb-photo-actions .dp-reject-btn{
-  width:36px;height:36px;font-size:16px;
+async function fetchImageAsBase64(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs || 8000);
+  try {
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LocationScoutApp/1.0)' }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const ct = (res.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+    const supported = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const media_type = supported.includes(ct) ? ct : 'image/jpeg';
+    return { type: 'base64', media_type, data: buf.toString('base64') };
+  } finally { clearTimeout(timer); }
 }
 
-/* Grab/drag indicator */
-.dp-grab-indicator, .lb-grab-indicator{
-  position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;
-  font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.04em;
-  color:var(--accent);background:rgba(200,169,110,.18);
-  padding:5px 12px;border-radius:14px;
-  border:1px solid var(--accent2);backdrop-filter:blur(6px);
-  pointer-events:none;
-  animation:grab-pulse 1.4s infinite;
-}
-.lb-grab-indicator{top:64px;font-size:11px}
-@keyframes grab-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.6; }
-}
-
-/* Photo viewer styling when a photo is being "grabbed" — solid outline so the
-   image swap (src change) on each move doesn't reset a pulse animation. */
-.dp-viewer.grabbing .dp-viewer-img,
-#lightbox.grabbing #lb-img{
-  outline: 3px dashed var(--accent);
-  outline-offset: -3px;
-  box-shadow: 0 0 0 3px rgba(200,169,110,.25);
-}
-.dp-hint{position:absolute;bottom:10px;right:10px;font-size:8px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.3);pointer-events:none}
-.dp-body{padding:16px 18px 24px}
-.dp-status-row{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
-.dp-badge{padding:3px 10px;border-radius:4px;font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;font-weight:500}
-.dp-section{margin-bottom:12px}
-.dp-label{font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:4px}
-.dp-val{font-size:12px;color:var(--text2);line-height:1.6}
-.dp-notes{font-size:12px;color:var(--text2);line-height:1.75;word-break:break-word}
-.dp-tags{display:flex;flex-wrap:wrap;gap:5px}
-.dp-no-addr{
-  display:flex;align-items:center;gap:10px;padding:8px 0;
-  font-size:11px;color:var(--text3);font-style:italic;flex-wrap:wrap;
-}
-.dp-no-addr .dp-btn{font-style:normal;flex-shrink:0}
-.dp-app-notes{
-  font-size:11px;color:var(--text2);line-height:1.6;
-  white-space:pre-wrap;word-break:break-word;
-  padding:8px 10px;background:rgba(200,169,110,.05);
-  border-left:2px solid var(--accent2);border-radius:0 4px 4px 0;
-}
-.dp-app-notes-line{
-  font-size:11px;color:var(--text2);line-height:1.55;
-  padding:4px 10px;background:rgba(200,169,110,.04);
-  border-left:2px solid var(--accent2);
-  word-break:break-word;
-}
-.dp-app-notes-line:first-child{border-radius:4px 0 0 0}
-.dp-app-notes-line:last-child{border-radius:0 0 0 4px}
-.dp-app-notes-row{
-  display:flex;align-items:flex-start;gap:8px;
-  padding:4px 10px 4px 10px;background:rgba(200,169,110,.04);
-  border-left:2px solid var(--accent2);
-}
-.dp-app-notes-row .dp-app-notes-line{
-  flex:1;background:transparent;border:none;padding:0;
-}
-.dp-app-notes-apply{
-  flex-shrink:0;font-size:9px;padding:3px 8px;
-  border-color:var(--accent2);color:var(--accent);
-  background:transparent;
-}
-.dp-app-notes-apply:hover{
-  background:var(--accentd);
-}
-.dp-tag{font-size:9px;padding:3px 8px;border-radius:3px;background:var(--bg4);border:1px solid var(--border2);color:var(--text3);font-family:'DM Mono',monospace}
-.dp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
-.dp-btn{padding:7px 14px;font-size:9px;font-family:'DM Mono',monospace;border-radius:var(--radius);cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .15s;letter-spacing:.06em}
-.dp-btn:hover{border-color:var(--accent2);color:var(--accent)}
-.dp-btn.pri{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-.dp-btn.pri:hover{opacity:.88}
-
-.dp-place-info{
-  display:flex;flex-direction:column;gap:3px;
-  padding-top:2px;
-}
-.dp-place-row{
-  display:flex;align-items:center;gap:6px;
-  font-size:11px;color:var(--text2);line-height:1.5;
-}
-.dp-place-row a{color:var(--accent);text-decoration:none;word-break:break-all}
-.dp-place-row a:hover{text-decoration:underline}
-.dp-place-icon{
-  display:inline-block;width:12px;text-align:center;
-  color:var(--text3);font-size:10px;flex-shrink:0;
-}
-.dp-place-hours{
-  margin-top:2px;font-size:10px;color:var(--text3);
-  font-family:'DM Mono',monospace;line-height:1.6;
-}
-.dp-place-hours summary{
-  cursor:pointer;color:var(--text2);font-size:10px;
-  padding:2px 0;list-style:none;
-}
-.dp-place-hours summary::-webkit-details-marker{display:none}
-.dp-place-hours summary::before{content:'▸ ';display:inline-block;transition:transform .15s}
-.dp-place-hours[open] summary::before{transform:rotate(90deg)}
-.dp-place-hours div{padding-left:12px;padding-top:1px}
-
-/* ── Organize page ── */
-#organize-page{background:var(--bg2);overflow:hidden}
-.org-header{height:48px;padding:0 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;flex-shrink:0}
-.org-title{font-size:13px;font-weight:500;color:var(--text);flex:1}
-.org-count{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-left:6px}
-.org-actions{display:flex;gap:6px}
-.org-btn{padding:6px 12px;font-size:10px;font-family:'DM Mono',monospace;border-radius:5px;cursor:pointer;border:1px solid var(--border2);background:transparent;color:var(--text2);transition:all .12s;letter-spacing:.04em}
-.org-btn:hover:not(:disabled){border-color:var(--accent2);color:var(--accent)}
-.org-btn:disabled{opacity:0.4;cursor:not-allowed}
-.org-btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:500}
-.org-btn.primary:hover:not(:disabled){opacity:.88}
-.org-btn.org-btn-cancel{
-  border-color:var(--red);color:var(--red);
-  background:rgba(194,96,96,.08);font-weight:500;
-}
-.org-btn.org-btn-cancel:hover{background:rgba(194,96,96,.15)}
-#org-body{flex:1;min-height:0;overflow-y:auto;padding:18px 18px 80px}
-#org-body::-webkit-scrollbar{width:3px}
-#org-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.org-tax{margin-bottom:24px;padding:14px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:8px}
-.org-tax-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-@media(max-width:700px){.org-tax-cols{grid-template-columns:1fr}}
-.org-tax-h{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:8px}
-.org-tax-sub{font-size:8px;color:var(--text3);margin-left:4px;font-weight:400;text-transform:none;letter-spacing:0}
-.org-tax-list{font-size:11px;font-family:'DM Mono',monospace;line-height:1.7;max-height:240px;overflow-y:auto}
-.org-tax-list .empty{font-size:10px;justify-content:flex-start;padding:8px 0;text-transform:none;letter-spacing:0;text-align:left;align-items:flex-start}
-.org-tax-node{padding:1px 0;color:var(--text2)}
-.org-tax-node.depth-0{color:var(--text);font-weight:500}
-.org-tax-node.depth-1{padding-left:14px;color:var(--text2)}
-.org-tax-node.depth-2{padding-left:28px;color:var(--text3);font-size:10px}
-.org-tax-new-item{padding:2px 0;color:var(--accent);display:flex;align-items:center;gap:6px}
-.org-tax-new-count{font-size:9px;color:var(--text3);font-weight:400}
-#org-list{display:flex;flex-direction:column;gap:10px}
-.org-card{
-  background:var(--bg3);border:1px solid var(--border);border-radius:6px;
-  display:grid;grid-template-columns:120px 1fr 130px;gap:14px;padding:12px;align-items:start;
-  transition:border-color .15s,opacity .2s;
-}
-.org-card.skipped{opacity:0.4}
-.org-card.applied{opacity:0.55;border-color:var(--green)}
-.org-card.classifying{border-color:var(--accent2)}
-.org-card.error{border-color:var(--red)}
-.org-card-thumb{width:120px;aspect-ratio:4/3;background:var(--bg4);border-radius:4px;overflow:hidden;cursor:pointer;position:relative}
-.org-card-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:opacity .12s}
-.org-card-thumb:hover img{opacity:0.85}
-.org-thumb-placeholder{
-  width:100%;height:100%;display:flex;align-items:center;justify-content:center;
-  font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;
-}
-.org-strip{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
-.org-strip-label{
-  font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);
-  letter-spacing:.04em;margin-bottom:5px;
-}
-.org-strip-row{
-  display:flex;gap:4px;overflow-x:auto;padding-bottom:4px;
-}
-.org-strip-row::-webkit-scrollbar{height:3px}
-.org-strip-row::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.org-strip-cell{
-  position:relative;flex-shrink:0;
-}
-.org-strip-cell img{
-  width:80px;height:60px;
-  border-radius:3px;object-fit:cover;cursor:pointer;
-  border:1px solid var(--border);transition:all .12s;display:block;
-}
-.org-strip-cell img:hover{
-  border-color:var(--accent2);transform:scale(1.05);
-}
-.org-strip-x, .dp-selected-x, .edit-pic-x{
-  position:absolute;top:2px;right:2px;
-  width:18px;height:18px;border-radius:50%;
-  background:rgba(0,0,0,.7);color:#fff;
-  border:none;font-size:10px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  opacity:0;transition:opacity .12s,background .12s;
-  font-family:'DM Mono',monospace;line-height:1;padding:0;
-}
-.org-strip-cell:hover .org-strip-x,
-.dp-selected-cell:hover .dp-selected-x,
-.edit-pic-cell:hover .edit-pic-x{opacity:1}
-.org-strip-x:hover, .dp-selected-x:hover, .edit-pic-x:hover{
-  background:var(--red);
+function parseJSON(text) {
+  let cleaned = text.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
+  const first = cleaned.indexOf('{');
+  if (first < 0) {
+    const arrStart = cleaned.indexOf('[');
+    if (arrStart < 0) throw new Error('No JSON found');
+    cleaned = cleaned.slice(arrStart);
+  } else {
+    cleaned = cleaned.slice(first);
+  }
+  const lastClose = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
+  if (lastClose > 0) {
+    try { return JSON.parse(cleaned.slice(0, lastClose + 1)); } catch (e) {}
+  }
+  let inStr = false, esc = false, bd = 0, kd = 0;
+  for (let i = 0; i < cleaned.length; i++) {
+    const c = cleaned[i];
+    if (esc) { esc = false; continue; }
+    if (inStr) { if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{') bd++;
+    else if (c === '}') bd--;
+    else if (c === '[') kd++;
+    else if (c === ']') kd--;
+  }
+  let candidate = cleaned;
+  if (inStr) candidate += '"';
+  for (let i = 0; i < kd; i++) candidate += ']';
+  for (let i = 0; i < bd; i++) candidate += '}';
+  candidate = candidate.replace(/,(\s*[\]}])/g, '$1');
+  return JSON.parse(candidate);
 }
 
-/* Detail panel: removable tags + selected images */
-.dp-tag-removable{
-  cursor:pointer;display:inline-flex;align-items:center;gap:3px;
-  transition:all .12s;
-}
-.dp-tag-removable:hover{
-  border-color:var(--red);color:var(--red);background:rgba(194,96,96,.06);
-}
-.dp-tag-x{font-size:8px;opacity:0.5}
-.dp-tag-removable:hover .dp-tag-x{opacity:1}
-.dp-label-sub{
-  font-size:8px;color:var(--text3);font-weight:400;text-transform:none;
-  letter-spacing:0;font-family:'DM Sans',sans-serif;margin-left:4px;
-}
-.dp-selected-strip{
-  display:flex;gap:5px;flex-wrap:wrap;
-}
-.dp-selected-cell{
-  position:relative;
-}
-.dp-selected-cell img{
-  width:90px;height:68px;
-  border-radius:4px;object-fit:cover;cursor:pointer;
-  border:1px solid var(--border2);transition:all .12s;display:block;
-}
-.dp-selected-cell img:hover{
-  border-color:var(--accent2);transform:scale(1.04);
-}
-
-/* Edit panel: tags + picks editor */
-.edit-tags-chips{
-  display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;min-height:24px;
-}
-.edit-empty{
-  font-size:10px;color:var(--text3);font-style:italic;padding:2px 0;
-}
-.edit-chip{
-  font-size:10px;padding:3px 8px 3px 8px;background:var(--bg4);
-  border:1px solid var(--border2);border-radius:3px;color:var(--text2);
-  cursor:pointer;display:inline-flex;align-items:center;gap:4px;
-  transition:all .12s;font-family:'DM Mono',monospace;
-}
-.edit-chip:hover{border-color:var(--red);color:var(--red);background:rgba(194,96,96,.06)}
-.edit-chip-x{font-size:9px;opacity:0.5}
-.edit-chip:hover .edit-chip-x{opacity:1}
-.edit-tags-add{
-  width:100%;background:var(--bg3);border:1px dashed var(--border2);
-  border-radius:4px;padding:5px 9px;color:var(--text);
-  font-size:11px;font-family:'DM Mono',monospace;outline:none;
-}
-.edit-tags-add:focus{border-color:var(--accent2);border-style:solid}
-.edit-pics-strip{
-  display:flex;gap:5px;overflow-x:auto;padding-bottom:5px;
-}
-.edit-pics-strip::-webkit-scrollbar{height:3px}
-.edit-pics-strip::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.edit-pic-cell{position:relative;flex-shrink:0}
-.edit-pic-cell img{
-  width:80px;height:60px;border-radius:3px;object-fit:cover;
-  border:1px solid var(--border2);display:block;
+async function callAnthropic(model, system, userContent, apiKey, maxTokens) {
+  let lastErr;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1500 * Math.pow(2, attempt)));
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 90000);
+    try {
+      const res = await fetch(ANTHROPIC_URL, {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens || 2400,
+          system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+          messages: [{ role: 'user', content: userContent }]
+        }),
+        signal: ctrl.signal
+      });
+      if (res.status === 429) {
+        const ra = parseFloat(res.headers.get('retry-after') || '');
+        const wait = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 30000) : 5000 * (attempt + 1);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`Anthropic ${res.status}: ${t.slice(0, 300)}`);
+      }
+      const data = await res.json();
+      const txt = (data.content || []).find(b => b.type === 'text');
+      if (!txt) throw new Error('No text in response');
+      return { text: txt.text, usage: data.usage || {} };
+    } catch (e) {
+      lastErr = e;
+      if (attempt >= MAX_RETRIES) throw e;
+    } finally { clearTimeout(timer); }
+  }
+  throw lastErr || new Error('Anthropic call failed');
 }
 
-/* ── Merge folders modal ── */
-.merge-cluster{
-  background:var(--bg3);border:1px solid var(--border);border-radius:8px;
-  padding:14px 16px;margin-bottom:14px;
-}
-.merge-cluster-head{margin-bottom:10px}
-.merge-kind-line{
-  font-size:10px;color:var(--text2);margin-bottom:4px;
-  font-family:'DM Mono',monospace;letter-spacing:.04em;
-}
-.merge-kind-line code{
-  background:var(--bg4);padding:1px 5px;border-radius:3px;
-  color:var(--accent);font-size:10px;
-}
-.merge-kind-pill{
-  display:inline-block;font-size:8px;font-family:'DM Mono',monospace;
-  letter-spacing:.12em;padding:2px 6px;border-radius:3px;margin-right:6px;
-  font-weight:500;
-}
-.merge-kind-merge{background:rgba(91,155,213,.18);color:var(--blue)}
-.merge-kind-group{background:rgba(200,169,110,.15);color:var(--accent)}
-.merge-reason{
-  font-size:11px;color:var(--text3);font-style:italic;line-height:1.4;
-}
-.merge-folder-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
-.merge-folder{
-  display:flex;align-items:flex-start;gap:8px;padding:8px 10px;
-  background:var(--bg2);border:1px solid var(--border2);border-radius:5px;
-  cursor:pointer;transition:border-color .12s;
-}
-.merge-folder:hover{border-color:var(--border3)}
-.merge-folder input[type=radio]{margin-top:2px;cursor:pointer;accent-color:var(--accent)}
-.merge-folder-info{flex:1;min-width:0}
-.merge-folder-path{font-size:12px;color:var(--text);font-weight:500;font-family:'DM Mono',monospace}
-.merge-folder-meta{font-size:10px;color:var(--text3);margin-top:2px}
-.merge-cluster-actions{display:flex;align-items:center;gap:8px;justify-content:flex-end;flex-wrap:wrap}
-.merge-totals{flex:1;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace}
-.merge-progress{font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
-.merge-progress:empty{display:none}
-
-/* ── Usage panel ── */
-.usage-period-toggle{display:flex;gap:4px}
-.usage-period-btn{
-  font-size:10px;padding:5px 10px;
-  background:transparent;border:1px solid var(--border2);
-  border-radius:14px;color:var(--text3);cursor:pointer;
-  font-family:'DM Mono',monospace;letter-spacing:.04em;
-  transition:all .12s;
-}
-.usage-period-btn:hover{color:var(--text2);border-color:var(--border3)}
-.usage-period-btn.active{
-  background:var(--accentd);color:var(--accent);border-color:var(--accent2);
-}
-.usage-totals{
-  display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;
-}
-.usage-total-card{
-  padding:14px;background:var(--bg3);border:1px solid var(--border);
-  border-radius:8px;
-}
-.usage-total-card.google{border-left:3px solid #5b9bd5}
-.usage-total-card.anthropic{border-left:3px solid var(--accent)}
-.usage-total-label{
-  font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);
-  letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;
-}
-.usage-total-amount{
-  font-size:22px;font-weight:500;color:var(--text);font-family:'DM Sans',sans-serif;
-}
-.usage-total-calls{
-  font-size:10px;color:var(--text3);margin-top:4px;font-family:'DM Mono',monospace;
-}
-.usage-grand{
-  padding:12px 14px;background:var(--bg4);border-radius:8px;margin-bottom:18px;
-  display:flex;justify-content:space-between;align-items:center;
-  border:1px solid var(--border2);
-}
-.usage-grand-label{font-size:11px;color:var(--text3);letter-spacing:.04em}
-.usage-grand-amount{font-size:18px;color:var(--text);font-weight:500;font-family:'DM Mono',monospace}
-.usage-breakdown-title{
-  font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);
-  letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;
-}
-.usage-row{
-  display:grid;grid-template-columns:1fr 80px 80px;gap:10px;
-  padding:8px 4px;border-bottom:1px solid var(--border);
-  font-size:11px;align-items:center;
-}
-.usage-row-name{color:var(--text)}
-.usage-row-name-sub{color:var(--text3);font-size:9px;margin-top:2px;font-family:'DM Mono',monospace}
-.usage-row-count{color:var(--text2);font-family:'DM Mono',monospace;text-align:right}
-.usage-row-cost{color:var(--text);font-family:'DM Mono',monospace;text-align:right}
-.org-card-body{min-width:0;display:flex;flex-direction:column;gap:6px}
-.org-card-name{font-size:13px;color:var(--text);font-weight:500;line-height:1.3}
-.org-card-meta{font-size:10px;color:var(--text3);font-family:'DM Mono',monospace}
-.org-card-notes{font-size:11px;color:var(--text2);line-height:1.5;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.org-card-suggest{margin-top:6px;padding:8px 10px;border-radius:4px;background:var(--bg4);border:1px solid var(--border2);font-size:11px;color:var(--text2);line-height:1.5}
-.org-card-suggest .sg-path{color:var(--accent);font-weight:500;font-family:'DM Mono',monospace}
-.org-card-suggest .sg-conf{font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);margin-left:8px;padding:1px 6px;border:1px solid var(--border2);border-radius:8px}
-.org-card-suggest .sg-conf.high{color:var(--green);border-color:rgba(76,175,130,.4)}
-.org-card-suggest .sg-conf.med{color:var(--amber);border-color:rgba(212,148,58,.4)}
-.org-card-suggest .sg-conf.low{color:var(--red);border-color:rgba(194,96,96,.4)}
-.org-card-suggest .sg-reason{margin-top:3px;color:var(--text3);font-style:italic;font-size:10px}
-.org-card-suggest .sg-tags{margin-top:5px;display:flex;flex-wrap:wrap;gap:4px}
-.org-card-suggest .sg-tag{
-  font-size:9px;padding:1px 6px 1px 6px;background:var(--bg3);
-  border:1px solid var(--border);border-radius:3px;color:var(--text3);
-  cursor:pointer;display:inline-flex;align-items:center;gap:3px;
-  transition:all .12s;user-select:none;
-}
-.org-card-suggest .sg-tag:hover{
-  border-color:var(--red);color:var(--red);background:rgba(194,96,96,.06);
-}
-.org-card-suggest .sg-tag .sg-tag-x{
-  font-size:8px;opacity:0.5;
-}
-.org-card-suggest .sg-tag:hover .sg-tag-x{
-  opacity:1;
-}
-.org-card-suggest .sg-tags-label{margin-top:6px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;letter-spacing:.04em}
-.org-card-suggest .sg-rejected-label{
-  margin-top:5px;font-size:9px;color:var(--red);font-style:italic;
-  display:flex;align-items:center;gap:6px;
-}
-.org-card-suggest .sg-restore{
-  font-size:9px;padding:1px 6px;background:transparent;
-  border:1px solid var(--border2);border-radius:3px;color:var(--text3);
-  cursor:pointer;font-family:'DM Mono',monospace;
-}
-.org-card-suggest .sg-restore:hover{border-color:var(--accent2);color:var(--accent)}
-.org-feedback{
-  font-size:9px;font-family:'DM Mono',monospace;color:var(--accent);
-  letter-spacing:.04em;padding:3px 9px;
-  border:1px solid var(--accent2);border-radius:10px;
-  background:var(--accentd);
-}
-.org-card-suggest .sg-model{font-size:8px;font-family:'DM Mono',monospace;color:var(--text3);margin-top:4px;letter-spacing:.06em;opacity:.7}
-.org-card-actions{display:flex;flex-direction:column;gap:5px;align-items:stretch}
-.org-card-actions .org-btn{padding:5px 8px;font-size:9px;text-align:center}
-.org-card-actions .accept{border-color:var(--green);color:var(--green)}
-.org-card-actions .accept:hover:not(:disabled){background:rgba(76,175,130,.1)}
-.org-card-status{font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;padding:3px 0;text-align:center;border-radius:4px;text-transform:uppercase}
-.org-card-status.queued{color:var(--accent);background:var(--accentd)}
-.org-card-status.applied{color:var(--green)}
-.org-card-status.error{color:var(--red)}
-.org-edit-input{width:100%;background:var(--bg3);border:1px solid var(--accent2);border-radius:4px;padding:5px 7px;color:var(--text);font-size:10px;font-family:'DM Mono',monospace;outline:none;margin-top:2px}
-
-
-.dp-addr-wrap{display:flex;gap:14px;align-items:flex-start}
-.dp-addr-text{flex:1;min-width:0;line-height:1.6}
-.dp-addr-side{flex-shrink:0;width:160px;display:flex;flex-direction:column;gap:8px}
-@media (max-width:600px){
-  .dp-addr-wrap{flex-direction:column}
-  .dp-addr-side{width:100%}
-}
-.dp-addr-link{color:var(--text);text-decoration:none;display:block;border-bottom:1px solid transparent;transition:border-color .15s;width:fit-content}
-.dp-addr-link:hover{border-bottom-color:var(--border2)}
-.dp-addr-l1{font-size:13px;color:var(--text)}
-.dp-addr-l2{font-size:12px;color:var(--text2);margin-top:2px}
-.dp-addr-extra{font-size:11px;color:var(--text3);font-style:italic;margin-top:4px;line-height:1.5}
-.dp-regeo{font-size:8px;font-family:'DM Mono',monospace;color:var(--text3);cursor:pointer;margin-left:8px;letter-spacing:.04em;text-transform:none;padding:1px 6px;border:1px solid var(--border2);border-radius:8px;display:inline-block;transition:all .12s}
-.dp-regeo:hover{color:var(--accent);border-color:var(--accent2)}
-.dp-sv-thumb{
-  width:100%;aspect-ratio:4/3;
-  border-radius:6px;overflow:hidden;
-  border:1px solid var(--border2);background:var(--bg4);
-  position:relative;display:block;cursor:pointer;
-  transition:border-color .15s,transform .15s;
-}
-.dp-sv-thumb:hover{border-color:var(--accent2);transform:scale(1.02)}
-.dp-sv-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.dp-sv-icon{
-  position:absolute;top:4px;right:4px;
-  width:16px;height:16px;border-radius:3px;
-  background:rgba(0,0,0,.65);color:#fff;
-  font-size:9px;font-family:'DM Mono',monospace;
-  display:flex;align-items:center;justify-content:center;
-  pointer-events:none;
-}
-.dp-place-name{
-  font-size:11px;font-weight:500;color:var(--text);
-  line-height:1.4;margin-bottom:2px;
+function calcCost(haikuUsage, sonnetUsage) {
+  const h = haikuUsage || {};
+  const s = sonnetUsage || {};
+  const haikuCost =
+    (h.input_tokens || 0) * 0.01 +
+    (h.output_tokens || 0) * 0.05 +
+    (h.cache_read_input_tokens || 0) * 0.001 +
+    (h.cache_creation_input_tokens || 0) * 0.0125;
+  const sonnetCost =
+    (s.input_tokens || 0) * 0.03 +
+    (s.output_tokens || 0) * 0.15 +
+    (s.cache_read_input_tokens || 0) * 0.003 +
+    (s.cache_creation_input_tokens || 0) * 0.0375;
+  return Math.round(haikuCost + sonnetCost);
 }
 
-/* ── Library ── */
-#library-page{background:var(--bg2);overflow:hidden}
-.lib-header{height:48px;padding:0 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
-.lib-bc{display:flex;align-items:center;flex:1;min-width:0;overflow:hidden}
-.lib-bc-seg{font-size:11px;font-family:'DM Mono',monospace;color:var(--accent);cursor:pointer;padding:3px 6px;border-radius:4px;white-space:nowrap;transition:background .12s}
-.lib-bc-seg:hover{background:var(--accentd)}
-.lib-bc-seg.cur{color:var(--text2);cursor:default}
-.lib-bc-seg.cur:hover{background:transparent}
-.lib-bc-sep{font-size:11px;color:var(--text3);padding:0 1px;flex-shrink:0}
-.lib-search{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:5px 10px;font-size:12px;color:var(--text);font-family:'DM Sans',sans-serif;outline:none;width:150px;flex-shrink:0}
-.lib-ai-search{
-  width:240px;
-  border-color:var(--accent2);
-}
-.lib-ai-search:focus{border-color:var(--accent)}
-.lib-ai-search::placeholder{color:var(--accent2);opacity:0.65}
-.lib-ai-btn{
-  height:28px;padding:0 10px;
-  background:var(--accent);color:var(--bg);border:none;border-radius:var(--radius);
-  font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.04em;
-  cursor:pointer;flex-shrink:0;transition:opacity .12s;font-weight:500;
-}
-.lib-ai-btn:hover:not(:disabled){opacity:.88}
-.lib-ai-btn:disabled{opacity:.5;cursor:wait}
-
-/* AI search result cards */
-.ai-result-card .gcard-tw{position:relative}
-.ai-score-pill{
-  position:absolute;top:6px;right:6px;z-index:3;
-  padding:2px 8px;border-radius:10px;
-  font-size:10px;font-family:'DM Mono',monospace;font-weight:500;
-  background:rgba(0,0,0,.7);backdrop-filter:blur(4px);
-  letter-spacing:.04em;
-}
-.ai-score-high{color:#4caf82;border:1px solid rgba(76,175,130,.6)}
-.ai-score-med{color:var(--accent);border:1px solid var(--accent2)}
-.ai-score-low{color:var(--text3);border:1px solid var(--border2)}
-.ai-reason{
-  font-size:10px;color:var(--text3);font-style:italic;
-  padding:6px 10px;line-height:1.4;
-  border-top:1px solid var(--border);
+function sumUsage(usages) {
+  const out = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  usages.forEach(u => {
+    if (!u) return;
+    out.input_tokens             += u.input_tokens || 0;
+    out.output_tokens            += u.output_tokens || 0;
+    out.cache_read_input_tokens  += u.cache_read_input_tokens || 0;
+    out.cache_creation_input_tokens += u.cache_creation_input_tokens || 0;
+  });
+  return out;
 }
 
-/* Search-match highlights inside detail panel */
-mark.search-hit{
-  background:var(--accentd);
-  color:var(--accent);
-  padding:0 2px;
-  border-radius:2px;
-  font-weight:500;
+// ════════════════════════════════════════════════════════════════════════════
+// STAGE: CLASSIFY — Haiku on MEDIUM images, single pass per album.
+// Returns description + tags + role + room + composition + sharpness + reject
+// for every photo. The frontend pre-filters obvious blur via local Laplacian
+// before calling this, so we don't pay AI to look at literal black frames.
+// ════════════════════════════════════════════════════════════════════════════
+function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, googlePlaces, rejectedTags) {
+  const cat = (albumCategory || '').toLowerCase();
+  const isResidence = /residence|house|home|mansion|apartment|brownstone|townhouse|loft/.test(cat);
+  const isCommercial = /restaurant|bar|cafe|store|shop|hotel|office|warehouse|event|venue|ballroom|reception/.test(cat);
+  const isOutdoor = /park|garden|street|beach|lot/.test(cat);
+
+  let typeGuidance = '';
+  if (isResidence) typeGuidance = `\nRESIDENTIAL: prioritize interior establishing shots; exteriors are secondary.`;
+  else if (isCommercial) typeGuidance = `\nCOMMERCIAL: prioritize storefront → main interior establishing shots → distinctive features.`;
+  else if (isOutdoor) typeGuidance = `\nOUTDOOR: wide establishing shots and varied angles are most important.`;
+
+  let placesContext = '';
+  if (googlePlaces && (googlePlaces.formatted || googlePlaces.types)) {
+    placesContext = `\nGOOGLE PLACES DATA:`;
+    if (googlePlaces.formatted) placesContext += `\n  Address: ${googlePlaces.formatted}`;
+    if (googlePlaces.types && googlePlaces.types.length) placesContext += `\n  Types: ${googlePlaces.types.slice(0, 5).join(', ')}`;
+  }
+
+  let avoidTags = '';
+  if (rejectedTags && rejectedTags.length) {
+    const slice = rejectedTags.slice(0, 25);
+    avoidTags = `\nUSER FEEDBACK — these tags have been removed by the user in past albums; AVOID them:\n  ${slice.join(', ')}`;
+  }
+
+  return `You analyze film/TV scout photos. The first image in the batch is the COVER REFERENCE — that's what this location actually IS. Use it as context for judging the rest. Return metadata for each NUMBERED photo (skip the cover reference in your output).
+
+ALBUM CONTEXT:
+  Album: ${albumName || '(unnamed)'}
+  ${albumCategory ? `Category: ${albumCategory}` : ''}
+  ${albumNotes ? `Notes: ${String(albumNotes).slice(0, 1500)}` : ''}
+  ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}${placesContext}${avoidTags}
+
+FOR EACH NUMBERED PHOTO, output:
+  • description: ONE concise sentence (15-25 words) describing what's visible — focus on the PERMANENT location, not transient conditions. Format: "Wide angle of [space] showing [permanent features]" or similar. Concrete details, not vague summaries. Skip weather, parked vehicles, present-but-temporary staging — describe the place, not what's happening to be in the frame today.
+  • tags: 5-8 SPECIFIC, DISTINCTIVE tags. Multi-word tags use hyphens.
+      AVOID GENERIC TAGS that apply to nearly any location: "interior", "building", "room", "wall", "floor", "ceiling", "window", "door", "kitchen", "bedroom", "bathroom", "living-room", "hallway"
+      AVOID EPHEMERAL TAGS — temporary conditions that aren't part of the location itself:
+        weather: "overcast-sky", "snowing", "rainy", "cloudy", "sunny-day", "winter-conditions", "fall-foliage", "spring-bloom"
+        present-but-not-permanent: "scattered-vehicles", "parked-cars", "construction-cones", "temporary-signage", "people-walking", "delivery-truck", "open-umbrellas"
+        time-of-day: "morning-light", "evening", "night-shot" (unless lighting design IS distinctive — e.g. "permanent-neon-sign" is fine)
+        seasonal staging: "halloween-decorations", "christmas-tree", "wedding-setup"
+      The location is what's PERMANENT. Cars come and go. Snow melts. Signs change. Tag the building.
+      PREFER SPECIFIC, SEARCHABLE TAGS: distinctive features (cul-de-sac, in-ground-pool, rooftop-deck, exposed-brick, cathedral-ceiling, marble-fireplace, art-deco-trim), materials (terrazzo-floor, wood-paneling, copper-hood), eras (pre-war, mid-century, brutalist), moods (cozy, sterile, gritty), unusual elements (spiral-staircase, sunken-living-room, juliet-balcony)
+      Generic room types are OK ONLY if combined with something distinctive (e.g. "open-kitchen" not "kitchen", "primary-suite" not "bedroom").
+      Don't include the location name. Don't include obvious words.
+  • is_sharp: TRUE only if the main subject is in CLEAR focus. BE STRICT — when in doubt, FALSE.
+  • composition: integer 1-10 (10 = striking, 1 = blurry/blank/mistake).
+  • reject: TRUE if this photo should NOT appear in a 30-photo scout deck — ANY of these:
+      - Blank, near-blank, mostly black/white, no visible subject
+      - Out of focus or motion-blurred to the point of being unusable
+      - An empty wall, blank corner, featureless surface
+      - Stairs/stairwells in isolation (no surrounding room context)
+      - A door alone (no room visible around it)
+      - A closet interior, utility space, or storage area in isolation
+      - Bathroom fixtures alone (just toilet/sink/tub) without showing the room
+      - Material/hardware close-ups — wallpaper swatches, ceiling tiles, hinges, light switches, doorbells, electrical panels
+      - Signage, address plates, permits, parking-lot ground, ceiling/floor textures
+      - Accidental shots (sky, ground, lens cover, finger over lens)
+      - Tight architectural details (single molding, single beam) without surrounding room
+      - Anything that answers "what does this specific feature look like?" rather than "what is this place LIKE?"
+    KEEP (reject:false) only if the photo communicates "what this place is like" — even imperfect framing is OK if it shows a recognizable space.
+  • role: ONE of:
+      - "hero-exterior"  — establishing front facade of the location
+      - "side-exterior"  — supporting exterior context
+      - "entry-in"       — looking INTO the space from outside
+      - "entry-out"      — looking OUT from inside toward entry
+      - "room-overview"  — WIDE establishing of a distinct interior space, showing how the space lives
+      - "room-detail"    — closer feature of furniture/art/materials that adds character to the space
+      - "outdoor-feature" — yard, pool, patio, garden — distinct outdoor space
+      - "logistic"       — REFERENCE shots, NOT story shots. (Most reject:true items are also role:logistic.) The KEY question: does this photo answer "what is this place LIKE?" (story) or "what does this specific feature look like?" (reference). BE GENEROUS marking logistic — wide shots are story; tight crops of single features are usually reference.
+      - "transition"     — passages with no distinctive character (plain hallway, plain stairwell, vestibule)
+  • room: short label (e.g. "kitchen", "ballroom", "bath-1"). Empty string if unknown.
+
+PANORAMA HANDLING: judge a panorama by what's in its central 16x9 region. Don't penalize for the format.
+
+OUTPUT — return ONLY this JSON, no prose, no markdown fences:
+{
+  "photos": [
+    { "i": 0, "description": "Wide angle of...", "tags": ["..."], "is_sharp": true, "composition": 7, "reject": false, "role": "room-overview", "room": "kitchen" },
+    ...
+  ]
+}`;
 }
-.dp-tag.search-hit-tag{
-  background:var(--accentd);
-  color:var(--accent);
-  border-color:var(--accent2);
+
+async function classifyBatch(album, batch, contextImages, apiKey) {
+  const sources = await Promise.all(batch.map(async img => {
+    try { return await fetchImageAsBase64(smMedium(img.url), 8000); }
+    catch (e) { return null; }
+  }));
+  const validPairs = sources.map((src, i) => src ? { src, img: batch[i] } : null).filter(Boolean);
+  if (!validPairs.length) return { results: [], usage: {} };
+
+  const userParts = [];
+  if (contextImages && contextImages.length) {
+    userParts.push({
+      type: 'text',
+      text: `CENTERPIECE REFERENCE${contextImages.length > 1 ? 'S' : ''} (${contextImages.length} image${contextImages.length > 1 ? 's' : ''} representing what this location IS — use for context, do NOT classify):`
+    });
+    contextImages.forEach((img, i) => {
+      if (contextImages.length > 1) userParts.push({ type: 'text', text: `Centerpiece ${i + 1}:` });
+      userParts.push({ type: 'image', source: img });
+    });
+    userParts.push({ type: 'text', text: `Now classify these ${validPairs.length} numbered photos:` });
+  } else {
+    userParts.push({ type: 'text', text: `Classify these ${validPairs.length} photos.` });
+  }
+  validPairs.forEach((p, i) => {
+    userParts.push({ type: 'text', text: `Photo ${i}:` });
+    userParts.push({ type: 'image', source: p.src });
+  });
+
+  const sys = classifySystemPrompt(album.name, album.notes, album.tags, album.category, album.googlePlaces, album.rejectedTags);
+  // Bumped to 3000 tokens — descriptions add ~25 tokens × 10 photos = 250 tokens of output
+  const r = await callAnthropic(HAIKU, sys, userParts, apiKey, 3000);
+  const parsed = parseJSON(r.text);
+  const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
+
+  const results = [];
+  validPairs.forEach((p, i) => {
+    const m = photos.find(x => x && x.i === i);
+    if (!m) {
+      results.push({
+        key: p.img.key, description: '', tags: [],
+        is_sharp: true, composition: 5, reject: false,
+        role: 'unknown', room: ''
+      });
+    } else {
+      results.push({
+        key: p.img.key,
+        description: typeof m.description === 'string' ? m.description.trim() : '',
+        tags: Array.isArray(m.tags) ? m.tags : [],
+        is_sharp: m.is_sharp !== false,
+        composition: typeof m.composition === 'number' ? Math.max(1, Math.min(10, m.composition)) : 5,
+        reject: !!m.reject,
+        role: typeof m.role === 'string' ? m.role : 'unknown',
+        room: typeof m.room === 'string' ? m.room.toLowerCase().trim() : ''
+      });
+    }
+  });
+  return { results, usage: r.usage };
 }
-.dp-tag.search-hit-tag .dp-tag-x{color:var(--accent2)}
-.lib-search:focus{border-color:var(--accent2)}
-.lib-search::placeholder{color:var(--text3)}
-.lib-sel{padding:5px 8px;font-size:10px;font-family:'DM Mono',monospace;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text2);cursor:pointer;outline:none;flex-shrink:0}
-#lib-grid{flex:1;min-height:0;overflow-y:auto;padding:18px 18px 80px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));grid-auto-rows:min-content;gap:14px;align-content:start}
-#lib-grid::-webkit-scrollbar{width:3px}
-#lib-grid::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
-/* ── Cards ── */
-.gcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:border-color .15s,transform .15s,box-shadow .15s;align-self:start}
-.gcard:hover{border-color:var(--border2);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.5)}
-.gcard.gcard-selected{border-color:var(--accent2)}
-.gcard-tw{position:relative;width:100%;aspect-ratio:16/9;background:var(--bg4);overflow:hidden}
-.gcard-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:1}
-.gcard-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:20px;z-index:0}
-.gcard-overlay{position:absolute;bottom:0;left:0;right:0;z-index:2;background:linear-gradient(transparent,rgba(0,0,0,.88));padding:18px 10px 8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gcard-meta{padding:5px 10px;font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-
-/* ── Dock ── */
-.dock-btn{height:32px;padding:0 12px;border-radius:20px;border:1px solid var(--border2);background:rgba(14,15,18,.8);font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap;color:var(--text2)}
-.dock-btn:hover{border-color:var(--accent2);color:var(--accent)}
-#dock-sm-btn{border-color:var(--green);color:var(--green)}
-#dock-sm-btn.unconnected{border-color:var(--border2);color:var(--text2)}
-#dock-sm-btn:hover{background:rgba(76,175,130,.08)}
-#dock-actions.open{display:flex !important}
-
-/* ── Actions dropdown ── */
-.actions-menu{
-  position:absolute;top:36px;right:0;z-index:30;
-  width:340px;
-  background:var(--bg2);border:1px solid var(--border2);
-  border-radius:8px;overflow:hidden;
-  box-shadow:0 8px 32px rgba(0,0,0,.7);
+async function runClassify(album, images, contextImageUrls, apiKey) {
+  const urls = Array.isArray(contextImageUrls) ? contextImageUrls.filter(Boolean).slice(0, 5) : [];
+  const contextImages = [];
+  for (const url of urls) {
+    try { contextImages.push(await fetchImageAsBase64(smMedium(url), 8000)); }
+    catch (e) {}
+  }
+  const batches = [];
+  for (let i = 0; i < images.length; i += CLASSIFY_BATCH_SIZE) {
+    batches.push(images.slice(i, i + CLASSIFY_BATCH_SIZE));
+  }
+  const batchResults = await pmap(batches, b => classifyBatch(album, b, contextImages, apiKey), PARALLEL_BATCHES);
+  const allResults = [];
+  const usages = [];
+  batchResults.forEach(br => {
+    if (!br || br.__error) return;
+    (br.results || []).forEach(r => allResults.push(r));
+    usages.push(br.usage);
+  });
+  return { results: allResults, usage: sumUsage(usages) };
 }
-.actions-item{
-  display:grid;grid-template-columns:24px 1fr;grid-template-rows:auto auto;
-  column-gap:10px;
-  width:100%;padding:10px 14px;
-  background:transparent;border:none;border-bottom:1px solid var(--border);
-  color:var(--text);text-align:left;cursor:pointer;
-  font-family:inherit;
+
+// ════════════════════════════════════════════════════════════════════════════
+// STAGE: ORGANIZE — Sonnet WITH IMAGES of the candidates returns walkthrough order
+// ════════════════════════════════════════════════════════════════════════════
+// Sonnet sees the actual photos (medium size) for ranking-quality candidates,
+// not just text summaries. Logistic/rejected photos stay text-only at the back.
+// This is the meaningful upgrade: the AI doing the organizing now actually SEES
+// the photos rather than trusting Stage 2's tags.
+const ORGANIZE_PROMPT = `You're a film/TV scout's assistant. You see (1) one or more centerpiece reference images that show what this location IS, and (2) the actual candidate photos to be ordered. Return the ideal walkthrough ORDER for presenting the location.
+
+WALKTHROUGH PRINCIPLES:
+  1. Lead with the BEST single full-subject hero exterior — the establishing wide that shows the whole front of the building/property. Pick ONE, not two or three. (If the album has only side-exteriors, lead with the best of those.)
+  2. Then the tighter shot of the front entrance (closer crop of the door, awning, signage — the moment-of-arrival shot)
+  3. Then move INSIDE — entry-in (looking through the front door into the space), then a wide entry-out (looking back at the door from inside)
+  4. Move through the SIGNIFICANT spaces — the rooms that ARE the location's purpose
+  5. Within each space: best wide overview first, then the reverse angle if available
+  6. Outdoor features after interiors (unless it's an outdoor location)
+  7. Additional exteriors / reference shots / logistic photos go to the back
+  8. Anything marked is_sharp:false or role:logistic goes to the END
+
+FRONT EXTERIOR DISCIPLINE:
+  - At most ONE hero exterior in the top 5 picks
+  - At most ONE entry-tight shot in the top 5 picks
+  - All other front exteriors (alternate angles, daylight vs. night, redundant frames) go AFTER the interior walkthrough — not in the lead-in
+  - Side and rear exteriors only appear after all interiors are covered, capped at 2 in top picks
+
+CENTERPIECE PRIORITY (when applicable):
+  - The FIRST centerpiece image (centerpiece 1) is the user's PRIMARY pick — what they consider the defining image of this location
+  - If centerpiece 1 IS an exterior shot, it should be the lead-in hero exterior of the walkthrough
+  - If centerpiece 1 is an interior, the walkthrough can still open with a hero exterior (if available) but should reach centerpiece 1's space EARLY
+  - Treat centerpieces 2-5 as user-preferred photos worth elevating in the order — each should appear in the top picks unless clearly inappropriate for the slot
+
+SPACE PRIORITIZATION (this is the key judgment):
+  - The centerpiece image(s) and album notes/category tell you what the location IS
+  - Rooms whose tags align with the album's purpose are CORE — feature them
+  - Original order is the starting point for the flow of the file
+  - Rooms that exist but aren't the main draw are SECONDARY — give them a token mention
+  - For a ballroom venue: ballroom + grand entrance are core; bathrooms are secondary
+  - For a residence: living/family rooms + kitchen are core; bathrooms usually secondary
+
+COVERAGE OVER REPETITION:
+  - When choosing top picks, prefer VARIETY across the location's distinctive features over duplicates of the same view.
+  - If two photos show the same angle of the same room, pick one.
+  - Wide ranges (different rooms, different angles, different scales) tell the story better than 5 great shots of the same area.
+
+TOP PICKS:
+  - These are the photos that, in this order, would be the highlight reel
+  - Skip logistic/blurry/blank from top picks entirely
+
+RESPECT CHRONOLOGY when ranking is otherwise tied — prefer the lower original_index.
+
+OUTPUT — return ONLY this JSON, no prose, no markdown fences:
+{
+  "suggested_path": "category/subcategory",
+  "path_confidence": 0.0-1.0,
+  "ordered": [
+    { "key": "abc123", "top_pick": true,  "rank_reason": "hero exterior" },
+    { "key": "def456", "top_pick": true,  "rank_reason": "ballroom overview, core space" },
+    ...
+  ]
 }
-.actions-item:hover{background:var(--bg3)}
-.actions-item:last-child{border-bottom:none}
-.actions-icon{
-  grid-row:1 / span 2;align-self:center;
-  font-size:14px;text-align:center;color:var(--text2);
+
+PATH SUGGESTION:
+  - Use existing taxonomy paths when one fits (passed in TAXONOMY below)
+  - Propose a new path only if no existing one fits well
+  - Lowercase, hyphenated, hierarchical (e.g. "residences/brownstones", "restaurants/diners", "events/ballrooms")
+  - For NY metro: respect borough/area distinctions (manhattan, brooklyn, queens, bronx, staten-island, long-island, westchester, jersey, hudson-valley)
+  - path_confidence: 0.95+ = certain, 0.85 = strong match, 0.70 = reasonable, <0.70 = uncertain
+
+Include EVERY photo (both the candidates you see and the rejected ones listed below) in "ordered". The order of items IS the new walkthrough order.`;
+
+async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, taxonomy, apiKey) {
+  const urls = Array.isArray(contextImageUrls) ? contextImageUrls.filter(Boolean).slice(0, 5) : [];
+  const contextImages = [];
+  for (const url of urls) {
+    try { contextImages.push(await fetchImageAsBase64(smMedium(url), 8000)); }
+    catch (e) {}
+  }
+
+  // Decide which photos to send as actual images vs. as text-only summaries.
+  // Strategy: take the BEST photos from each ALBUM TEMPORAL BUCKET so the last third
+  // of a long album gets representation. Pure top-by-composition tends to cluster
+  // candidates at the front (where shots are usually more deliberate).
+  const eligible = perPhoto.filter(p =>
+    !p.isRejected && p.is_sharp !== false && p.role !== 'logistic' && p.role !== 'transition'
+  );
+  const TARGET = 60;
+  const BUCKET_COUNT = 6;  // divide album into 6 chunks
+  const totalLen = perPhoto.length || 1;
+  // Bucket each eligible photo by where it sits in the album's chronology
+  const buckets = Array.from({ length: BUCKET_COUNT }, () => []);
+  eligible.forEach(p => {
+    const idx = p.originalIndex || 0;
+    const bIdx = Math.min(BUCKET_COUNT - 1, Math.floor((idx / totalLen) * BUCKET_COUNT));
+    buckets[bIdx].push(p);
+  });
+  // Sort each bucket by composition desc (so we always take its best first)
+  buckets.forEach(b => b.sort((a, b) => (b.composition || 0) - (a.composition || 0)));
+  // Round-robin pick across buckets, taking the best from each in turn until we hit TARGET
+  const imageCandidates = [];
+  let rotation = 0;
+  while (imageCandidates.length < TARGET) {
+    let added = false;
+    for (let bi = 0; bi < BUCKET_COUNT; bi++) {
+      if (imageCandidates.length >= TARGET) break;
+      const b = buckets[bi];
+      if (rotation < b.length) {
+        imageCandidates.push(b[rotation]);
+        added = true;
+      }
+    }
+    if (!added) break;
+    rotation++;
+  }
+  const imageCandidateKeys = new Set(imageCandidates.map(p => p.key));
+
+  // Fetch medium-size images for those candidates
+  const candidateUrlByKey = new Map();
+  (candidateImages || []).forEach(c => { if (c && c.key && c.url) candidateUrlByKey.set(c.key, c.url); });
+  const candidateSources = await Promise.all(imageCandidates.map(async p => {
+    const url = candidateUrlByKey.get(p.key);
+    if (!url) return null;
+    try { return await fetchImageAsBase64(smMedium(url), 8000); }
+    catch (e) { return null; }
+  }));
+
+  // Text-only summaries for ALL photos (so Sonnet sees the full scope including rejects).
+  // Mark which ones it has visual access to with [IMG=N]. Photos NOT in the visual subset
+  // rely on the description field — written by Stage 1 — to give Sonnet enough context
+  // to rank them.
+  const linesAll = perPhoto.map(p => {
+    const parts = [`key=${p.key}`];
+    parts.push(`idx=${p.originalIndex}`);
+    if (p.role) parts.push(`role=${p.role}`);
+    if (p.room) parts.push(`room=${p.room}`);
+    parts.push(`comp=${p.composition || 5}`);
+    parts.push(`sharp=${p.is_sharp !== false}`);
+    if (p.tags && p.tags.length) parts.push(`tags=[${p.tags.slice(0, 8).join(',')}]`);
+    if (p.description) parts.push(`desc="${String(p.description).replace(/"/g, "'").slice(0, 200)}"`);
+    if (p.isRejected) parts.push('REJECTED');
+    if (p.centerpieceSlot && p.centerpieceSlot > 0) parts.push(`*USER-CENTERPIECE-${p.centerpieceSlot}*`);
+    if (imageCandidateKeys.has(p.key)) {
+      const visualIdx = imageCandidates.findIndex(c => c.key === p.key);
+      parts.push(`[IMG=${visualIdx}]`);
+    }
+    return parts.join(' · ');
+  }).join('\n');
+
+  const placesText = album.googlePlaces
+    ? `\n\nGOOGLE PLACES:\n  ${album.googlePlaces.formatted || ''}\n  Types: ${(album.googlePlaces.types || []).join(', ')}`
+    : '';
+
+  const userParts = [];
+  if (contextImages.length) {
+    userParts.push({
+      type: 'text',
+      text: `CENTERPIECE IMAGE${contextImages.length > 1 ? 'S' : ''} (${contextImages.length} user-selected reference${contextImages.length > 1 ? 's' : ''} for what this location IS):`
+    });
+    contextImages.forEach((img, i) => {
+      if (contextImages.length > 1) userParts.push({ type: 'text', text: `Centerpiece ${i + 1}:` });
+      userParts.push({ type: 'image', source: img });
+    });
+  }
+
+  // Now the candidate images that Sonnet will visually rank
+  if (candidateSources.some(Boolean)) {
+    const validCount = candidateSources.filter(Boolean).length;
+    userParts.push({ type: 'text', text: `CANDIDATE PHOTOS (${validCount} photos for visual ranking — referenced as IMG=N in the summaries below):` });
+    candidateSources.forEach((src, i) => {
+      if (!src) return;
+      userParts.push({ type: 'text', text: `IMG=${i} (key=${imageCandidates[i].key}):` });
+      userParts.push({ type: 'image', source: src });
+    });
+  }
+
+  const taxonomyText = (Array.isArray(taxonomy) && taxonomy.length)
+    ? `\n\nEXISTING TAXONOMY (prefer one of these paths if it fits):\n  ${taxonomy.slice(0, 80).join('\n  ')}`
+    : '';
+
+  userParts.push({
+    type: 'text',
+    text: `\nALBUM: ${album.name || '(unnamed)'}\n` +
+          `Category: ${album.category || 'unknown'}\n` +
+          `Notes: ${String(album.notes || '').slice(0, 1500)}` +
+          placesText +
+          taxonomyText +
+          `\n\nALL PHOTOS (${perPhoto.length} total — visual candidates marked with IMG=N, the rest are text-only with their tags):\n${linesAll}\n\nReturn the walkthrough ordering AND a suggested folder path. Include every photo's key in "ordered".`
+  });
+
+  const r = await callAnthropic(SONNET, ORGANIZE_PROMPT, userParts, apiKey, 5000);
+  const parsed = parseJSON(r.text);
+  const ordered = Array.isArray(parsed.ordered) ? parsed.ordered : [];
+  const suggestedPath = typeof parsed.suggested_path === 'string' ? parsed.suggested_path : '';
+  const pathConfidence = typeof parsed.path_confidence === 'number' ? parsed.path_confidence : 0;
+  return { ordered, suggestedPath, pathConfidence, usage: r.usage };
 }
-.actions-label{
-  grid-column:2;grid-row:1;
-  font-size:12px;font-weight:500;color:var(--text);line-height:1.2;
+
+// ════════════════════════════════════════════════════════════════════════════
+// STAGE: ENRICH — Sonnet large images on top picks
+// ════════════════════════════════════════════════════════════════════════════
+const ENRICH_PROMPT_TMPL = consensus =>
+  `You provide enriched, evocative keywords for the BEST photos in a film/TV scout album.
+
+Album consensus: ${consensus.slice(0, 12).join(', ')}.
+
+For each photo: 8-15 specific tags. Capture distinctive details, mood, cinematic potential. Multi-word tags use hyphens.
+
+OUTPUT — return ONLY this JSON, no prose:
+{
+  "photos": [
+    { "i": 0, "tags": ["..."] },
+    ...
+  ]
+}`;
+
+async function enrichBatch(batch, consensus, apiKey) {
+  const sources = await Promise.all(batch.map(async img => {
+    try { return await fetchImageAsBase64(smLarge(img.url), 10000); }
+    catch (e) { return null; }
+  }));
+  const validPairs = sources.map((src, i) => src ? { src, img: batch[i] } : null).filter(Boolean);
+  if (!validPairs.length) return { results: [], usage: {} };
+
+  const userParts = [{ type: 'text', text: `Provide enriched tags for these ${validPairs.length} top-pick photos.` }];
+  validPairs.forEach((p, i) => {
+    userParts.push({ type: 'text', text: `Photo ${i}:` });
+    userParts.push({ type: 'image', source: p.src });
+  });
+  const r = await callAnthropic(SONNET, ENRICH_PROMPT_TMPL(consensus || []), userParts, apiKey, 2000);
+  const parsed = parseJSON(r.text);
+  const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
+  const results = [];
+  validPairs.forEach((p, i) => {
+    const m = photos.find(x => x && x.i === i);
+    results.push({ key: p.img.key, tags: m && Array.isArray(m.tags) ? m.tags : [] });
+  });
+  return { results, usage: r.usage };
 }
-.actions-desc{
-  grid-column:2;grid-row:2;
-  font-size:10px;color:var(--text3);line-height:1.4;margin-top:2px;
+
+async function runEnrich(images, consensus, apiKey) {
+  const batches = [];
+  for (let i = 0; i < images.length; i += ENRICH_BATCH_SIZE) {
+    batches.push(images.slice(i, i + ENRICH_BATCH_SIZE));
+  }
+  const batchResults = await pmap(batches, b => enrichBatch(b, consensus, apiKey), PARALLEL_BATCHES);
+  const allResults = [];
+  const usages = [];
+  batchResults.forEach(br => {
+    if (!br || br.__error) return;
+    (br.results || []).forEach(r => allResults.push(r));
+    usages.push(br.usage);
+  });
+  return { results: allResults, usage: sumUsage(usages) };
 }
-.actions-sep{
-  height:1px;background:var(--border2);margin:0;
-}
-.actions-danger .actions-icon,
-.actions-danger .actions-label{color:var(--red)}
-.actions-danger:hover{background:rgba(194,96,96,.08)}
 
-/* ── Shared ── */
-.modal-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
-.modal-ov.open{display:flex}
-.toast{position:fixed;bottom:56px;right:14px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:9px 14px;font-size:10px;font-family:'DM Mono',monospace;z-index:700;transform:translateY(60px);opacity:0;transition:all .25s;max-width:260px;pointer-events:none}
-.toast.show{transform:translateY(0);opacity:1}
-.toast.ok{border-color:var(--green);color:var(--green)}
-.toast.err{border-color:var(--red);color:var(--red)}
-.toast.inf{border-color:var(--blue);color:var(--blue)}
-.spin{width:12px;height:12px;border:1.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
-@keyframes spin{to{transform:rotate(360deg)}}
-.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text3);font-family:'DM Mono',monospace;font-size:10px;grid-column:1/-1;min-height:120px;letter-spacing:.06em}
+// ════════════════════════════════════════════════════════════════════════════
+// HANDLER
+// ════════════════════════════════════════════════════════════════════════════
+module.exports = async function handler(req, res) {
+  const origin = req.headers.origin || '';
+  if (ALLOWED_ORIGINS.has(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-/* Lightbox */
-#lightbox{display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.97);align-items:center;justify-content:center}
-#lightbox.open{display:flex}
-#lightbox img{width:100vw;height:100vh;object-fit:contain}
-#lb-close{position:absolute;top:14px;right:16px;color:rgba(255,255,255,.4);font-size:28px;cursor:pointer;background:none;border:none;line-height:1;z-index:901;transition:color .12s}
-#lb-close:hover{color:#fff}
-#lb-counter{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:10px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.4);letter-spacing:.08em}
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'method not allowed' });
 
-/* Color picker */
-#cat-color-picker{position:fixed;z-index:800;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:12px;box-shadow:var(--shadow)}
-.ccp-title{font-size:8px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.14em;margin-bottom:10px;text-transform:uppercase}
-.ccp-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:10px}
-.ccp-swatch{width:24px;height:24px;border-radius:5px;cursor:pointer;border:2px solid transparent;transition:transform .1s,border-color .1s}
-.ccp-swatch:hover{transform:scale(1.15)}
-.ccp-swatch.active{border-color:#fff}
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not configured' });
 
-@media(max-width:700px){
-  #lib-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
-  #detail-panel{width:100%;min-width:unset}
-  #left-panel{display:none}
-  #map-controls{left:0;padding:20px 12px 10px;gap:10px}
-}
-</style>
-</head>
-<body>
-<div id="shell">
-  <div id="header"><h1>Jordan B. Hoffman &nbsp;·&nbsp; Locations</h1></div>
-  <div id="nav">
-    <button class="nav-btn active" onclick="showPage('home',this)" aria-label="Map view">Map</button>
-    <button class="nav-btn" onclick="showPage('library',this)" aria-label="Library view">Library</button>
-    <button class="nav-btn" onclick="showPage('organize',this)" aria-label="Organize view">Organize</button>
-    <div id="nav-status" style="position:absolute;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;right:0;top:0;height:44px;display:flex;align-items:center;pointer-events:none"></div>
-    <div id="nav-right" style="position:absolute;right:10px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:nowrap">
-      <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px" title="Connect this app to SmugMug">authorize ↗</button>
-      <button class="dock-btn" id="dock-sync-btn" onclick="startFullSync()" style="display:none;height:28px;padding:0 10px" title="Pull all changes from SmugMug into the database (folders, albums, descriptions, thumbnails). Skips unchanged albums.">
-        <span id="dock-sync-label">⟳ sync</span>
-      </button>
-      <div id="actions-wrap" style="display:none;position:relative">
-        <button class="dock-btn" id="dock-actions-btn" onclick="toggleActionsMenu(event)" style="height:28px;padding:0 10px" title="Maintenance actions: fix pins / thumbnails / addresses, place pins, scrub & repin">⚙ actions ▾</button>
-        <div id="actions-menu" class="actions-menu" style="display:none">
-          <button class="actions-item" onclick="closeActionsMenu();runPlacePins()" title="Place pins for any locations missing coordinates. Tries photo GPS, then geocodes the address, then falls back to a Google Places lookup of the location name.">
-            <span class="actions-icon">📍</span><span class="actions-label">Place pins</span>
-            <span class="actions-desc">Pin any locations missing coordinates (photo GPS → address → name)</span>
-          </button>
-          <button class="actions-item" onclick="closeActionsMenu();reextractAddresses()" title="Re-run the parser on every location's notes and fill in any empty state/city/address fields. No network calls, no cost.">
-            <span class="actions-icon">📋</span><span class="actions-label">Fix addresses</span>
-            <span class="actions-desc">Re-extract street/city/state from notes for any blank fields (free)</span>
-          </button>
-          <button class="actions-item" onclick="closeActionsMenu();regeocodeBadPins()" title="Re-geocode all locations that haven't been manually verified. Bias by state code so NJ pins don't end up in NY.">
-            <span class="actions-icon">⌖</span><span class="actions-label">Fix pins</span>
-            <span class="actions-desc">Re-geocode unverified locations using their addresses (~1¢ each)</span>
-          </button>
-          <button class="actions-item" onclick="closeActionsMenu();fixMissingThumbnails()" title="For any album with no highlight thumbnail, fetch one from SmugMug. Updates folder previews and library card thumbnails.">
-            <span class="actions-icon">🖼</span><span class="actions-label">Fix thumbnails</span>
-            <span class="actions-desc">Backfill missing album highlight images so library cards aren't gray</span>
-          </button>
-          <div class="actions-sep"></div>
-          <button class="actions-item" onclick="closeActionsMenu();openUsagePanel()" title="See how much you've spent on Google Maps and Anthropic API calls">
-            <span class="actions-icon">💰</span><span class="actions-label">API usage &amp; cost</span>
-            <span class="actions-desc">Running totals for Google Maps and Anthropic API spending</span>
-          </button>
-          <div class="actions-sep"></div>
-          <button class="actions-item actions-danger" onclick="closeActionsMenu();scrubAndRepin()" title="Wipe ALL coordinates (including verified) and re-run the pin chain. Use after major data changes or to fix bad pins from old logic.">
-            <span class="actions-icon">⚠</span><span class="actions-label">Scrub &amp; repin</span>
-            <span class="actions-desc">Wipe every pin and re-run the priority chain from scratch</span>
-          </button>
-          <div class="actions-sep"></div>
-          <button class="actions-item actions-danger" onclick="closeActionsMenu();signOutSmugMug()" title="Disconnect this app from SmugMug. You can reconnect anytime.">
-            <span class="actions-icon">⏻</span><span class="actions-label">Sign out</span>
-            <span class="actions-desc">Disconnect from SmugMug</span>
-          </button>
-        </div>
-      </div>
-      <button id="dock-sm-btn" class="dock-btn unconnected" style="height:28px;padding:0 10px;cursor:default" aria-label="SmugMug status"><span id="dock-sm-label">smugmug</span></button>
-    </div>
-  </div>
-  <div id="pages">
-    <div class="page active" id="home-page">
-      <div id="left-panel">
-        <div id="lp-head"><span>Categories</span><button onclick="lpToggleAll()" title="Clear color selections" aria-label="Clear all category colors">clear</button></div>
-        <div id="lp-body"><div class="empty"><div class="spin"></div></div></div>
-      </div>
-      <div id="map-wrap">
-        <div id="the-map" role="application" aria-label="Map of locations"></div>
-        <div class="hcard" id="hcard">
-          <div id="hcard-media"></div>
-          <div class="hcard-body">
-            <div class="hcard-name" id="hcard-name" onclick="openDetail(S.currentHoverLoc)"></div>
-            <div class="hcard-meta">
-              <span class="hcard-cat-dot" id="hcard-cat-dot"></span>
-              <span id="hcard-cat"></span>
-              <span style="color:var(--border2)">·</span>
-              <span id="hcard-addr"></span>
-            </div>
-            <div class="hcard-foot">
-              <span class="hcard-status" id="hcard-status"></span>
-              <div class="hcard-btns">
-                <button class="hcard-btn pri" onclick="openDetail(S.currentHoverLoc)">open</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+  try {
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    const stage = (req.query && req.query.stage) || body.stage || 'classify';
 
-    <div class="page" id="library-page">
-      <div class="lib-header">
-        <div class="lib-bc" id="lib-bc"></div>
-        <input class="lib-search" id="lib-q" placeholder="search words…" oninput="libSearch()" aria-label="Keyword search">
-        <input class="lib-search lib-ai-search" id="lib-ai-q" placeholder="✨ ask AI: gritty industrial space…" aria-label="AI search" onkeydown="if(event.key==='Enter'){runAiSearch()}">
-        <button class="lib-ai-btn" id="lib-ai-btn" onclick="runAiSearch()" title="Search with AI — interprets descriptive language, combines tag synonyms">✨ ask</button>
-        <select class="lib-sel" id="lib-status-sel" onchange="libSearch()" aria-label="Filter by status">
-          <option value="">all status</option>
-          <option value="pending">pending</option>
-          <option value="clear">clear</option>
-        </select>
-      </div>
-      <div id="lib-grid" onclick="libGridClick(event)"><div class="empty"><div class="spin"></div><span>loading library...</span></div></div>
-    </div>
+    if (stage === 'classify') {
+      const album = {
+        name: body.albumName || '',
+        notes: body.albumNotes || '',
+        tags: Array.isArray(body.albumTags) ? body.albumTags : [],
+        category: body.albumCategory || '',
+        googlePlaces: body.googlePlaces || null,
+        rejectedTags: Array.isArray(body.rejectedTags) ? body.rejectedTags : []
+      };
+      const images = Array.isArray(body.images) ? body.images : [];
+      // Accept either contextImageUrls (new, array) or contextImageUrl (legacy, single)
+      const contextImageUrls = Array.isArray(body.contextImageUrls)
+        ? body.contextImageUrls
+        : (body.contextImageUrl ? [body.contextImageUrl] : []);
+      if (!images.length) return res.status(400).json({ ok: false, error: 'images required' });
+      if (images.length > 200) return res.status(400).json({ ok: false, error: 'max 200 photos per classify' });
+      const { results, usage } = await runClassify(album, images, contextImageUrls, apiKey);
+      return res.json({ ok: true, results, usage, costCents: calcCost(usage, null) });
+    }
 
-    <!-- ORGANIZE PAGE -->
-    <div class="page" id="organize-page">
-      <div class="org-header">
-        <div class="org-title">Organize <span id="org-count" class="org-count"></span></div>
-        <span id="org-feedback" class="org-feedback" title="Past corrections that inform classification" style="display:none"></span>
-        <div class="org-actions">
-          <button class="org-btn" id="org-classify-btn" onclick="orgClassifyAll()">⚡ Classify all</button>
-          <button class="org-btn" id="org-approve-btn" onclick="orgApproveAll()" disabled title="Queue all classified cards (skips low-confidence)">✓ Approve all</button>
-          <button class="org-btn" id="org-apply-btn" onclick="orgApplyMoves()" disabled>Apply moves</button>
-          <button class="org-btn" id="org-merge-btn" onclick="orgFindDuplicateFolders()" title="Find folders that likely represent the same category (e.g. junk-yard + scrapyard)">⌗ Merge folders</button>
-          <button class="org-btn" id="org-refresh-btn" onclick="orgLoadUploads()" title="Reload uploads">↻</button>
-        </div>
-      </div>
-      <div id="org-body">
-        <div class="org-tax" id="org-tax">
-          <div class="org-tax-cols">
-            <div class="org-tax-col">
-              <div class="org-tax-h">Current taxonomy</div>
-              <div id="org-tax-current" class="org-tax-list"><div class="empty"><div class="spin"></div></div></div>
-            </div>
-            <div class="org-tax-col">
-              <div class="org-tax-h">Suggested categories <span class="org-tax-sub">(after classify)</span></div>
-              <div id="org-tax-new" class="org-tax-list"><div class="empty">— run a classify pass to see new paths Claude suggests —</div></div>
-            </div>
-          </div>
-        </div>
-        <div id="org-list">
-          <div class="empty"><div class="spin"></div><span>loading albums in /Master-Library/Uploads/...</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
+    if (stage === 'organize') {
+      const album = {
+        name: body.albumName || '',
+        notes: body.albumNotes || '',
+        category: body.albumCategory || '',
+        googlePlaces: body.googlePlaces || null
+      };
+      const perPhoto = Array.isArray(body.perPhoto) ? body.perPhoto : [];
+      const candidateImages = Array.isArray(body.candidateImages) ? body.candidateImages : [];
+      const taxonomy = Array.isArray(body.taxonomy) ? body.taxonomy : [];
+      const contextImageUrls = Array.isArray(body.contextImageUrls)
+        ? body.contextImageUrls
+        : (body.contextImageUrl ? [body.contextImageUrl] : []);
+      if (!perPhoto.length) return res.status(400).json({ ok: false, error: 'perPhoto required' });
+      if (perPhoto.length > 250) return res.status(400).json({ ok: false, error: 'max 250 photos per organize' });
+      const { ordered, suggestedPath, pathConfidence, usage } = await runOrganize(album, perPhoto, contextImageUrls, candidateImages, taxonomy, apiKey);
+      return res.json({
+        ok: true,
+        ordered,
+        suggestedPath, pathConfidence,
+        usage, costCents: calcCost(null, usage)
+      });
+    }
 
-  <!-- Filter bar — fixed at bottom, aligned with right pane (after categories panel on home; flush left on library) -->
-  <div id="map-controls">
-    <div class="mc-group">
-      <span class="mc-label">State</span>
-      <div id="state-checkboxes" class="state-checkboxes-row"></div>
-    </div>
-    <div class="mc-sep"></div>
-    <div class="mc-group">
-      <span class="mc-label">Status</span>
-      <div class="fi"><input type="checkbox" id="f-pending" checked onchange="applyFilters()"><label for="f-pending">Pending</label></div>
-      <div class="fi"><input type="checkbox" id="f-clear" checked onchange="applyFilters()"><label for="f-clear">Clear</label></div>
-    </div>
-    <div class="mc-sep"></div>
-    <div class="mc-group">
-      <div class="fi flatten-only-library" style="display:none"><input type="checkbox" id="f-flatten" onchange="applyFilters()"><label for="f-flatten" title="Library: skip area subfolders, show all albums under each category in one grid">flatten places</label></div>
-      <div class="fi map-only-control"><input type="checkbox" id="f-zone" onchange="applyFilters()"><label for="f-zone" style="color:var(--text2)">zone</label></div>
-    </div>
-    <div class="mc-sep map-only-control"></div>
-    <div class="mc-group map-only-control">
-      <div class="zone-tog" id="zone-btn" onclick="toggleZone()" style="gap:5px" role="button" aria-label="Toggle 30-mile zone ring">
-        <div class="zdot"></div>
-        <span style="font-size:9px;font-family:'DM Mono',monospace;color:var(--red);letter-spacing:.06em">Zone</span>
-      </div>
-      <button id="sat-btn" onclick="toggleSatellite()" style="height:28px;padding:0 12px;border-radius:20px;border:1px solid var(--border2);background:rgba(0,0,0,.5);font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;color:var(--text2);cursor:pointer;transition:all .15s" aria-label="Toggle satellite view">satellite</button>
-    </div>
-  </div>
-</div>
+    if (stage === 'enrich') {
+      const images = Array.isArray(body.images) ? body.images : [];
+      const consensus = Array.isArray(body.consensusTags) ? body.consensusTags : [];
+      if (!images.length) return res.status(400).json({ ok: false, error: 'images required' });
+      if (images.length > 60) return res.status(400).json({ ok: false, error: 'max 60 photos per enrich' });
+      const { results, usage } = await runEnrich(images, consensus, apiKey);
+      return res.json({ ok: true, results, usage, costCents: calcCost(null, usage) });
+    }
 
-<!-- Detail panel -->
-<div id="detail-panel">
-  <div class="dp-header">
-    <div style="flex:1;min-width:0">
-      <div class="dp-name" id="dp-name"></div>
-      <div class="dp-header-bar" id="dp-header-bar"></div>
-    </div>
-    <button class="dp-close" onclick="closeDetail()" aria-label="Close detail panel">×</button>
-  </div>
-  <div class="dp-scroll" id="dp-scroll">
-    <div class="dp-viewer" id="dp-viewer">
-      <div class="dp-viewer-ph" id="dp-viewer-ph"><span style="font-size:20px;opacity:.3">◻</span><span>no photo</span></div>
-      <img id="dp-viewer-img" class="dp-viewer-img" src="" style="display:none" onclick="dpViewerClick(this)" alt="Location photo">
-      <button class="dp-arrow prev" id="dp-prev" style="display:none" aria-label="Previous photo">&#8249;</button>
-      <button class="dp-arrow next" id="dp-next" style="display:none" aria-label="Next photo">&#8250;</button>
-      <div class="dp-photo-actions" id="dp-photo-actions" style="display:none">
-        <button class="dp-fav-btn" id="dp-fav-btn" onclick="dpToggleFavorite()" title="Favorite — pin to front of custom order">★</button>
-        <button class="dp-reject-btn" id="dp-reject-btn" onclick="dpToggleReject()" title="Reject — push to back of custom order">✕</button>
-      </div>
-      <div class="dp-grab-indicator" id="dp-grab-indicator" style="display:none">↕ hold SHIFT + arrow keys to move this photo</div>
-      <div class="dp-counter" id="dp-counter" style="display:none"></div>
-      <button class="dp-order-toggle" id="dp-order-toggle" style="display:none" onclick="dpToggleOrder()" title="Switch between AI-ranked, custom, and original order">↕ order</button>
-      <div class="dp-hint" id="dp-hint" style="display:none">space · lightbox &nbsp; enter · switch view</div>
-    </div>
-    <div class="dp-body" id="dp-body"></div>
-  </div>
-</div>
-
-<!-- Edit Panel -->
-<div id="edit-panel" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center" role="dialog" aria-label="Edit location">
-  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(560px,90vw);max-height:85vh;overflow-y:auto;padding:24px;position:relative">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
-      <div style="font-size:13px;font-weight:500;color:var(--text)">Edit Location</div>
-      <button onclick="closeEditPanel()" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px" aria-label="Close edit panel">×</button>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:14px">
-      <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-name">Title</label></div>
-        <input id="edit-name" type="text" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none">
-      </div>
-      <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-addr">Address</label></div>
-        <textarea id="edit-addr" rows="3" placeholder="123 Main St&#10;(@ Cross St)&#10;Brooklyn, NY 11211" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none;resize:vertical;line-height:1.5"></textarea>
-      </div>
-      <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-contact">Contact</label></div>
-        <textarea id="edit-contact" rows="4" placeholder="Name (role)&#10;Phone&#10;email@example.com" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none;resize:vertical;line-height:1.5"></textarea>
-      </div>
-      <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-notes">Notes <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(saving locks this from sync overwrites)</span></label></div>
-        <textarea id="edit-notes" rows="8" placeholder="- bullet point&#10;- another note" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;outline:none;resize:vertical;line-height:1.6"></textarea>
-      </div>
-      <div>
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px"><label for="edit-app-notes">App Notes <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(app-only · tentative addresses, AI suggestions · not synced to SmugMug)</span></label></div>
-        <textarea id="edit-app-notes" rows="3" placeholder="(empty)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;outline:none;resize:vertical;line-height:1.6"></textarea>
-      </div>
-      <div id="edit-tags-section" style="display:none">
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Keywords <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(✕ to remove · trains AI)</span></div>
-        <div id="edit-tags-chips" class="edit-tags-chips"></div>
-        <input id="edit-tags-add" class="edit-tags-add" placeholder="+ add keyword (press Enter)" type="text">
-      </div>
-      <div id="edit-pics-section" style="display:none">
-        <div style="font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Best picks <span style="color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none;font-family:'DM Sans',sans-serif">(✕ to remove · trains AI)</span></div>
-        <div id="edit-pics-strip" class="edit-pics-strip"></div>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:4px;border-top:1px solid var(--border)">
-        <button onclick="closeEditPanel()" style="background:transparent;border:1px solid var(--border2);color:var(--text2);padding:7px 16px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace">Cancel</button>
-        <button onclick="saveEdit()" id="edit-save-btn" style="background:var(--accent);border:none;color:var(--bg);padding:7px 16px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace;font-weight:500">Save</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Usage panel modal -->
-<div id="usage-modal" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center" role="dialog" aria-label="API usage and cost">
-  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(640px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border)">
-      <div>
-        <div style="font-size:13px;font-weight:500;color:var(--text)">API Usage &amp; Cost</div>
-        <div id="usage-hint" style="font-size:10px;color:var(--text3);margin-top:3px">Estimated based on standard pricing — Google's $200/month free credit isn't subtracted here.</div>
-      </div>
-      <button onclick="document.getElementById('usage-modal').style.display='none'" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px">×</button>
-    </div>
-    <div id="usage-body" style="flex:1;overflow-y:auto;padding:16px 20px">
-      <div class="empty"><div class="spin"></div><span>loading…</span></div>
-    </div>
-    <div style="padding:10px 20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-      <div id="usage-period-toggle" class="usage-period-toggle">
-        <button class="usage-period-btn" data-p="session" onclick="renderUsage('session')">Session</button>
-        <button class="usage-period-btn active" data-p="day" onclick="renderUsage('day')">Today</button>
-        <button class="usage-period-btn" data-p="month" onclick="renderUsage('month')">This month</button>
-        <button class="usage-period-btn" data-p="all" onclick="renderUsage('all')">All time</button>
-      </div>
-      <button class="org-btn" onclick="renderUsage(S.usageView || 'session')" title="Refresh">↻</button>
-    </div>
-  </div>
-</div>
-
-<!-- Merge folders modal -->
-<div id="merge-modal" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center" role="dialog" aria-label="Merge duplicate folders">
-  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(720px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border)">
-      <div>
-        <div style="font-size:13px;font-weight:500;color:var(--text)">Merge duplicate folders</div>
-        <div id="merge-hint" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
-      </div>
-      <button onclick="document.getElementById('merge-modal').style.display='none'" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px">×</button>
-    </div>
-    <div id="merge-body" style="flex:1;overflow-y:auto;padding:16px 20px"></div>
-  </div>
-</div>
-
-<!-- Raw Notes Modal — editable -->
-<div id="raw-notes-modal" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center" role="dialog" aria-label="Raw notes">
-  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(640px,92vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 20px 12px;border-bottom:1px solid var(--border)">
-      <div>
-        <div style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text2);font-weight:500">Raw Notes</div>
-        <div id="raw-notes-hint" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
-      </div>
-      <button onclick="closeRawNotes()" style="background:none;border:1px solid var(--border2);color:var(--text3);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px" aria-label="Close">×</button>
-    </div>
-    <textarea id="raw-notes-content" style="flex:1;min-height:300px;background:var(--bg3);border:none;padding:14px 20px;color:var(--text);font-size:12px;font-family:'DM Mono',monospace;outline:none;resize:none;line-height:1.7"></textarea>
-    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
-      <button onclick="closeRawNotes()" style="background:transparent;border:1px solid var(--border2);color:var(--text2);padding:7px 16px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace">Cancel</button>
-      <button onclick="saveRawNotes()" id="raw-save-btn" style="background:var(--accent);border:none;color:var(--bg);padding:7px 16px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Mono',monospace;font-weight:500">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- Lightbox -->
-<div id="lightbox" onclick="closeLightbox()" role="dialog" aria-label="Photo lightbox">
-  <button id="lb-close" onclick="closeLightbox()" aria-label="Close lightbox">×</button>
-  <img id="lb-img" src="" alt="">
-  <div class="lb-photo-actions" id="lb-photo-actions" onclick="event.stopPropagation()">
-    <button class="dp-fav-btn" id="lb-fav-btn" onclick="event.stopPropagation();dpToggleFavorite()" title="Favorite">★</button>
-    <button class="dp-reject-btn" id="lb-reject-btn" onclick="event.stopPropagation();dpToggleReject()" title="Reject">✕</button>
-  </div>
-  <div class="lb-grab-indicator" id="lb-grab-indicator" style="display:none">↕ SHIFT + arrows to move</div>
-  <div id="lb-counter"></div>
-</div>
-
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
-
-<!-- Scripts: parser first (shared with server), then app -->
-<script src="/parser.js"></script>
-<script src="/app.js"></script>
-</body>
-</html>
+    return res.status(400).json({ ok: false, error: `unknown stage: ${stage}` });
+  } catch (e) {
+    // Log everything we know about the failure so the next 500 tells us exactly what broke.
+    // This shows up in Vercel function logs.
+    const stackLines = e && e.stack ? e.stack.split('\n').slice(0, 8).join('\n') : '(no stack)';
+    console.error('[deep_tag] FAILURE:', {
+      message: e && e.message,
+      stack: stackLines,
+      type: e && e.constructor && e.constructor.name,
+      stage: (req.query && req.query.stage) || 'unknown',
+      memory_used_mb: Math.round((process.memoryUsage && process.memoryUsage().heapUsed || 0) / 1024 / 1024),
+      memory_rss_mb: Math.round((process.memoryUsage && process.memoryUsage().rss || 0) / 1024 / 1024),
+    });
+    // Return the actual error message to the client so the toast tells us something useful.
+    return res.status(500).json({
+      ok: false,
+      error: (e && e.message) || 'deep tag failed',
+      type: e && e.constructor && e.constructor.name
+    });
+  }
+};
