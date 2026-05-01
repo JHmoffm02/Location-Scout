@@ -194,6 +194,12 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   border-color:rgba(200,169,110,.4);
   color:var(--accent);
 }
+.dp-deep-desc{
+  font-size:11px;color:var(--text2);line-height:1.45;
+  margin:6px 0 8px;font-style:italic;
+  padding:6px 10px;background:rgba(200,169,110,.05);
+  border-left:2px solid var(--accent2);border-radius:0 4px 4px 0;
+}
 .dp-pick-pill{
   background:rgba(76,175,130,.15);color:var(--green);
   padding:1px 6px;border-radius:3px;font-size:9px;
@@ -210,6 +216,15 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   font-family:'DM Mono',monospace;
 }
 .dp-role-pill{color:var(--text)}
+
+.cover-cell:hover{
+  border-color: var(--accent2) !important;
+  transform: translateY(-1px);
+}
+.cover-cell.selected{
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(200,169,110,.3);
+}
 
 /* Favorite + reject buttons (overlay on photo viewer) */
 .dp-photo-actions{
