@@ -2821,7 +2821,11 @@ window.dpToggleOrder = function () {
              : cur === 'ranked'   ? 'original'
              :                       'custom';
   dt.orderMode = next;
-  dpApplyOrder();
+  // Capture the currently-viewed photo so we land on the SAME image after re-sort.
+  // Lets the user see this photo's place in each ordering mode without losing it.
+  const activePhoto = dpActivePhoto();
+  const anchorKey = activePhoto ? activePhoto.key : null;
+  dpApplyOrder(anchorKey);
 };
 
 // Find the active photo (the one the user is currently viewing in the photo viewer)
