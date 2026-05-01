@@ -2,19 +2,24 @@
 //
 // PIPELINE (driven by ?stage= query param so the frontend runs in steps):
 //
-//   stage=triage    Haiku on all THUMBNAILS. Marks blanks/super-blurry/contextless
-//                   shots as rejected. Returns survivor list.
+//   stage=classify  Haiku on MEDIUM images. Per photo, returns:
+//                     - description (1 sentence, ~15-25 words)
+//                     - tags (5-8 keywords)
+//                     - role / room / composition / is_sharp
+//                     - reject (boolean — strict, includes blank/blurry/contextless)
+//                   Optionally takes contextImageUrls (1-5 centerpieces) as priming.
+//                   Frontend pre-filters obviously-blank images via local blur detection
+//                   before this stage runs, so we never pay to look at junk.
 //
-//   stage=classify  Haiku on LARGE images, only the survivors. Strict on focus and
-//                   logistic detection. Returns role/room/tags/composition. Optionally
-//                   takes a contextImageUrl (the user-picked cover) which is included
-//                   as a priming image in every batch.
-//
-//   stage=organize  Sonnet TEXT-ONLY (with the cover image only) given album notes,
-//                   Google Places data, and per-photo SUMMARIES from classify.
+//   stage=organize  Sonnet WITH IMAGES of up to 60 best candidates.
+//                   Receives centerpieces + actual photos + per-photo descriptions/tags.
 //                   Returns the walkthrough order + top-pick set.
 //
-//   stage=enrich    Sonnet on LARGE images of the top picks. Adds richer tags.
+//   stage=enrich    Sonnet on LARGE images of top picks. Adds richer keywords.
+//
+// (The old separate "triage" stage is gone — its job was redundant with classify
+//  once we added is_sharp + reject + role=logistic detection. Local blur filtering
+//  handles the obvious junk; AI handles the judgment calls.)
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU = 'claude-haiku-4-5';
@@ -26,8 +31,7 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:5173'
 ]);
 
-const TRIAGE_BATCH_SIZE   = 25;
-const CLASSIFY_BATCH_SIZE = 8;
+const CLASSIFY_BATCH_SIZE = 10;   // medium-image batches; description adds output tokens so smaller batch
 const ENRICH_BATCH_SIZE   = 6;
 const PARALLEL_BATCHES    = 2;
 const MAX_RETRIES         = 3;
@@ -175,88 +179,10 @@ function sumUsage(usages) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// STAGE: TRIAGE — Haiku on thumbnails, mark blanks/blurry/contextless
-// ════════════════════════════════════════════════════════════════════════════
-const TRIAGE_PROMPT = `You're triaging photos for a film/TV scout. Be STRICT — when in doubt, REJECT. The goal is to surface only photos that meaningfully sell the location. Reference shots, accidents, and feature-only details get rejected.
-
-REJECT (mark reject:true) if ANY of these apply:
-  • Blank, near-blank, mostly black, or mostly white — no clear subject
-  • Out of focus, motion-blurred, or visibly soft on the intended subject
-  • An empty wall, blank corner, or featureless surface
-  • Stairs, stairwells, or steps photographed in isolation (no surrounding room context)
-  • A door photographed alone (just the door — no room visible)
-  • A hallway or transition with no distinctive character
-  • A closet interior, utility space, or storage area in isolation
-  • Bathroom fixtures alone (just a toilet, just a sink, just a tub) without showing the room
-  • Material/hardware close-ups — wallpaper swatches, ceiling tiles, hinges, light switches, doorbells, electrical panels
-  • Signage, address plates, permits, parking-lot ground, ceiling or floor textures
-  • Accidental camera shots (sky, ground, lens-cover blur, finger over lens)
-  • Tight architectural details (a single molding, a single beam) without the surrounding room
-  • Anything that answers "what does this specific feature look like?" rather than "what is this place LIKE?"
-
-KEEP (mark reject:false) if ALL of these apply:
-  • The subject is in clear focus
-  • The frame shows a recognizable space, room, exterior, or distinctive composition
-  • The shot communicates "what this place is like" to a director who's never been there
-  • Even imperfect framing is OK if the photo describes a real space
-
-The threshold: if a photo wouldn't appear in a 30-photo scout deck of this location, reject it.
-
-OUTPUT — return ONLY this JSON, no prose, no markdown fences:
-{
-  "photos": [
-    { "i": 0, "reject": true, "reason": "isolated stairs, no room context" },
-    { "i": 1, "reject": false }
-  ]
-}`;
-
-async function triageBatch(batch, apiKey) {
-  const sources = await Promise.all(batch.map(async img => {
-    try { return await fetchImageAsBase64(smThumb(img.url), 6000); }
-    catch (e) { return null; }
-  }));
-  const validPairs = sources.map((src, i) => src ? { src, img: batch[i] } : null).filter(Boolean);
-  if (!validPairs.length) return { results: [], usage: {} };
-
-  const userParts = [{ type: 'text', text: `Triage these ${validPairs.length} thumbnails.` }];
-  validPairs.forEach((p, i) => {
-    userParts.push({ type: 'text', text: `Photo ${i}:` });
-    userParts.push({ type: 'image', source: p.src });
-  });
-  const r = await callAnthropic(HAIKU, TRIAGE_PROMPT, userParts, apiKey, 1200);
-  const parsed = parseJSON(r.text);
-  const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
-
-  const results = [];
-  validPairs.forEach((p, i) => {
-    const m = photos.find(x => x && x.i === i);
-    results.push({
-      key: p.img.key,
-      reject: m ? !!m.reject : false,
-      reason: m ? (m.reason || '') : ''
-    });
-  });
-  return { results, usage: r.usage };
-}
-
-async function runTriage(images, apiKey) {
-  const batches = [];
-  for (let i = 0; i < images.length; i += TRIAGE_BATCH_SIZE) {
-    batches.push(images.slice(i, i + TRIAGE_BATCH_SIZE));
-  }
-  const batchResults = await pmap(batches, b => triageBatch(b, apiKey), PARALLEL_BATCHES);
-  const allResults = [];
-  const usages = [];
-  batchResults.forEach(br => {
-    if (!br || br.__error) return;
-    (br.results || []).forEach(r => allResults.push(r));
-    usages.push(br.usage);
-  });
-  return { results: allResults, usage: sumUsage(usages) };
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// STAGE: CLASSIFY — Haiku on LARGE survivors, strict on focus + logistic
+// STAGE: CLASSIFY — Haiku on MEDIUM images, single pass per album.
+// Returns description + tags + role + room + composition + sharpness + reject
+// for every photo. The frontend pre-filters obvious blur via local Laplacian
+// before calling this, so we don't pay AI to look at literal black frames.
 // ════════════════════════════════════════════════════════════════════════════
 function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, googlePlaces) {
   const cat = (albumCategory || '').toLowerCase();
@@ -285,9 +211,24 @@ ALBUM CONTEXT:
   ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}${placesContext}
 
 FOR EACH NUMBERED PHOTO, output:
+  • description: ONE concise sentence (15-25 words) describing what's visible. Format: "Wide angle of [space] showing [key features]" or similar. Concrete details, not vague summaries. The description tells the next AI stage (which can't see this photo if it's not in the visual subset) what to expect.
   • tags: 5-8 concrete descriptive tags (architecture, materials, mood, lighting, room types, distinctive features). Multi-word tags use hyphens. No location names. No generic words like "interior"/"building".
   • is_sharp: TRUE only if the main subject is in CLEAR focus. BE STRICT — if there's any motion blur, soft focus on the intended subject, or general unsharpness, return FALSE. When in doubt, FALSE.
   • composition: integer 1-10 (10 = striking, 1 = blurry/blank/mistake).
+  • reject: TRUE if this photo should NOT appear in a 30-photo scout deck — ANY of these:
+      - Blank, near-blank, mostly black/white, no visible subject
+      - Out of focus or motion-blurred to the point of being unusable
+      - An empty wall, blank corner, featureless surface
+      - Stairs/stairwells in isolation (no surrounding room context)
+      - A door alone (no room visible around it)
+      - A closet interior, utility space, or storage area in isolation
+      - Bathroom fixtures alone (just toilet/sink/tub) without showing the room
+      - Material/hardware close-ups — wallpaper swatches, ceiling tiles, hinges, light switches, doorbells, electrical panels
+      - Signage, address plates, permits, parking-lot ground, ceiling/floor textures
+      - Accidental shots (sky, ground, lens cover, finger over lens)
+      - Tight architectural details (single molding, single beam) without surrounding room
+      - Anything that answers "what does this specific feature look like?" rather than "what is this place LIKE?"
+    KEEP (reject:false) only if the photo communicates "what this place is like" — even imperfect framing is OK if it shows a recognizable space.
   • role: ONE of:
       - "hero-exterior"  — establishing front facade of the location
       - "side-exterior"  — supporting exterior context
@@ -296,27 +237,16 @@ FOR EACH NUMBERED PHOTO, output:
       - "room-overview"  — WIDE establishing of a distinct interior space, showing how the space lives
       - "room-detail"    — closer feature of furniture/art/materials that adds character to the space
       - "outdoor-feature" — yard, pool, patio, garden — distinct outdoor space
-      - "logistic"       — REFERENCE shots, NOT story shots. Practical-but-not-presentable. The KEY question: does this photo answer "what is this place LIKE?" (story) or "what does this specific feature look like?" (reference). Reference goes here:
-                            • a blank door (just the door, no surrounding room context)
-                            • stairs in isolation (a stairwell shot, single steps, partial railing)
-                            • a closet interior (random closet, utility closet, no surrounding context)
-                            • bathroom fixtures in isolation (just a sink, just a toilet, hardware closeup)
-                            • material/detail close-ups (a swatch of wallpaper, ceiling tile, a hinge)
-                            • blank corners, alcoves, empty walls
-                            • doorbells, light switches, electrical panels
-                            • signage closeups, reference shots of permits/numbers
-                          Even if the photo is well-framed and well-focused, mark logistic if it's a REFERENCE shot rather than something that sells the space. BE GENEROUS marking logistic — wide shots are story; tight crops of single features are usually reference.
+      - "logistic"       — REFERENCE shots, NOT story shots. (Most reject:true items are also role:logistic.) The KEY question: does this photo answer "what is this place LIKE?" (story) or "what does this specific feature look like?" (reference). BE GENEROUS marking logistic — wide shots are story; tight crops of single features are usually reference.
       - "transition"     — passages with no distinctive character (plain hallway, plain stairwell, vestibule)
   • room: short label (e.g. "kitchen", "ballroom", "bath-1"). Empty string if unknown.
 
 PANORAMA HANDLING: judge a panorama by what's in its central 16x9 region. Don't penalize for the format.
 
-BE STRICT on logistic and is_sharp. We're trying to surface the TRUE WALKTHROUGH that sells the space — eliminate everything that's just reference.
-
 OUTPUT — return ONLY this JSON, no prose, no markdown fences:
 {
   "photos": [
-    { "i": 0, "tags": ["..."], "is_sharp": true, "composition": 7, "role": "room-overview", "room": "kitchen" },
+    { "i": 0, "description": "Wide angle of...", "tags": ["..."], "is_sharp": true, "composition": 7, "reject": false, "role": "room-overview", "room": "kitchen" },
     ...
   ]
 }`;
@@ -324,7 +254,7 @@ OUTPUT — return ONLY this JSON, no prose, no markdown fences:
 
 async function classifyBatch(album, batch, contextImages, apiKey) {
   const sources = await Promise.all(batch.map(async img => {
-    try { return await fetchImageAsBase64(smLarge(img.url), 10000); }
+    try { return await fetchImageAsBase64(smMedium(img.url), 8000); }
     catch (e) { return null; }
   }));
   const validPairs = sources.map((src, i) => src ? { src, img: batch[i] } : null).filter(Boolean);
@@ -350,7 +280,8 @@ async function classifyBatch(album, batch, contextImages, apiKey) {
   });
 
   const sys = classifySystemPrompt(album.name, album.notes, album.tags, album.category, album.googlePlaces);
-  const r = await callAnthropic(HAIKU, sys, userParts, apiKey, 2000);
+  // Bumped to 3000 tokens — descriptions add ~25 tokens × 10 photos = 250 tokens of output
+  const r = await callAnthropic(HAIKU, sys, userParts, apiKey, 3000);
   const parsed = parseJSON(r.text);
   const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
 
@@ -358,13 +289,19 @@ async function classifyBatch(album, batch, contextImages, apiKey) {
   validPairs.forEach((p, i) => {
     const m = photos.find(x => x && x.i === i);
     if (!m) {
-      results.push({ key: p.img.key, tags: [], is_sharp: true, composition: 5, role: 'unknown', room: '' });
+      results.push({
+        key: p.img.key, description: '', tags: [],
+        is_sharp: true, composition: 5, reject: false,
+        role: 'unknown', room: ''
+      });
     } else {
       results.push({
         key: p.img.key,
+        description: typeof m.description === 'string' ? m.description.trim() : '',
         tags: Array.isArray(m.tags) ? m.tags : [],
         is_sharp: m.is_sharp !== false,
         composition: typeof m.composition === 'number' ? Math.max(1, Math.min(10, m.composition)) : 5,
+        reject: !!m.reject,
         role: typeof m.role === 'string' ? m.role : 'unknown',
         room: typeof m.room === 'string' ? m.room.toLowerCase().trim() : ''
       });
@@ -396,9 +333,13 @@ async function runClassify(album, images, contextImageUrls, apiKey) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// STAGE: ORGANIZE — Sonnet TEXT-ONLY (with cover image) returns walkthrough order
+// STAGE: ORGANIZE — Sonnet WITH IMAGES of the candidates returns walkthrough order
 // ════════════════════════════════════════════════════════════════════════════
-const ORGANIZE_PROMPT = `You're a film/TV scout's assistant. Given album metadata + a cover reference image + per-photo summaries, return the ideal walkthrough ORDER for presenting the location.
+// Sonnet sees the actual photos (medium size) for ranking-quality candidates,
+// not just text summaries. Logistic/rejected photos stay text-only at the back.
+// This is the meaningful upgrade: the AI doing the organizing now actually SEES
+// the photos rather than trusting Stage 2's tags.
+const ORGANIZE_PROMPT = `You're a film/TV scout's assistant. You see (1) one or more centerpiece reference images that show what this location IS, and (2) the actual candidate photos to be ordered. Return the ideal walkthrough ORDER for presenting the location.
 
 WALKTHROUGH PRINCIPLES:
   1. Lead with 1-2 hero exterior shots (establishing where we are)
@@ -406,16 +347,21 @@ WALKTHROUGH PRINCIPLES:
   3. Move through the SIGNIFICANT spaces — the rooms that ARE the location's purpose
   4. Within each space: best wide overview first, then the reverse
   5. Outdoor features after interiors (unless it's an outdoor location)
-  6. additional exteriors / reference shots / logistic photos go to the back
+  6. Additional exteriors / reference shots / logistic photos go to the back
   7. Anything marked is_sharp:false or role:logistic goes to the END
 
 SPACE PRIORITIZATION (this is the key judgment):
-  - The cover image and album notes/category tell you what the location IS
+  - The centerpiece image(s) and album notes/category tell you what the location IS
   - Rooms whose tags align with the album's purpose are CORE — feature them
   - Original order is the starting point for the flow of the file
   - Rooms that exist but aren't the main draw are SECONDARY — give them a token mention
   - For a ballroom venue: ballroom + grand entrance are core; bathrooms are secondary
   - For a residence: living/family rooms + kitchen are core; bathrooms usually secondary
+
+COVERAGE OVER REPETITION:
+  - When choosing top picks, prefer VARIETY across the location's distinctive features over duplicates of the same view.
+  - If two photos show the same angle of the same room, pick one.
+  - Wide ranges (different rooms, different angles, different scales) tell the story better than 5 great shots of the same area.
 
 TOP PICKS:
   - These are the photos that, in this order, would be the highlight reel
@@ -432,9 +378,9 @@ OUTPUT — return ONLY this JSON, no prose, no markdown fences:
   ]
 }
 
-Include EVERY photo in "ordered". The order of items IS the new walkthrough order.`;
+Include EVERY photo (both the candidates you see and the rejected ones listed below) in "ordered". The order of items IS the new walkthrough order.`;
 
-async function runOrganize(album, perPhoto, contextImageUrls, apiKey) {
+async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, apiKey) {
   const urls = Array.isArray(contextImageUrls) ? contextImageUrls.filter(Boolean).slice(0, 5) : [];
   const contextImages = [];
   for (const url of urls) {
@@ -442,7 +388,29 @@ async function runOrganize(album, perPhoto, contextImageUrls, apiKey) {
     catch (e) {}
   }
 
-  const lines = perPhoto.map(p => {
+  // Decide which photos to send as actual images vs. as text-only summaries.
+  // Strategy: send as IMAGES the photos that aren't rejected, aren't soft, aren't logistic
+  // — capped at 60 to keep cost in check. Everything else stays text-only at the back.
+  const imageCandidates = perPhoto.filter(p =>
+    !p.isRejected && p.is_sharp !== false && p.role !== 'logistic' && p.role !== 'transition'
+  ).sort((a, b) => (b.composition || 0) - (a.composition || 0)).slice(0, 60);
+  const imageCandidateKeys = new Set(imageCandidates.map(p => p.key));
+
+  // Fetch medium-size images for those candidates
+  const candidateUrlByKey = new Map();
+  (candidateImages || []).forEach(c => { if (c && c.key && c.url) candidateUrlByKey.set(c.key, c.url); });
+  const candidateSources = await Promise.all(imageCandidates.map(async p => {
+    const url = candidateUrlByKey.get(p.key);
+    if (!url) return null;
+    try { return await fetchImageAsBase64(smMedium(url), 8000); }
+    catch (e) { return null; }
+  }));
+
+  // Text-only summaries for ALL photos (so Sonnet sees the full scope including rejects).
+  // Mark which ones it has visual access to with [IMG=N]. Photos NOT in the visual subset
+  // rely on the description field — written by Stage 1 — to give Sonnet enough context
+  // to rank them.
+  const linesAll = perPhoto.map(p => {
     const parts = [`key=${p.key}`];
     parts.push(`idx=${p.originalIndex}`);
     if (p.role) parts.push(`role=${p.role}`);
@@ -450,7 +418,12 @@ async function runOrganize(album, perPhoto, contextImageUrls, apiKey) {
     parts.push(`comp=${p.composition || 5}`);
     parts.push(`sharp=${p.is_sharp !== false}`);
     if (p.tags && p.tags.length) parts.push(`tags=[${p.tags.slice(0, 8).join(',')}]`);
+    if (p.description) parts.push(`desc="${String(p.description).replace(/"/g, "'").slice(0, 200)}"`);
     if (p.isRejected) parts.push('REJECTED');
+    if (imageCandidateKeys.has(p.key)) {
+      const visualIdx = imageCandidates.findIndex(c => c.key === p.key);
+      parts.push(`[IMG=${visualIdx}]`);
+    }
     return parts.join(' · ');
   }).join('\n');
 
@@ -469,16 +442,28 @@ async function runOrganize(album, perPhoto, contextImageUrls, apiKey) {
       userParts.push({ type: 'image', source: img });
     });
   }
+
+  // Now the candidate images that Sonnet will visually rank
+  if (candidateSources.some(Boolean)) {
+    const validCount = candidateSources.filter(Boolean).length;
+    userParts.push({ type: 'text', text: `CANDIDATE PHOTOS (${validCount} photos for visual ranking — referenced as IMG=N in the summaries below):` });
+    candidateSources.forEach((src, i) => {
+      if (!src) return;
+      userParts.push({ type: 'text', text: `IMG=${i} (key=${imageCandidates[i].key}):` });
+      userParts.push({ type: 'image', source: src });
+    });
+  }
+
   userParts.push({
     type: 'text',
-    text: `ALBUM: ${album.name || '(unnamed)'}\n` +
+    text: `\nALBUM: ${album.name || '(unnamed)'}\n` +
           `Category: ${album.category || 'unknown'}\n` +
           `Notes: ${String(album.notes || '').slice(0, 1500)}` +
           placesText +
-          `\n\nPER-PHOTO SUMMARIES (${perPhoto.length} photos):\n${lines}\n\nReturn the walkthrough ordering.`
+          `\n\nALL PHOTOS (${perPhoto.length} total — visual candidates marked with IMG=N, the rest are text-only with their tags):\n${linesAll}\n\nReturn the walkthrough ordering. Include every photo's key in "ordered".`
   });
 
-  const r = await callAnthropic(SONNET, ORGANIZE_PROMPT, userParts, apiKey, 4000);
+  const r = await callAnthropic(SONNET, ORGANIZE_PROMPT, userParts, apiKey, 5000);
   const parsed = parseJSON(r.text);
   const ordered = Array.isArray(parsed.ordered) ? parsed.ordered : [];
   return { ordered, usage: r.usage };
@@ -562,14 +547,6 @@ module.exports = async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const stage = (req.query && req.query.stage) || body.stage || 'classify';
 
-    if (stage === 'triage') {
-      const images = Array.isArray(body.images) ? body.images : [];
-      if (!images.length) return res.status(400).json({ ok: false, error: 'images required' });
-      if (images.length > 250) return res.status(400).json({ ok: false, error: 'max 250 photos per triage' });
-      const { results, usage } = await runTriage(images, apiKey);
-      return res.json({ ok: true, results, usage, costCents: calcCost(usage, null) });
-    }
-
     if (stage === 'classify') {
       const album = {
         name: body.albumName || '',
@@ -597,12 +574,13 @@ module.exports = async function handler(req, res) {
         googlePlaces: body.googlePlaces || null
       };
       const perPhoto = Array.isArray(body.perPhoto) ? body.perPhoto : [];
+      const candidateImages = Array.isArray(body.candidateImages) ? body.candidateImages : [];
       const contextImageUrls = Array.isArray(body.contextImageUrls)
         ? body.contextImageUrls
         : (body.contextImageUrl ? [body.contextImageUrl] : []);
       if (!perPhoto.length) return res.status(400).json({ ok: false, error: 'perPhoto required' });
       if (perPhoto.length > 250) return res.status(400).json({ ok: false, error: 'max 250 photos per organize' });
-      const { ordered, usage } = await runOrganize(album, perPhoto, contextImageUrls, apiKey);
+      const { ordered, usage } = await runOrganize(album, perPhoto, contextImageUrls, candidateImages, apiKey);
       return res.json({ ok: true, ordered, usage, costCents: calcCost(null, usage) });
     }
 
