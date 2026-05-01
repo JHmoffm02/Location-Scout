@@ -342,13 +342,20 @@ async function runClassify(album, images, contextImageUrls, apiKey) {
 const ORGANIZE_PROMPT = `You're a film/TV scout's assistant. You see (1) one or more centerpiece reference images that show what this location IS, and (2) the actual candidate photos to be ordered. Return the ideal walkthrough ORDER for presenting the location.
 
 WALKTHROUGH PRINCIPLES:
-  1. Lead with 1-2 hero exterior shots (establishing where we are)
-  2. Show the entry — outside-looking-in, then a wide of inside-looking-out
-  3. Move through the SIGNIFICANT spaces — the rooms that ARE the location's purpose
-  4. Within each space: best wide overview first, then the reverse
-  5. Outdoor features after interiors (unless it's an outdoor location)
-  6. Additional exteriors / reference shots / logistic photos go to the back
-  7. Anything marked is_sharp:false or role:logistic goes to the END
+  1. Lead with the BEST single full-subject hero exterior — the establishing wide that shows the whole front of the building/property. Pick ONE, not two or three. (If the album has only side-exteriors, lead with the best of those.)
+  2. Then the tighter shot of the front entrance (closer crop of the door, awning, signage — the moment-of-arrival shot)
+  3. Then move INSIDE — entry-in (looking through the front door into the space), then a wide entry-out (looking back at the door from inside)
+  4. Move through the SIGNIFICANT spaces — the rooms that ARE the location's purpose
+  5. Within each space: best wide overview first, then the reverse angle if available
+  6. Outdoor features after interiors (unless it's an outdoor location)
+  7. Additional exteriors / reference shots / logistic photos go to the back
+  8. Anything marked is_sharp:false or role:logistic goes to the END
+
+FRONT EXTERIOR DISCIPLINE:
+  - At most ONE hero exterior in the top 5 picks
+  - At most ONE entry-tight shot in the top 5 picks
+  - All other front exteriors (alternate angles, daylight vs. night, redundant frames) go AFTER the interior walkthrough — not in the lead-in
+  - Side and rear exteriors only appear after all interiors are covered, capped at 2 in top picks
 
 SPACE PRIORITIZATION (this is the key judgment):
   - The centerpiece image(s) and album notes/category tell you what the location IS
