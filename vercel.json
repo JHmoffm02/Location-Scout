@@ -1,5 +1,13 @@
 {
   "rewrites": [
     { "source": "/", "destination": "/index.html" }
-  ]
+  ],
+  "functions": {
+    "api/deep_tag.js":   { "maxDuration": 300 },
+    "api/classify.js":   { "maxDuration": 300 },
+    "api/sync.js":       { "maxDuration": 60 },
+    "api/smugmug.js":    { "maxDuration": 60 },
+    "api/ai_search.js":  { "maxDuration": 60 },
+    "api/find_duplicates.js": { "maxDuration": 60 }
+  }
 }
