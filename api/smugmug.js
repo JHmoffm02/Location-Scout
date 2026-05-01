@@ -447,9 +447,18 @@ async function crawlLibrary(accessToken, accessTokenSecret, knownAlbums) {
         const freshness = (imagesLastModified && lastUpdated && imagesLastModified > lastUpdated)
           ? imagesLastModified : (lastUpdated || imagesLastModified);
 
-        // Change detection: skip highlight fetch if we already have this album with same timestamp
-        const knownTs = known[album.AlbumKey];
-        const isUnchanged = !!(knownTs && freshness && knownTs === freshness);
+        // Change detection: skip highlight fetch if we already have this album with same timestamp.
+        // Normalize both sides to JS Date.toISOString() to avoid format mismatches:
+        //   PostgREST returns "2024-11-15T14:30:00+00:00"
+        //   SmugMug returns  "2024-11-15T14:30:00Z" or with ms
+        // Without normalization, every album looks "changed" on every sync.
+        const normalizeTs = ts => {
+          if (!ts) return null;
+          try { return new Date(ts).toISOString(); } catch (e) { return ts; }
+        };
+        const knownTsNorm = normalizeTs(known[album.AlbumKey]);
+        const freshnessNorm = normalizeTs(freshness);
+        const isUnchanged = !!(knownTsNorm && freshnessNorm && knownTsNorm === freshnessNorm);
 
         let thumbUrl = null;
         if (!isUnchanged) {
