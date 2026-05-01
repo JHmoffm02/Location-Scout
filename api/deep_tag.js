@@ -379,6 +379,12 @@ CENTERPIECE PRIORITY (when applicable):
   - If centerpiece 1 is an interior, the walkthrough can still open with a hero exterior (if available) but should reach centerpiece 1's space EARLY
   - Treat centerpieces 2-5 as user-preferred photos worth elevating in the order — each should appear in the top picks unless clearly inappropriate for the slot
 
+EXTERIOR HERO RULE (centerpiece-driven):
+  - If ANY centerpiece is an exterior (role:hero-exterior or role:side-exterior), those centerpiece exteriors define what the HERO of the building/feature looks like
+  - Exteriors NOT marked as centerpieces should ONLY appear in the lead-in if they show the SAME hero element as a centerpiece exterior (same building, same defining feature, just a different angle of that hero)
+  - Exteriors that show OTHER parts of the property (side wings, back of building, neighboring buildings, parking lots, distant context shots, peripheral structures) are LOGISTICAL — push them to the very end with role:logistic flagging
+  - When in doubt about whether an exterior matches the hero, demote it to the back. The walkthrough should establish ONE clear hero, not survey the whole property at the start.
+
 SPACE PRIORITIZATION (this is the key judgment):
   - The centerpiece image(s) and album notes/category tell you what the location IS
   - Rooms whose tags align with the album's purpose are CORE — feature them
