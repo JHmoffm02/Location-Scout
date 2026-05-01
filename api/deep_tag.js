@@ -31,9 +31,9 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:5173'
 ]);
 
-const CLASSIFY_BATCH_SIZE = 8;    // medium-image batches; smaller = less memory peak
+const CLASSIFY_BATCH_SIZE = 10;   // medium-image batches per Anthropic call
 const ENRICH_BATCH_SIZE   = 6;
-const PARALLEL_BATCHES    = 1;    // sequential — predictable memory profile, avoids OOM on Vercel
+const PARALLEL_BATCHES    = 2;    // 2 concurrent Anthropic calls per chunk
 const MAX_RETRIES         = 3;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
