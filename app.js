@@ -2115,11 +2115,31 @@ Estimated cost: ~$${estCost}`,
       albumCategory: getCatForLoc(loc) || '',
       rejectedTags: Array.from(rejectedTagsSet)
     };
-    const classifyRes = await dpStageCall('classify', {
-      ...album,
-      contextImageUrls: contextImageUrls,
-      images: survivors.map(i => ({ key: i.sm_key, url: i.thumb_url }))
-    });
+    // Chunk classify into smaller calls to avoid Vercel function timeout.
+    // Each call processes ~30 photos (server batches them in groups of 10 with PARALLEL_BATCHES=2).
+    const CLASSIFY_CHUNK_SIZE = 30;
+    const allResults = [];
+    let aggUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+    let aggCost = 0;
+    for (let i = 0; i < survivors.length; i += CLASSIFY_CHUNK_SIZE) {
+      const chunk = survivors.slice(i, i + CLASSIFY_CHUNK_SIZE);
+      const chunkNum = Math.floor(i / CLASSIFY_CHUNK_SIZE) + 1;
+      const totalChunks = Math.ceil(survivors.length / CLASSIFY_CHUNK_SIZE);
+      progress.update(`Stage 2 of 3: classifying photos at medium size… (chunk ${chunkNum}/${totalChunks} · ${i + chunk.length}/${survivors.length})`);
+      const chunkRes = await dpStageCall('classify', {
+        ...album,
+        contextImageUrls: contextImageUrls,
+        images: chunk.map(i => ({ key: i.sm_key, url: i.thumb_url }))
+      });
+      (chunkRes.results || []).forEach(r => allResults.push(r));
+      const u = chunkRes.usage || {};
+      aggUsage.input_tokens             += u.input_tokens || 0;
+      aggUsage.output_tokens            += u.output_tokens || 0;
+      aggUsage.cache_read_input_tokens  += u.cache_read_input_tokens || 0;
+      aggUsage.cache_creation_input_tokens += u.cache_creation_input_tokens || 0;
+      aggCost += chunkRes.costCents || 0;
+    }
+    const classifyRes = { results: allResults, usage: aggUsage, costCents: aggCost };
     addUsage(totalUsageHaiku, classifyRes.usage);
     totalCost += classifyRes.costCents || 0;
 
