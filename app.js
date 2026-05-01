@@ -2370,7 +2370,11 @@ async function dpSaveDeepTagResults(loc, data) {
 // 'original' = chronological (originalIndex)
 // 'ranked'   = AI walkthrough (rankedIndex)
 // 'custom'   = user-edited order (customIndex if set, falls back to ranked then original)
-function dpApplyOrder() {
+//
+// `anchorKey` (optional): the image key the user was viewing. After re-sort, jump to
+// that key's new position so the user stays on the same photo. If null, behaves like
+// "go to start" (used on initial load).
+function dpApplyOrder(anchorKey) {
   const dt = S.dpDeepTag;
   if (!dt || !dt.perPhoto.length) return;
   const mode = dt.orderMode || 'ranked';
@@ -2414,7 +2418,13 @@ function dpApplyOrder() {
       const ordered = sorted.map(p => urlByKey.get(p.key)).filter(Boolean);
       if (ordered.length) {
         S.dpImages = ordered;
-        S.dpIndex = 0;
+        if (anchorKey) {
+          const anchorUrl = urlByKey.get(anchorKey);
+          const newIdx = anchorUrl ? ordered.indexOf(anchorUrl) : -1;
+          S.dpIndex = newIdx >= 0 ? newIdx : 0;
+        } else {
+          S.dpIndex = 0;
+        }
         dpUpdateViewer();
         dpUpdateOrderToggle();
       }
@@ -2424,7 +2434,14 @@ function dpApplyOrder() {
   const ordered = sorted.map(p => urlByKey.get(p.key)).filter(Boolean);
   if (ordered.length) {
     S.dpImages = ordered;
-    S.dpIndex = 0;
+    // If we have an anchor key, jump to that photo's new position. Otherwise start at 0.
+    if (anchorKey) {
+      const anchorUrl = urlByKey.get(anchorKey);
+      const newIdx = anchorUrl ? ordered.indexOf(anchorUrl) : -1;
+      S.dpIndex = newIdx >= 0 ? newIdx : 0;
+    } else {
+      S.dpIndex = 0;
+    }
     dpUpdateViewer();
     dpUpdateOrderToggle();
   }
@@ -2506,7 +2523,7 @@ window.dpToggleFavorite = async function () {
   if (dt.orderMode !== 'custom') dt.orderMode = 'custom';
 
   await dpSavePhotoState(photo, wasFav ? 'unfavorite' : 'favorite');
-  dpApplyOrder();  // re-renders the viewer with the new order
+  dpApplyOrder(photo.key);  // stay on the same photo as it moves to its new position
   toast(photo.isFavorite ? '★ favorited' : 'unfavorited', 'ok');
 };
 
@@ -2530,7 +2547,7 @@ window.dpToggleReject = async function () {
   if (dt.orderMode !== 'custom') dt.orderMode = 'custom';
 
   await dpSavePhotoState(photo, wasRej ? 'unreject' : 'reject');
-  dpApplyOrder();
+  dpApplyOrder(photo.key);  // stay on the same photo (now at the back if rejected)
   toast(photo.isRejected ? '✕ rejected' : 'unrejected', 'ok');
 };
 
