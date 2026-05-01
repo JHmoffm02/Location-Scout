@@ -161,8 +161,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .dp-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 .dp-viewer{position:relative;background:var(--bg4);flex-shrink:0}
 .dp-viewer-img{width:100%;aspect-ratio:16/9;object-fit:contain;background:var(--bg);display:block;cursor:zoom-in}
-/* Pano mode: when the viewer detects a very wide image, switch to native-height pan view.
-   Image overflows horizontally, container clips, JS handles drag-to-pan. */
+/* Pano mode: fit pano to the FULL WIDTH of the viewer container, with letterbox top/bottom.
+   For very-very wide panos (>4:1), we still allow drag/swipe to pan if the user wants —
+   but the default is "see the whole pano squeezed into 16:9 width". */
 .dp-viewer.pano-mode{
   aspect-ratio:16/9;
   overflow:hidden;
@@ -171,15 +172,24 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 }
 .dp-viewer.pano-mode .dp-viewer-img{
   aspect-ratio:auto;
-  width:auto;height:100%;max-width:none;
-  object-fit:none;
-  cursor:grab;
+  width:100%;height:auto;max-width:100%;
+  object-fit:contain;
+  cursor:default;
   user-select:none;
   -webkit-user-drag:none;
-  position:absolute;top:0;left:0;
+  position:absolute;top:50%;left:0;
+  transform:translateY(-50%);
   transition:none;
 }
-.dp-viewer.pano-mode .dp-viewer-img.dragging{cursor:grabbing}
+/* For ULTRA-wide panos (4:1+), drag-to-pan is enabled — toggled by a JS-set class */
+.dp-viewer.pano-mode.pano-pannable .dp-viewer-img{
+  width:auto;height:100%;
+  object-fit:none;
+  cursor:grab;
+  top:0;
+  transform:none;
+}
+.dp-viewer.pano-mode.pano-pannable .dp-viewer-img.dragging{cursor:grabbing}
 .dp-viewer.pano-mode .dp-pano-hint{
   position:absolute;bottom:36px;left:50%;transform:translateX(-50%);
   font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
