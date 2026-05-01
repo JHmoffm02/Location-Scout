@@ -396,11 +396,40 @@ async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, a
   }
 
   // Decide which photos to send as actual images vs. as text-only summaries.
-  // Strategy: send as IMAGES the photos that aren't rejected, aren't soft, aren't logistic
-  // — capped at 60 to keep cost in check. Everything else stays text-only at the back.
-  const imageCandidates = perPhoto.filter(p =>
+  // Strategy: take the BEST photos from each ALBUM TEMPORAL BUCKET so the last third
+  // of a long album gets representation. Pure top-by-composition tends to cluster
+  // candidates at the front (where shots are usually more deliberate).
+  const eligible = perPhoto.filter(p =>
     !p.isRejected && p.is_sharp !== false && p.role !== 'logistic' && p.role !== 'transition'
-  ).sort((a, b) => (b.composition || 0) - (a.composition || 0)).slice(0, 60);
+  );
+  const TARGET = 60;
+  const BUCKET_COUNT = 6;  // divide album into 6 chunks
+  const totalLen = perPhoto.length || 1;
+  // Bucket each eligible photo by where it sits in the album's chronology
+  const buckets = Array.from({ length: BUCKET_COUNT }, () => []);
+  eligible.forEach(p => {
+    const idx = p.originalIndex || 0;
+    const bIdx = Math.min(BUCKET_COUNT - 1, Math.floor((idx / totalLen) * BUCKET_COUNT));
+    buckets[bIdx].push(p);
+  });
+  // Sort each bucket by composition desc (so we always take its best first)
+  buckets.forEach(b => b.sort((a, b) => (b.composition || 0) - (a.composition || 0)));
+  // Round-robin pick across buckets, taking the best from each in turn until we hit TARGET
+  const imageCandidates = [];
+  let rotation = 0;
+  while (imageCandidates.length < TARGET) {
+    let added = false;
+    for (let bi = 0; bi < BUCKET_COUNT; bi++) {
+      if (imageCandidates.length >= TARGET) break;
+      const b = buckets[bi];
+      if (rotation < b.length) {
+        imageCandidates.push(b[rotation]);
+        added = true;
+      }
+    }
+    if (!added) break;
+    rotation++;
+  }
   const imageCandidateKeys = new Set(imageCandidates.map(p => p.key));
 
   // Fetch medium-size images for those candidates
