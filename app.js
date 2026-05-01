@@ -1155,6 +1155,81 @@ function extractLatestDate(parsed) {
   return best;
 }
 
+// Status pill dropdown — change a location's status from clear/pending/rejected
+window.dpToggleStatusMenu = function (e) {
+  if (e) e.stopPropagation();
+  // Remove any existing menu
+  const existing = document.getElementById('dp-status-menu');
+  if (existing) { existing.remove(); return; }
+  const btn = e && e.currentTarget;
+  if (!btn) return;
+  const rect = btn.getBoundingClientRect();
+  const cur = (S.currentDetailLoc && S.currentDetailLoc.status) || 'identified';
+  const opts = [
+    { val: 'identified', label: 'clear',    color: '#4caf82' },
+    { val: 'pending',    label: 'pending',  color: '#d4943a' },
+    { val: 'rejected',   label: 'rejected', color: '#c26060' }
+  ];
+  const m = document.createElement('div');
+  m.id = 'dp-status-menu';
+  m.style.cssText = `position:fixed;top:${rect.bottom + 4}px;left:${rect.left}px;z-index:900;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.6);overflow:hidden;min-width:140px`;
+  m.innerHTML = opts.map(o => {
+    const isActive = (cur === o.val) || (cur === 'scouted' && o.val === 'identified') || (cur === 'approved' && o.val === 'identified');
+    return `<button class="dp-status-menu-item" onclick="dpSetStatus('${o.val}', event)" style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 14px;background:${isActive ? 'var(--bg3)' : 'transparent'};border:none;border-bottom:1px solid var(--border);color:${o.color};font-size:11px;font-family:inherit;letter-spacing:.04em;cursor:pointer;text-align:left">
+      <span style="width:8px;height:8px;border-radius:50%;background:${o.color}"></span>
+      <span>${o.label}</span>
+      ${isActive ? '<span style="margin-left:auto;font-size:9px;color:var(--text3)">current</span>' : ''}
+    </button>`;
+  }).join('');
+  document.body.appendChild(m);
+  // Close on outside click
+  setTimeout(() => {
+    const closer = (ev) => {
+      if (m.contains(ev.target) || (btn && btn.contains(ev.target))) return;
+      m.remove();
+      document.removeEventListener('mousedown', closer, true);
+    };
+    document.addEventListener('mousedown', closer, true);
+  }, 30);
+};
+
+window.dpSetStatus = async function (newStatus, e) {
+  if (e) e.stopPropagation();
+  const menu = document.getElementById('dp-status-menu');
+  if (menu) menu.remove();
+  const loc = S.currentDetailLoc;
+  if (!loc) return;
+  if (loc.status === newStatus) return;
+  const oldStatus = loc.status;
+  loc.status = newStatus;
+  try {
+    await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json', Prefer: 'return=minimal'
+      },
+      body: JSON.stringify({ status: newStatus })
+    });
+    // Update cache
+    try {
+      const cached = JSON.parse(localStorage.getItem(LOC_CACHE_KEY) || 'null');
+      if (cached && cached.data) {
+        const li = cached.data.findIndex(l => l.id === loc.id);
+        if (li >= 0) cached.data[li].status = newStatus;
+        localStorage.setItem(LOC_CACHE_KEY, JSON.stringify(cached));
+      }
+    } catch (e) {}
+    rebuildLookups();
+    if (S.gmap) refreshPins();
+    openDetail(loc);  // re-render with new status
+    toast(`Status: ${newStatus === 'identified' ? 'clear' : newStatus}`, 'ok');
+  } catch (e) {
+    loc.status = oldStatus;
+    toast('Status save failed: ' + (e.message || 'unknown'), 'err');
+  }
+};
+
 window.openDetail = function (loc) {
   if (!loc) return;
   if (S.currentDetailLoc !== loc) pushNav();
@@ -1190,15 +1265,14 @@ window.openDetail = function (loc) {
   if (cat) {
     headerHtml += `<span class="dp-cat-pill" style="background:${col}22;color:${col}">${E(cat.replace(/-/g,' '))}</span>`;
   }
-  // Combined status + as-of pill
-  // Clear (default) → green; Pending → amber; Rejected → red
+  // Combined status + as-of pill — clickable dropdown to change status
   const isPending  = loc.status === 'pending';
   const isRejected = loc.status === 'rejected';
   const statusLabel = isPending ? 'pending' : isRejected ? 'rejected' : 'clear';
   const sBg  = isPending ? 'rgba(212,148,58,.18)'  : isRejected ? 'rgba(194,96,96,.18)' : 'rgba(76,175,130,.18)';
   const sCol = isPending ? '#d4943a'                : isRejected ? '#c26060'             : '#4caf82';
   const combinedLabel = asOfDate ? `${statusLabel} as of ${asOfDate}` : statusLabel;
-  headerHtml += `<span class="dp-status-pill" style="background:${sBg};color:${sCol}">${E(combinedLabel)}</span>`;
+  headerHtml += `<button class="dp-status-pill dp-status-btn" style="background:${sBg};color:${sCol};border-color:${sCol}55" onclick="dpToggleStatusMenu(event)" title="Click to change status">${E(combinedLabel)} ▾</button>`;
   if (inZone) {
     headerHtml += `<span class="dp-zone-pill">in zone</span>`;
   }
@@ -1632,7 +1706,7 @@ function dpEnablePano(img, viewer) {
   // Add a hint label
   const hint = document.createElement('div');
   hint.className = 'dp-pano-hint';
-  hint.textContent = '↔ click + drag to pan';
+  hint.textContent = '↔ drag or two-finger swipe to pan';
   viewer.appendChild(hint);
   setTimeout(() => { if (hint.parentNode) hint.remove(); }, 3000);
 
@@ -1682,6 +1756,20 @@ function dpEnablePano(img, viewer) {
   window.addEventListener('touchmove', onPointerMove, { passive: false });
   window.addEventListener('mouseup', onPointerUp);
   window.addEventListener('touchend', onPointerUp);
+
+  // Two-finger trackpad swipe (or shift+wheel) → pan horizontally.
+  // We listen on the viewer container so the scroll event fires anywhere over the pano.
+  function onWheel(ev) {
+    // Use deltaX from native two-finger swipe; fall back to deltaY when shift is held.
+    let dx = ev.deltaX;
+    if (Math.abs(dx) < 1 && ev.shiftKey) dx = ev.deltaY;
+    if (Math.abs(dx) < 1) return;  // pure vertical scroll — let the page handle it
+    ev.preventDefault();
+    panX = Math.max(minPan, Math.min(maxPan, panX - dx));
+    img.style.transform = `translateX(${panX}px)`;
+  }
+  viewer.addEventListener('wheel', onWheel, { passive: false });
+
   img._panoCleanup = () => {
     img.removeEventListener('mousedown', onPointerDown);
     img.removeEventListener('touchstart', onPointerDown);
@@ -1689,6 +1777,7 @@ function dpEnablePano(img, viewer) {
     window.removeEventListener('touchmove', onPointerMove);
     window.removeEventListener('mouseup', onPointerUp);
     window.removeEventListener('touchend', onPointerUp);
+    viewer.removeEventListener('wheel', onWheel);
   };
 }
 
@@ -2098,6 +2187,14 @@ Estimated cost: ~$${estCost}`,
 
     // ── Stage 3: organize (Sonnet sees up to 60 candidate photos as images) ──
     const taxonomyPaths = (typeof buildTaxonomyPaths === 'function') ? buildTaxonomyPaths() : [];
+    // Build a map: centerpiece url → its 1-indexed centerpiece slot
+    const centerpieceSlotByKey = new Map();
+    centerpieces.forEach((cp, idx) => {
+      // cp has .key and .url — find the matching image in imageList by url
+      const match = imageList.find(i => i.thumb_url === cp.url);
+      if (match) centerpieceSlotByKey.set(match.sm_key, idx + 1);
+    });
+
     const organizeRes = await dpStageCall('organize', {
       albumName: loc.name,
       albumNotes: loc.notes || '',
@@ -2114,7 +2211,8 @@ Estimated cost: ~$${estCost}`,
         composition: p.composition,
         is_sharp: p.is_sharp,
         tags: p.tags.slice(0, 8),
-        isRejected: p.isRejected
+        isRejected: p.isRejected,
+        centerpieceSlot: centerpieceSlotByKey.get(p.key) || 0  // 1-5 if user picked it as centerpiece, 0 otherwise
       }))
     });
     addUsage(totalUsageSonnet, organizeRes.usage);
@@ -2250,6 +2348,30 @@ Move it on SmugMug now?`,
                 });
               } catch (e) {}
               if (albumRow) { albumRow.path = suggestedPath; if (data.newWebUri) albumRow.web_url = data.newWebUri; }
+
+              // ── Remove from Organize tab's uploads list (if it was there) ──
+              // After moving an album out of Master-Library/Uploads it shouldn't keep
+              // appearing in the Organize tab. Strip it from the in-memory list and
+              // mark the classification as 'applied' so any leftover state doesn't show.
+              if (S.orgUploads && Array.isArray(S.orgUploads)) {
+                const orgIdx = S.orgUploads.findIndex(a => a.sm_key === loc.smugmug_album_key);
+                if (orgIdx >= 0) S.orgUploads.splice(orgIdx, 1);
+              }
+              if (S.orgClassifications) {
+                S.orgClassifications[loc.smugmug_album_key] = {
+                  ...(S.orgClassifications[loc.smugmug_album_key] || {}),
+                  status: 'applied',
+                  targetPath: suggestedPath
+                };
+              }
+              // Re-render Organize if it's already loaded (so the card disappears)
+              if (typeof orgRender === 'function' && S.orgLoaded) {
+                try { orgRender(); } catch (e) {}
+              }
+              // Refresh library lookups so the album shows in its new home next time you browse
+              S.libLoaded = false;
+              if (typeof rebuildLookups === 'function') rebuildLookups();
+
               toast(`Moved to ${suggestedPath}`, 'ok');
             } else {
               toast(`Move failed: ${data.error || 'unknown'}`, 'err');
