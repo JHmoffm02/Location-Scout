@@ -1958,7 +1958,12 @@ Estimated cost: ~$${estCost}`,
     });
     consensusTags.sort((a, b) => (tagCounts.get(b) || 0) - (tagCounts.get(a) || 0));
 
-    progress.update(`Stage 3 of 3: Sonnet organizing visually…`);
+    // Tally how many photos got dropped in each stage so the user understands the funnel
+    const aiRejectedCount = perPhoto.filter(p => p.isRejected && !localRejectedKeys.has(p.key)).length;
+    const totalRejected = localRejectedKeys.size + aiRejectedCount;
+    const remaining = perPhoto.length - totalRejected;
+
+    progress.update(`Stage 3 of 3: Sonnet organizing ${remaining} candidates visually… (Stage 2 dropped ${aiRejectedCount} as logistic/junk; ${remaining} carry forward)`);
 
     // ── Stage 3: organize (Sonnet sees up to 60 candidate photos as images) ──
     const organizeRes = await dpStageCall('organize', {
@@ -2065,7 +2070,8 @@ Estimated cost: ~$${estCost}`,
     dpApplyOrder();
 
     progress.close();
-    toast(`Deep tag done · ${sharpCount} sharp · ${rejectedKeys.size} rejected · ${topPickKeys.size} top picks · cost ~$${(totalCost / 10000).toFixed(3)}`, 'ok');
+    const totalDropped = localRejectedKeys.size + aiRejectedCount;
+    toast(`Deep tag done · ${sharpCount} sharp · ${totalDropped} dropped (${localRejectedKeys.size} blur + ${aiRejectedCount} logistic) · ${topPickKeys.size} top picks · cost ~$${(totalCost / 10000).toFixed(3)}`, 'ok');
   } catch (e) {
     console.error('deep tag error:', e);
     progress.close();
@@ -2136,6 +2142,7 @@ function dpPickCenterpieces(loc, imageList, opts) {
             <input type="checkbox" id="cover-push-smugmug" ${pushToSmugMug && S.smTokens ? 'checked' : ''} ${!S.smTokens ? 'disabled' : ''}>
             push cover to SmugMug
           </label>
+          <button class="org-btn" id="cover-clear-btn">clear all</button>
           <button class="org-btn" id="cover-cancel-btn">cancel</button>
           <button class="org-btn primary" id="cover-ok-btn">continue</button>
         </div>
@@ -2192,6 +2199,12 @@ function dpPickCenterpieces(loc, imageList, opts) {
     updateCounter();
 
     $('cover-cancel-btn').onclick = () => { cleanup(); resolve(null); };
+    $('cover-clear-btn').onclick = () => {
+      selected.clear();
+      selectedOrder.length = 0;
+      renderGrid();
+      updateCounter();
+    };
     $('cover-ok-btn').onclick = async () => {
       const finalKeys = selectedOrder.slice();
       const items = finalKeys.map(k => {
@@ -6340,4 +6353,3 @@ $('hcard').addEventListener('mouseleave', function () {
 })();
 
 })();  // IIFE end
-   
