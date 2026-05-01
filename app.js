@@ -125,6 +125,65 @@ function toast(msg, type) {
   setTimeout(() => { el.className = 'toast'; }, 3500);
 }
 
+// In-page confirmation modal — replaces native confirm() so we don't blur the
+// app or accidentally trigger outside-click handlers. Returns Promise<boolean>.
+function showConfirm(message, opts) {
+  opts = opts || {};
+  const title = opts.title || 'Confirm';
+  const okLabel = opts.okLabel || 'Continue';
+  const cancelLabel = opts.cancelLabel || 'Cancel';
+  return new Promise(resolve => {
+    const m = document.createElement('div');
+    m.setAttribute('role', 'dialog');
+    m.style.cssText = 'position:fixed;inset:0;z-index:850;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px';
+    m.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(480px,94vw);overflow:hidden">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:500;color:var(--text)">${E(title)}</div>
+        <div style="padding:16px 20px;font-size:12px;color:var(--text2);line-height:1.6;white-space:pre-wrap">${E(message)}</div>
+        <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+          <button class="org-btn" id="confirm-cancel">${E(cancelLabel)}</button>
+          <button class="org-btn primary" id="confirm-ok">${E(okLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(m);
+    function cleanup() { document.body.removeChild(m); }
+    m.querySelector('#confirm-cancel').onclick = () => { cleanup(); resolve(false); };
+    m.querySelector('#confirm-ok').onclick = () => { cleanup(); resolve(true); };
+    // Esc cancels
+    m.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.stopPropagation(); cleanup(); resolve(false); }
+    });
+    setTimeout(() => m.querySelector('#confirm-ok').focus(), 50);
+  });
+}
+
+// In-page progress modal — for long-running operations like deep-tag.
+// Returns an object with { update(text), close() }. The dialog blocks clicks
+// to the rest of the app while open (overlay catches them).
+function showProgress(title, initialMsg) {
+  const m = document.createElement('div');
+  m.setAttribute('role', 'dialog');
+  m.style.cssText = 'position:fixed;inset:0;z-index:850;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px';
+  m.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(440px,94vw);overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:500;color:var(--text)">${E(title)}</div>
+      <div style="padding:24px 22px;display:flex;flex-direction:column;align-items:center;gap:14px">
+        <div class="spin" style="width:36px;height:36px;border-width:3px"></div>
+        <div id="progress-msg" style="font-size:12px;color:var(--text2);text-align:center;line-height:1.5;min-height:18px">${E(initialMsg || 'Working…')}</div>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  return {
+    update(msg) {
+      const el = m.querySelector('#progress-msg');
+      if (el) el.textContent = msg;
+    },
+    close() {
+      if (m.parentNode) m.parentNode.removeChild(m);
+    }
+  };
+}
+
 function smMedium(url) { return url ? url.replace(/\/(Th|Ti|S|L|XL|X2|X3|X4|X5|O)\//, '/M/') : ''; }
 function smLarge(url)  { return url ? url.replace(/\/(Th|Ti|S|M|XL|X2|X3|X4|X5|O)\//, '/L/') : ''; }
 // "XL" is now actually X3 (1600px) — much sharper than the 1024px XL.
@@ -1286,15 +1345,30 @@ window.openDetail = function (loc) {
       S._dpOutsideClickHandler = function (e) {
         const panel = $('detail-panel');
         const lb = $('lightbox');
-        const editPanel = $('edit-panel');
-        const rawModal = $('raw-notes-modal');
-        // Don't close on clicks inside any of these
+        // Don't close if click was inside the detail panel
         if (panel && panel.contains(e.target)) return;
+        // Don't close while ANY overlay/modal is open (lightbox, cover picker, edit, raw,
+        // merge, usage, deep-tag, etc). Anything with role=dialog OR a high z-index
+        // overlay is treated as "the user is interacting with a modal."
         if (lb && lb.classList.contains('open')) return;
-        if (editPanel && editPanel.style.display === 'flex' && editPanel.contains(e.target)) return;
-        if (rawModal && rawModal.style.display === 'flex' && rawModal.contains(e.target)) return;
-        // Don't close on map pin clicks (they open new locations) — handled by gmap click listener
-        // Allow nav buttons and category list to still work — close panel + let click through
+        // Cover picker — dynamically inserted modal
+        if (document.getElementById('cover-picker-modal')) return;
+        // Other modals: edit, raw, merge, usage, deeptag-progress, hcard
+        const editPanel = $('edit-panel');
+        if (editPanel && editPanel.style.display === 'flex') return;
+        const rawModal = $('raw-notes-modal');
+        if (rawModal && rawModal.style.display === 'flex') return;
+        const mergeModal = $('merge-modal');
+        if (mergeModal && mergeModal.style.display === 'flex') return;
+        const usageModal = $('usage-modal');
+        if (usageModal && usageModal.style.display === 'flex') return;
+        // Generic — any element with [role="dialog"] currently visible
+        const openDialogs = document.querySelectorAll('[role="dialog"]');
+        for (const d of openDialogs) {
+          const cs = window.getComputedStyle(d);
+          if (cs.display !== 'none' && cs.visibility !== 'hidden' && d.contains(e.target)) return;
+        }
+        // Otherwise — clicked outside everything; close the detail panel
         if (S.currentDetailLoc) closeDetail();
       };
       document.addEventListener('mousedown', S._dpOutsideClickHandler, true);
@@ -1766,11 +1840,24 @@ window.dpDeepTag = async function () {
 
   // Confirmation with realistic cost estimate based on the new pipeline
   const estCost = (imageList.length * 0.005).toFixed(2);
-  if (!confirm(`Run deep tag on ${imageList.length} photos in "${loc.name}"?\n\nUsing ${centerpieces.length} centerpiece${centerpieces.length !== 1 ? 's' : ''} as AI reference.\n\nMulti-stage flow:\n  1. Triage (Haiku, all thumbnails) — flag blank / blurry / contextless\n  2. Classify (Haiku, large images) — survivors only\n  3. Organize (Sonnet, text + centerpieces) — walkthrough order\n  4. Enrich (Sonnet, top picks) — richer keywords\n\nEstimated cost: ~$${estCost}`)) return;
+  const ok = await showConfirm(
+`Run deep tag on ${imageList.length} photos in "${loc.name}"?
 
-  const ctr = $('dp-counter');
-  if (ctr) { ctr.style.display = 'block'; ctr.textContent = `1/4 triage…`; }
-  toast('Deep tag started — this takes ~1-2 min', 'inf');
+Using ${centerpieces.length} centerpiece${centerpieces.length !== 1 ? 's' : ''} as AI reference.
+
+Multi-stage flow:
+  1. Triage (Haiku, all thumbnails) — flag blank / blurry / contextless
+  2. Classify (Haiku, large images) — survivors only
+  3. Organize (Sonnet, text + centerpieces) — walkthrough order
+  4. Enrich (Sonnet, top picks) — richer keywords
+
+Estimated cost: ~$${estCost}`,
+    { title: 'Deep tag', okLabel: 'Run', cancelLabel: 'Cancel' }
+  );
+  if (!ok) { toast('Cancelled', 'inf'); return; }
+
+  // Show a persistent progress modal so the user knows it's working.
+  const progress = showProgress('Deep tag — analyzing album', `Stage 1 of 4: triaging ${imageList.length} thumbnails…`);
 
   let totalCost = 0;
   let totalUsageHaiku = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
@@ -1792,7 +1879,7 @@ window.dpDeepTag = async function () {
     totalCost += triageRes.costCents || 0;
     const rejectedKeys = new Set(triageRes.results.filter(r => r.reject).map(r => r.key));
     const survivors = imageList.filter(i => !rejectedKeys.has(i.sm_key));
-    if (ctr) ctr.textContent = `2/4 classify ${survivors.length}…`;
+    progress.update(`Stage 2 of 4: classifying ${survivors.length} survivors at full size… (${rejectedKeys.size} rejected at triage)`);
 
     // ── Stage 2: classify survivors ──
     const album = {
@@ -1861,7 +1948,7 @@ window.dpDeepTag = async function () {
     });
     consensusTags.sort((a, b) => (tagCounts.get(b) || 0) - (tagCounts.get(a) || 0));
 
-    if (ctr) ctr.textContent = `3/4 organize…`;
+    progress.update(`Stage 3 of 4: Sonnet organizing the walkthrough order…`);
 
     // ── Stage 3: organize (Sonnet text-only) ──
     const organizeRes = await dpStageCall('organize', {
@@ -1897,7 +1984,7 @@ window.dpDeepTag = async function () {
     perPhoto.forEach(p => { if (p.rankedIndex == null) p.rankedIndex = 9999 + p.originalIndex; });
 
     // ── Stage 4: enrich top picks (Sonnet, large images) ──
-    if (ctr) ctr.textContent = `4/4 enrich ${topPickKeys.size}…`;
+    progress.update(`Stage 4 of 4: enriching ${topPickKeys.size} top picks with Sonnet…`);
     if (topPickKeys.size) {
       const enrichImages = imageList.filter(i => topPickKeys.has(i.sm_key))
         .map(i => ({ key: i.sm_key, url: i.thumb_url }));
@@ -1964,13 +2051,13 @@ window.dpDeepTag = async function () {
       orderMode: 'ranked'
     };
     dpApplyOrder();
-    if (ctr) ctr.textContent = `✓ ${sharpCount} sharp · ${rejectedKeys.size} rejected · ${topPickKeys.size} top picks`;
-    setTimeout(() => { if (ctr && S.dpImages.length) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length; }, 4000);
-    toast(`Deep tag done · cost ~$${(totalCost / 10000).toFixed(3)}`, 'ok');
+
+    progress.close();
+    toast(`Deep tag done · ${sharpCount} sharp · ${rejectedKeys.size} rejected · ${topPickKeys.size} top picks · cost ~$${(totalCost / 10000).toFixed(3)}`, 'ok');
   } catch (e) {
     console.error('deep tag error:', e);
+    progress.close();
     toast('Deep tag error: ' + (e.message || 'unknown'), 'err');
-    if (ctr) ctr.style.display = 'none';
   }
 };
 
