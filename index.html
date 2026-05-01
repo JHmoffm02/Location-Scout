@@ -154,6 +154,32 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .dp-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 .dp-viewer{position:relative;background:var(--bg4);flex-shrink:0}
 .dp-viewer-img{width:100%;aspect-ratio:16/9;object-fit:contain;background:var(--bg);display:block;cursor:zoom-in}
+/* Pano mode: when the viewer detects a very wide image, switch to native-height pan view.
+   Image overflows horizontally, container clips, JS handles drag-to-pan. */
+.dp-viewer.pano-mode{
+  aspect-ratio:16/9;
+  overflow:hidden;
+  position:relative;
+  background:var(--bg);
+}
+.dp-viewer.pano-mode .dp-viewer-img{
+  aspect-ratio:auto;
+  width:auto;height:100%;max-width:none;
+  object-fit:none;
+  cursor:grab;
+  user-select:none;
+  -webkit-user-drag:none;
+  position:absolute;top:0;left:0;
+  transition:none;
+}
+.dp-viewer.pano-mode .dp-viewer-img.dragging{cursor:grabbing}
+.dp-viewer.pano-mode .dp-pano-hint{
+  position:absolute;bottom:36px;left:50%;transform:translateX(-50%);
+  font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.06em;
+  color:rgba(255,255,255,.6);background:rgba(0,0,0,.55);
+  padding:3px 10px;border-radius:10px;backdrop-filter:blur(4px);
+  pointer-events:none;z-index:4;
+}
 .dp-viewer-ph{width:100%;aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3)}
 .dp-arrow{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.5);border:none;color:rgba(255,255,255,.8);font-size:24px;cursor:pointer;padding:16px 10px;line-height:1;transition:background .15s;z-index:5;backdrop-filter:blur(4px)}
 .dp-arrow:hover{background:rgba(0,0,0,.85);color:#fff}
@@ -1017,7 +1043,7 @@ mark.search-hit{
   <div class="dp-scroll" id="dp-scroll">
     <div class="dp-viewer" id="dp-viewer">
       <div class="dp-viewer-ph" id="dp-viewer-ph"><span style="font-size:20px;opacity:.3">◻</span><span>no photo</span></div>
-      <img id="dp-viewer-img" class="dp-viewer-img" src="" style="display:none" onclick="openLightbox(this.src)" alt="Location photo">
+      <img id="dp-viewer-img" class="dp-viewer-img" src="" style="display:none" onclick="dpViewerClick(this)" alt="Location photo">
       <button class="dp-arrow prev" id="dp-prev" style="display:none" aria-label="Previous photo">&#8249;</button>
       <button class="dp-arrow next" id="dp-next" style="display:none" aria-label="Next photo">&#8250;</button>
       <div class="dp-photo-actions" id="dp-photo-actions" style="display:none">
