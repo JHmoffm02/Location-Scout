@@ -1571,22 +1571,136 @@ function dpUpdateViewer() {
   const img = $('dp-viewer-img'), ph = $('dp-viewer-ph');
   const prev = $('dp-prev'), next = $('dp-next');
   const ctr = $('dp-counter'), hint = $('dp-hint');
+  const viewer = $('dp-viewer');
   const none = !S.dpImages.length;
   ph.style.display = none ? 'flex' : 'none';
   img.style.display = none ? 'none' : 'block';
-  if (!none) img.src = smLarge(S.dpImages[S.dpIndex]);
+
+  // Reset any pano state from a previous image
+  if (viewer) {
+    viewer.classList.remove('pano-mode');
+    img.style.transform = '';
+  }
+  // Remove any leftover pano hint
+  const oldHint = viewer && viewer.querySelector('.dp-pano-hint');
+  if (oldHint) oldHint.remove();
+
+  if (!none) {
+    // For panos, request a higher-res version so the pan view is sharp.
+    // Otherwise normal large is fine.
+    img.src = smLarge(S.dpImages[S.dpIndex]);
+    // After load, check aspect ratio; if very wide, enable pano-mode + drag
+    img.onload = () => dpMaybeEnablePano(img, viewer);
+  }
   const multi = S.dpImages.length > 1;
   prev.style.display = multi ? 'block' : 'none';
   next.style.display = multi ? 'block' : 'none';
-  // Show the counter whenever there's at least one image loaded
   ctr.style.display = none ? 'none' : 'block';
   hint.style.display = !none ? 'block' : 'none';
   if (!none) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length;
   prev.onclick = () => dpNav(-1);
   next.onclick = () => dpNav(1);
-  // Refresh per-photo tag display when active photo changes
   if (typeof dpRenderDeepTagSection === 'function') dpRenderDeepTagSection();
+  if (typeof dpUpdatePhotoActions === 'function') dpUpdatePhotoActions();
 }
+
+// If the loaded image's aspect ratio is wider than ~2.4:1, treat it as a panorama:
+// switch the viewer to pano-mode (scrollable horizontally), bump to higher-res source,
+// and wire up click-drag to pan.
+function dpMaybeEnablePano(img, viewer) {
+  if (!img || !viewer) return;
+  const w = img.naturalWidth, h = img.naturalHeight;
+  if (!w || !h) return;
+  const ratio = w / h;
+  const PANO_THRESHOLD = 2.4;  // 16:9 = 1.78, 21:9 = 2.33, panos usually 3+
+  if (ratio < PANO_THRESHOLD) return;
+
+  // Upgrade to highest available size for sharp panning. X3 is 1600px wide which is
+  // typically tall enough to be sharp at the viewer's height; X4 is 2048px for very tall panos.
+  const newSrc = smXL(S.dpImages[S.dpIndex]);
+  if (img.src !== newSrc) {
+    img.src = newSrc;
+    img.onload = () => dpEnablePano(img, viewer);
+    return;
+  }
+  dpEnablePano(img, viewer);
+}
+
+function dpEnablePano(img, viewer) {
+  viewer.classList.add('pano-mode');
+
+  // Add a hint label
+  const hint = document.createElement('div');
+  hint.className = 'dp-pano-hint';
+  hint.textContent = '↔ click + drag to pan';
+  viewer.appendChild(hint);
+  setTimeout(() => { if (hint.parentNode) hint.remove(); }, 3000);
+
+  // Center initially
+  const containerW = viewer.clientWidth;
+  const containerH = viewer.clientHeight;
+  const scale = containerH / img.naturalHeight;
+  const renderedW = img.naturalWidth * scale;
+  let panX = -(renderedW - containerW) / 2;
+  panX = Math.max(Math.min(panX, 0), containerW - renderedW);
+  img.style.transform = `translateX(${panX}px)`;
+
+  let isDragging = false, startX = 0, startPanX = 0, dragDistance = 0;
+  const minPan = containerW - renderedW;
+  const maxPan = 0;
+
+  function onPointerDown(e) {
+    if (e.button !== undefined && e.button !== 0) return;
+    isDragging = true;
+    startX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0].clientX);
+    startPanX = panX;
+    dragDistance = 0;
+    img.classList.add('dragging');
+    e.preventDefault();
+  }
+  function onPointerMove(e) {
+    if (!isDragging) return;
+    const x = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0].clientX);
+    const dx = x - startX;
+    dragDistance = Math.max(dragDistance, Math.abs(dx));
+    panX = Math.max(minPan, Math.min(maxPan, startPanX + dx));
+    img.style.transform = `translateX(${panX}px)`;
+    e.preventDefault();
+  }
+  function onPointerUp() {
+    if (!isDragging) return;
+    isDragging = false;
+    img.classList.remove('dragging');
+    // If significant drag, suppress the upcoming click
+    if (dragDistance > 5) S._suppressViewerClick = true;
+  }
+
+  if (img._panoCleanup) img._panoCleanup();
+  img.addEventListener('mousedown', onPointerDown);
+  img.addEventListener('touchstart', onPointerDown, { passive: false });
+  window.addEventListener('mousemove', onPointerMove);
+  window.addEventListener('touchmove', onPointerMove, { passive: false });
+  window.addEventListener('mouseup', onPointerUp);
+  window.addEventListener('touchend', onPointerUp);
+  img._panoCleanup = () => {
+    img.removeEventListener('mousedown', onPointerDown);
+    img.removeEventListener('touchstart', onPointerDown);
+    window.removeEventListener('mousemove', onPointerMove);
+    window.removeEventListener('touchmove', onPointerMove);
+    window.removeEventListener('mouseup', onPointerUp);
+    window.removeEventListener('touchend', onPointerUp);
+  };
+}
+
+// Called by the inline onclick on the viewer img. Routes to lightbox UNLESS
+// a drag just occurred (in pano mode), in which case the click is suppressed.
+window.dpViewerClick = function (imgEl) {
+  if (S._suppressViewerClick) {
+    S._suppressViewerClick = false;
+    return;
+  }
+  openLightbox(imgEl.src);
+};
 
 function dpNav(dir) {
   if (!S.dpImages.length) return;
@@ -2605,10 +2719,13 @@ window.dpToggleFavorite = async function () {
 
   await dpSavePhotoState(photo, wasFav ? 'unfavorite' : 'favorite');
   dpApplyOrder(photo.key);  // stay on the same photo as it moves to its new position
+  if (typeof dpUpdatePhotoActions === 'function') dpUpdatePhotoActions();
   toast(photo.isFavorite ? '★ favorited' : 'unfavorited', 'ok');
 };
 
 // Toggle reject — pushes to back of custom order, never appears in favorites.
+// On reject, the viewer ADVANCES to the next photo at the same position
+// (since the rejected photo just moved to the back). On unreject, follow the photo.
 window.dpToggleReject = async function () {
   const photo = dpActivePhoto();
   if (!photo) return;
@@ -2628,8 +2745,24 @@ window.dpToggleReject = async function () {
   if (dt.orderMode !== 'custom') dt.orderMode = 'custom';
 
   await dpSavePhotoState(photo, wasRej ? 'unreject' : 'reject');
-  dpApplyOrder(photo.key);  // stay on the same photo (now at the back if rejected)
-  toast(photo.isRejected ? '✕ rejected' : 'unrejected', 'ok');
+
+  // Capture current viewer position; after re-sort, dpApplyOrder repositions to anchor.
+  // For reject: anchor at the URL that was AFTER the rejected one in the current list.
+  // For unreject: follow the photo.
+  let anchorKey = photo.key;
+  if (photo.isRejected) {
+    // Find the next photo in the current order (could be undefined if at end)
+    const curIdx = S.dpIndex;
+    const nextUrl = S.dpImages[curIdx + 1] || S.dpImages[curIdx - 1] || null;
+    if (nextUrl && S._lastDeepTagImgs) {
+      const next = S._lastDeepTagImgs.find(i => (i.thumb_url || i.thumbUrl) === nextUrl);
+      if (next) anchorKey = next.sm_key || next.key;
+    }
+  }
+  dpApplyOrder(anchorKey);
+  // Re-render the fav/reject button states for the NEW active photo
+  if (typeof dpUpdatePhotoActions === 'function') dpUpdatePhotoActions();
+  toast(photo.isRejected ? '✕ rejected · next' : 'unrejected', 'ok');
 };
 
 // Save photo state to DB + log a correction event
@@ -5552,11 +5685,13 @@ function orgRenderCard(album) {
     actionsHtml = `
       <button class="org-btn accept" onclick="orgAccept('${E(album.sm_key)}')">✓ accept</button>
       <button class="org-btn" onclick="orgEdit('${E(album.sm_key)}')">✏ edit</button>
+      <button class="org-btn" onclick="orgDeepFromCard('${E(album.sm_key)}')" title="Run full deep-tag on this album (descriptions + walkthrough order + path suggestion)">✨ deep</button>
       <button class="org-btn" onclick="orgSkip('${E(album.sm_key)}')">skip</button>`;
   } else if (status === 'classifying') {
     actionsHtml = `<div class="org-card-status queued">working...</div>`;
   } else {
     actionsHtml = `<button class="org-btn" onclick="orgClassifyOne('${E(album.sm_key)}')">⚡ classify</button>
+      <button class="org-btn" onclick="orgDeepFromCard('${E(album.sm_key)}')" title="Run full deep-tag (slower, ~$0.50, but produces walkthrough order + path suggestion)">✨ deep</button>
       <button class="org-btn" onclick="orgSkip('${E(album.sm_key)}')">skip</button>`;
   }
 
@@ -5793,6 +5928,47 @@ window.orgApproveAll = function () {
   let msg = count ? `Queued ${count} for move` : 'Nothing to approve';
   if (lowConfCount) msg += ` · ${lowConfCount} low-confidence skipped (review manually)`;
   toast(msg, count ? 'ok' : 'inf');
+};
+
+// Trigger deep tag on an org-card album. Opens the album in the detail panel
+// (creating a synthetic location stub if no linked location exists), then runs dpDeepTag.
+window.orgDeepFromCard = async function (sm_key) {
+  const album = (S.orgUploads || []).find(a => a.sm_key === sm_key);
+  if (!album) { toast('Album not found', 'err'); return; }
+  // Try to find a linked location first
+  const linkedLoc = S.locByAlbumKey ? S.locByAlbumKey.get(sm_key) : null;
+  let loc = linkedLoc;
+  if (!loc) {
+    // Build a synthetic stub like libCardClick does
+    const stubId = 'stub:' + sm_key;
+    loc = S.locById && S.locById.get(stubId);
+    if (!loc) {
+      loc = {
+        id: stubId,
+        name: album.name || '(unnamed)',
+        smugmug_album_key: sm_key,
+        smugmug_gallery_url: album.web_url || '',
+        cover_photo_url: album.highlight_url || '',
+        notes: album.description || '',
+        status: 'identified',
+        tags: [],
+        address_verified: false,
+        _isStub: true
+      };
+      if (S.locById) S.locById.set(stubId, loc);
+    }
+  }
+  // Switch to the home page if we're on Organize, then open detail
+  const orgActive = $('organize-page') && $('organize-page').classList.contains('active');
+  if (orgActive) {
+    const homeBtn = document.querySelectorAll('.nav-btn')[0];
+    if (homeBtn) homeBtn.click();
+    // Wait a tick for page transition
+    await new Promise(r => setTimeout(r, 100));
+  }
+  openDetail(loc);
+  // Wait one more tick so the detail panel is rendered, then trigger deep tag
+  setTimeout(() => { if (typeof dpDeepTag === 'function') dpDeepTag(); }, 200);
 };
 
 window.orgClassifyOne = async function (sm_key) {
