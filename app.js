@@ -2115,9 +2115,9 @@ Estimated cost: ~$${estCost}`,
       albumCategory: getCatForLoc(loc) || '',
       rejectedTags: Array.from(rejectedTagsSet)
     };
-    // Chunk classify into smaller calls to avoid Vercel function timeout.
-    // 15 photos per chunk = ~3 server-side batches × ~5-8s each ≈ 20-30s per call.
-    const CLASSIFY_CHUNK_SIZE = 15;
+    // Chunk classify into very small calls — 8 photos × ~1 server-side batch ≈ 10-15s.
+    // Keeps us well under any function-timeout threshold and limits memory peak.
+    const CLASSIFY_CHUNK_SIZE = 8;
     const allResults = [];
     let aggUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
     let aggCost = 0;
@@ -2418,7 +2418,13 @@ async function dpStageCall(stage, body) {
   });
   if (!r.ok) {
     const errText = await r.text().catch(() => '');
-    throw new Error(`stage ${stage}: HTTP ${r.status}: ${errText.slice(0, 200)}`);
+    // Try to extract the JSON `error` field (server returns structured errors now);
+    // if that fails, fall back to the raw text.
+    let parsed = null;
+    try { parsed = JSON.parse(errText); } catch (e) {}
+    const detail = parsed && parsed.error ? parsed.error : errText.slice(0, 300);
+    console.error(`[dpStageCall] stage=${stage} HTTP ${r.status}:`, detail, 'body sample:', JSON.stringify(body).slice(0, 400));
+    throw new Error(`stage ${stage}: HTTP ${r.status}: ${detail}`);
   }
   const data = await r.json();
   if (!data.ok) throw new Error(`stage ${stage}: ${data.error || 'failed'}`);
