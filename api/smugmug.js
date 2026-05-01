@@ -635,6 +635,51 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    if (action === 'set_highlight') {
+      // Set an album's HighlightImage to a specific image. Used by the cover picker.
+      const body = req.method === 'POST'
+        ? (typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {}))
+        : req.query;
+      const { albumKey, imageKey } = body;
+      if (!albumKey || !imageKey) {
+        return res.status(400).json({ error: 'albumKey and imageKey required' });
+      }
+      try {
+        // Fetch album to get its HighlightImage URI (for the right node-level endpoint)
+        const albumRes = await smRequest('/album/' + albumKey, accessToken, accessTokenSecret);
+        const album = albumRes.Response?.Album;
+        if (!album) return res.status(404).json({ error: 'album not found' });
+        const albumNodeUri = album.Uris?.Node?.Uri;
+        if (!albumNodeUri) return res.status(500).json({ error: 'album has no node URI' });
+
+        // PATCH the album NODE with HighlightImageUri pointing to our image.
+        // SmugMug's image URI format: /api/v2/image/<imageKey>
+        // (The album object's HighlightImage Uri uses this same form.)
+        const newHighlightUri = '/api/v2/image/' + imageKey;
+        const consumerKey = envOrThrow('SMUGMUG_KEY');
+        const consumerSecret = envOrThrow('SMUGMUG_SECRET');
+        const url = buildSmUrl(albumNodeUri).split('?')[0];
+        const oauthParams = makeOauthParams(consumerKey, accessToken);
+        const authHeader = buildAuthHeader('PATCH', url, oauthParams, {}, consumerSecret, accessTokenSecret || '');
+        const r = await fetch(url + '?_accept=application/json', {
+          method: 'PATCH',
+          headers: {
+            Authorization: authHeader,
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify({ HighlightImageUri: newHighlightUri })
+        });
+        if (!r.ok) {
+          const txt = await r.text();
+          return res.status(500).json({ error: `SmugMug ${r.status}: ${txt.slice(0, 240)}` });
+        }
+        return res.json({ ok: true });
+      } catch (e) {
+        return res.status(500).json({ error: e.message || 'set_highlight failed' });
+      }
+    }
+
     if (action === 'album-thumbnail') {
       // Fetch just the HighlightImage for one album — used to backfill missing thumbs
       // without a full re-crawl. Cheap (2 requests per album).
