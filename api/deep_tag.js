@@ -453,40 +453,90 @@ async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, t
   }
 
   // Decide which photos to send as actual images vs. as text-only summaries.
-  // Strategy: take the BEST photos from each ALBUM TEMPORAL BUCKET so the last third
-  // of a long album gets representation. Pure top-by-composition tends to cluster
-  // candidates at the front (where shots are usually more deliberate).
+  //
+  // We compute an importance score per photo combining:
+  //   - composition (1-10 base)
+  //   - role bonus (hero exterior, room overview > details > transition)
+  //   - room rarity (photos of less-documented rooms get a boost)
+  //   - centerpiece bonus (user picks always elevated)
+  //   - chronological-spread tiebreaker (slight nudge toward time coverage)
+  //   - near-duplicate penalty (same role + same room + adjacent original index → likely dup)
+  //
+  // Then we take the top 60 by score, capped at our budget.
   const eligible = perPhoto.filter(p =>
     !p.isRejected && p.is_sharp !== false && p.role !== 'logistic' && p.role !== 'transition'
   );
-  const TARGET = 60;
-  const BUCKET_COUNT = 6;  // divide album into 6 chunks
-  const totalLen = perPhoto.length || 1;
-  // Bucket each eligible photo by where it sits in the album's chronology
-  const buckets = Array.from({ length: BUCKET_COUNT }, () => []);
+  // Build room → photos map (for rarity calculation)
+  const photosByRoom = new Map();
   eligible.forEach(p => {
-    const idx = p.originalIndex || 0;
-    const bIdx = Math.min(BUCKET_COUNT - 1, Math.floor((idx / totalLen) * BUCKET_COUNT));
-    buckets[bIdx].push(p);
+    const r = p.room || '_unknown';
+    if (!photosByRoom.has(r)) photosByRoom.set(r, []);
+    photosByRoom.get(r).push(p);
   });
-  // Sort each bucket by composition desc (so we always take its best first)
-  buckets.forEach(b => b.sort((a, b) => (b.composition || 0) - (a.composition || 0)));
-  // Round-robin pick across buckets, taking the best from each in turn until we hit TARGET
-  const imageCandidates = [];
-  let rotation = 0;
-  while (imageCandidates.length < TARGET) {
-    let added = false;
-    for (let bi = 0; bi < BUCKET_COUNT; bi++) {
-      if (imageCandidates.length >= TARGET) break;
-      const b = buckets[bi];
-      if (rotation < b.length) {
-        imageCandidates.push(b[rotation]);
-        added = true;
-      }
-    }
-    if (!added) break;
-    rotation++;
+
+  const ROLE_BONUS = {
+    'hero-exterior':   3,
+    'entry-in':        4,
+    'entry-out':       3,
+    'room-overview':   3,
+    'outdoor-feature': 2,
+    'room-detail':     1,
+    'side-exterior':   0,
+    'unknown':         0
+  };
+
+  function roomRarityBonus(room) {
+    const list = photosByRoom.get(room || '_unknown') || [];
+    if (list.length <= 1) return 3;   // unique room — highest priority
+    if (list.length <= 3) return 2;
+    if (list.length <= 6) return 1;
+    return 0;                          // very common room — no rarity boost
   }
+
+  // Score each eligible photo
+  eligible.forEach(p => {
+    let score = (p.composition || 5);
+    score += ROLE_BONUS[p.role] || 0;
+    score += roomRarityBonus(p.room);
+    if (p.centerpieceSlot && p.centerpieceSlot > 0) score += 5;
+    p._impScore = score;
+  });
+
+  // Detect near-duplicates: same room + same role + originalIndex within 2.
+  // Group by (room, role) bucket, sort by composition desc, penalize all but the best.
+  const dupBuckets = new Map();
+  eligible.forEach(p => {
+    const k = (p.room || '_') + '|' + (p.role || '_');
+    if (!dupBuckets.has(k)) dupBuckets.set(k, []);
+    dupBuckets.get(k).push(p);
+  });
+  dupBuckets.forEach(bucket => {
+    if (bucket.length < 2) return;
+    bucket.sort((a, b) => (b._impScore || 0) - (a._impScore || 0));
+    // Within sorted bucket, penalize photos whose original index is within 2 of an
+    // already-kept higher-scored photo (likely shot back-to-back of same thing).
+    const kept = [];
+    bucket.forEach(p => {
+      const isDup = kept.some(k => Math.abs((p.originalIndex || 0) - (k.originalIndex || 0)) <= 2);
+      if (isDup) p._impScore = (p._impScore || 0) - 3;
+      kept.push(p);
+    });
+  });
+
+  // Final pick: sort by score, take top 60. But guarantee centerpieces are in.
+  eligible.sort((a, b) => (b._impScore || 0) - (a._impScore || 0));
+  const TARGET = 60;
+  const picked = eligible.slice(0, TARGET);
+  // Force-include any centerpiece not already in the top 60
+  eligible.forEach(p => {
+    if (p.centerpieceSlot && p.centerpieceSlot > 0 && !picked.includes(p)) {
+      picked.push(p);
+    }
+  });
+  // Sort the final candidate set chronologically so Sonnet sees them in shot order
+  // (helpful for understanding what came before/after each shot in the original walkthrough)
+  picked.sort((a, b) => (a.originalIndex || 0) - (b.originalIndex || 0));
+  const imageCandidates = picked;
   const imageCandidateKeys = new Set(imageCandidates.map(p => p.key));
 
   // Fetch medium-size images for those candidates
