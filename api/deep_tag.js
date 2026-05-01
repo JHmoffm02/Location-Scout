@@ -178,6 +178,19 @@ function sumUsage(usages) {
   return out;
 }
 
+// Strip HTML entities, markdown link syntax, and collapse whitespace from notes
+// before sending to the AI. Otherwise Sonnet sometimes mirrors these characters
+// in its output and breaks JSON parsing (e.g. unescaped quotes from HTML entities).
+function sanitizeNotes(s, maxLen) {
+  if (!s) return '';
+  return String(s)
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen || 1500);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // STAGE: CLASSIFY — Haiku on MEDIUM images, single pass per album.
 // Returns description + tags + role + room + composition + sharpness + reject
@@ -213,7 +226,7 @@ function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, g
 ALBUM CONTEXT:
   Album: ${albumName || '(unnamed)'}
   ${albumCategory ? `Category: ${albumCategory}` : ''}
-  ${albumNotes ? `Notes: ${String(albumNotes).slice(0, 1500)}` : ''}
+  ${albumNotes ? `Notes: ${sanitizeNotes(albumNotes)}` : ''}
   ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}${placesContext}${avoidTags}
 
 FOR EACH NUMBERED PHOTO, output:
@@ -404,16 +417,23 @@ TOP PICKS:
 
 RESPECT CHRONOLOGY when ranking is otherwise tied — prefer the lower original_index.
 
-OUTPUT — return ONLY this JSON, no prose, no markdown fences:
+OUTPUT — return ONLY this JSON, no prose, no markdown fences. KEEP IT MINIMAL:
 {
   "suggested_path": "category/subcategory",
   "path_confidence": 0.0-1.0,
   "ordered": [
-    { "key": "abc123", "top_pick": true,  "rank_reason": "hero exterior" },
-    { "key": "def456", "top_pick": true,  "rank_reason": "ballroom overview, core space" },
+    { "key": "abc123", "top_pick": true },
+    { "key": "def456", "top_pick": true },
     ...
   ]
 }
+
+CRITICAL FORMATTING RULES — your output will be machine-parsed:
+  - Each ordered item is JUST { "key": "...", "top_pick": true|false } — NO other fields
+  - Do NOT include rank_reason or any explanation in the JSON
+  - Album keys are alphanumeric only — copy them exactly from the input
+  - Do NOT include any text before the opening { or after the closing }
+  - Do NOT use markdown formatting
 
 PATH SUGGESTION:
   - Use existing taxonomy paths when one fits (passed in TAXONOMY below)
@@ -501,6 +521,10 @@ async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, t
     return parts.join(' · ');
   }).join('\n');
 
+  // Notes get sanitized before sending — module-level sanitizeNotes() strips HTML
+  // entities and markdown link syntax that confuse Sonnet's JSON output.
+  const cleanNotes = sanitizeNotes(album.notes);
+
   const placesText = album.googlePlaces
     ? `\n\nGOOGLE PLACES:\n  ${album.googlePlaces.formatted || ''}\n  Types: ${(album.googlePlaces.types || []).join(', ')}`
     : '';
@@ -536,17 +560,38 @@ async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, t
     type: 'text',
     text: `\nALBUM: ${album.name || '(unnamed)'}\n` +
           `Category: ${album.category || 'unknown'}\n` +
-          `Notes: ${String(album.notes || '').slice(0, 1500)}` +
+          `Notes: ${cleanNotes}` +
           placesText +
           taxonomyText +
           `\n\nALL PHOTOS (${perPhoto.length} total — visual candidates marked with IMG=N, the rest are text-only with their tags):\n${linesAll}\n\nReturn the walkthrough ordering AND a suggested folder path. Include every photo's key in "ordered".`
   });
 
   const r = await callAnthropic(SONNET, ORGANIZE_PROMPT, userParts, apiKey, 5000);
-  const parsed = parseJSON(r.text);
-  const ordered = Array.isArray(parsed.ordered) ? parsed.ordered : [];
-  const suggestedPath = typeof parsed.suggested_path === 'string' ? parsed.suggested_path : '';
-  const pathConfidence = typeof parsed.path_confidence === 'number' ? parsed.path_confidence : 0;
+  let ordered = [];
+  let suggestedPath = '';
+  let pathConfidence = 0;
+  try {
+    const parsed = parseJSON(r.text);
+    ordered = Array.isArray(parsed.ordered) ? parsed.ordered : [];
+    suggestedPath = typeof parsed.suggested_path === 'string' ? parsed.suggested_path : '';
+    pathConfidence = typeof parsed.path_confidence === 'number' ? parsed.path_confidence : 0;
+  } catch (e) {
+    console.error('[organize] JSON parse failed; falling back to regex extraction:', e.message);
+    // Fallback: extract { "key": "...", "top_pick": ... } chunks from the raw text directly.
+    // This handles cases where Sonnet's output has stray characters that break the full parse
+    // but the per-item structure is still recoverable.
+    const rx = /\{\s*"key"\s*:\s*"([^"]+)"\s*,\s*"top_pick"\s*:\s*(true|false)/g;
+    let m;
+    while ((m = rx.exec(r.text)) !== null) {
+      ordered.push({ key: m[1], top_pick: m[2] === 'true' });
+    }
+    // Also try to recover the path/confidence
+    const pathMatch = r.text.match(/"suggested_path"\s*:\s*"([^"]+)"/);
+    if (pathMatch) suggestedPath = pathMatch[1];
+    const confMatch = r.text.match(/"path_confidence"\s*:\s*([0-9.]+)/);
+    if (confMatch) pathConfidence = parseFloat(confMatch[1]);
+    console.log(`[organize] regex fallback recovered ${ordered.length} entries, path="${suggestedPath}"`);
+  }
   return { ordered, suggestedPath, pathConfidence, usage: r.usage };
 }
 
