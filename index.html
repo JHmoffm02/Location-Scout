@@ -131,6 +131,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   white-space:nowrap;
 }
 .dp-zone-pill{color:var(--green);border:1px solid rgba(76,175,130,.35)}
+.dp-status-btn{
+  cursor:pointer;border:1px solid;font-family:'DM Mono',monospace;
+  transition:filter .12s, background .12s;
+}
+.dp-status-btn:hover{filter:brightness(1.2)}
+.dp-status-menu-item:hover{background:var(--bg3) !important}
+.dp-status-menu-item:last-child{border-bottom:none !important}
 .dp-header-bar .dp-asof-pill{
   font-size:8px;font-family:'DM Mono',monospace;letter-spacing:.06em;
   padding:2px 8px;border-radius:10px;line-height:1.6;white-space:nowrap;
