@@ -2099,35 +2099,29 @@ async function dpStageCall(stage, body) {
 function dpPickCenterpieces(loc, imageList, opts) {
   opts = opts || {};
   const pushToSmugMug = opts.pushToSmugMug !== false;
-  const purpose = opts.purpose || 'cover';  // 'cover' or 'deeptag'
+  const purpose = opts.purpose || 'cover';
   return new Promise(resolve => {
-    // Determine starting selection: existing centerpiece_keys, or just the cover
     const albumRow = (S.libAlbums || []).find(a => a.sm_key === loc.smugmug_album_key)
       || (S.mapAlbums || []).find(a => a.sm_key === loc.smugmug_album_key)
       || { centerpiece_keys: [] };
     let initialKeys = Array.isArray(albumRow.centerpiece_keys) ? albumRow.centerpiece_keys.slice() : [];
-    // If no centerpieces yet, default to the existing cover (if it matches an image)
     if (!initialKeys.length && loc.cover_photo_url) {
       const coverImg = imageList.find(i => i.thumb_url === loc.cover_photo_url);
       if (coverImg) initialKeys = [coverImg.sm_key];
     }
-    const selected = new Set(initialKeys);  // ordered set is hard in JS — use array + Set together
+    const selected = new Set(initialKeys);
     const selectedOrder = initialKeys.filter(k => imageList.find(i => i.sm_key === k));
-
-    const PAGE_SIZE = 60;  // 60 thumbs per page — comfortable for browsing
-    let pageStart = 0;
 
     const modal = document.createElement('div');
     modal.id = 'cover-picker-modal';
+    modal.setAttribute('role', 'dialog');
     modal.style.cssText = 'position:fixed;inset:0;z-index:800;background:rgba(0,0,0,.85);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px';
-    const titleText = purpose === 'deeptag'
-      ? 'Pick centerpiece images (1-5)'
-      : 'Pick centerpiece images';
+    const titleText = purpose === 'deeptag' ? 'Pick centerpiece images (1-5)' : 'Pick centerpiece images';
     const subText = purpose === 'deeptag'
-      ? 'These represent what the location IS — the AI uses them as reference. The first one becomes the cover.'
+      ? 'These represent what the location IS \u2014 the AI uses them as reference. The first one becomes the cover.'
       : 'Select 1-5 images that best represent this location. The first becomes the cover.';
     modal.innerHTML = `
-      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(960px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(1200px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
         <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:14px">
           <div>
             <div style="font-size:13px;font-weight:500;color:var(--text)">${E(titleText)}</div>
@@ -2136,20 +2130,14 @@ function dpPickCenterpieces(loc, imageList, opts) {
           <div id="cover-counter" style="font-size:11px;color:var(--text2);font-family:'DM Mono',monospace;white-space:nowrap"></div>
         </div>
         <div id="cover-grid" style="flex:1;overflow-y:auto;padding:14px 20px;background:var(--bg)"></div>
-        <div style="padding:10px 20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-          <div style="display:flex;gap:6px;align-items:center">
-            <button class="org-btn" id="cover-prev-btn">←</button>
-            <span id="cover-page-info" style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;min-width:120px;text-align:center"></span>
-            <button class="org-btn" id="cover-next-btn">→</button>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:4px;cursor:pointer">
-              <input type="checkbox" id="cover-push-smugmug" ${pushToSmugMug && S.smTokens ? 'checked' : ''} ${!S.smTokens ? 'disabled' : ''}>
-              push cover to SmugMug
-            </label>
-            <button class="org-btn" id="cover-cancel-btn">cancel</button>
-            <button class="org-btn primary" id="cover-ok-btn">continue</button>
-          </div>
+        <div style="padding:10px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap">
+          <span id="cover-page-info" style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-right:auto"></span>
+          <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="cover-push-smugmug" ${pushToSmugMug && S.smTokens ? 'checked' : ''} ${!S.smTokens ? 'disabled' : ''}>
+            push cover to SmugMug
+          </label>
+          <button class="org-btn" id="cover-cancel-btn">cancel</button>
+          <button class="org-btn primary" id="cover-ok-btn">continue</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
@@ -2163,31 +2151,29 @@ function dpPickCenterpieces(loc, imageList, opts) {
 
     function renderGrid() {
       const grid = $('cover-grid');
-      const slice = imageList.slice(pageStart, pageStart + PAGE_SIZE);
-      grid.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">' +
-        slice.map(img => {
+      grid.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">' +
+        imageList.map(img => {
           const isSelected = selected.has(img.sm_key);
           const orderIdx = isSelected ? selectedOrder.indexOf(img.sm_key) + 1 : 0;
           return `
             <div class="cover-cell ${isSelected ? 'selected' : ''}"
                  data-key="${E(img.sm_key)}"
                  data-url="${E(img.thumb_url)}"
-                 style="position:relative;cursor:pointer;border:2px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};border-radius:6px;overflow:hidden;aspect-ratio:1;background:var(--bg4);transition:all .12s">
+                 style="position:relative;cursor:pointer;border:2px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};border-radius:6px;overflow:hidden;aspect-ratio:16/9;background:var(--bg4);transition:all .12s">
               <img src="${E(smMedium(img.thumb_url))}" loading="lazy" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">
-              ${isSelected ? `<div style="position:absolute;top:4px;left:4px;background:var(--accent);color:var(--bg);font-size:11px;font-weight:600;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace">${orderIdx}</div>` : ''}
+              ${isSelected ? `<div style="position:absolute;top:6px;left:6px;background:var(--accent);color:var(--bg);font-size:12px;font-weight:600;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;box-shadow:0 2px 8px rgba(0,0,0,.5)">${orderIdx}</div>` : ''}
             </div>`;
         }).join('') + '</div>';
       grid.querySelectorAll('.cover-cell').forEach(cell => {
         cell.addEventListener('click', () => {
           const key = cell.getAttribute('data-key');
           if (selected.has(key)) {
-            // Unselect
             selected.delete(key);
             const idx = selectedOrder.indexOf(key);
             if (idx >= 0) selectedOrder.splice(idx, 1);
           } else {
             if (selected.size >= 5) {
-              toast('Max 5 centerpieces — unselect one first', 'inf');
+              toast('Max 5 centerpieces \u2014 unselect one first', 'inf');
               return;
             }
             selected.add(key);
@@ -2197,9 +2183,7 @@ function dpPickCenterpieces(loc, imageList, opts) {
           updateCounter();
         });
       });
-      $('cover-page-info').textContent = `${pageStart + 1}–${Math.min(pageStart + PAGE_SIZE, imageList.length)} of ${imageList.length}`;
-      $('cover-prev-btn').disabled = pageStart === 0;
-      $('cover-next-btn').disabled = pageStart + PAGE_SIZE >= imageList.length;
+      $('cover-page-info').textContent = `${imageList.length} photo${imageList.length !== 1 ? 's' : ''}`;
     }
 
     function cleanup() { document.body.removeChild(modal); }
@@ -2207,8 +2191,6 @@ function dpPickCenterpieces(loc, imageList, opts) {
     renderGrid();
     updateCounter();
 
-    $('cover-prev-btn').onclick = () => { pageStart = Math.max(0, pageStart - PAGE_SIZE); renderGrid(); };
-    $('cover-next-btn').onclick = () => { pageStart = Math.min(imageList.length - PAGE_SIZE, pageStart + PAGE_SIZE); renderGrid(); };
     $('cover-cancel-btn').onclick = () => { cleanup(); resolve(null); };
     $('cover-ok-btn').onclick = async () => {
       const finalKeys = selectedOrder.slice();
@@ -2218,7 +2200,6 @@ function dpPickCenterpieces(loc, imageList, opts) {
       }).filter(Boolean);
       const wantPush = $('cover-push-smugmug').checked;
       cleanup();
-      // Persist
       await dpSaveCenterpieces(loc, items, wantPush);
       resolve(items);
     };
@@ -6359,3 +6340,4 @@ $('hcard').addEventListener('mouseleave', function () {
 })();
 
 })();  // IIFE end
+   
