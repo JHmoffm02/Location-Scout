@@ -1686,31 +1686,38 @@ function dpMaybeEnablePano(img, viewer) {
   const w = img.naturalWidth, h = img.naturalHeight;
   if (!w || !h) return;
   const ratio = w / h;
-  const PANO_THRESHOLD = 2.4;  // 16:9 = 1.78, 21:9 = 2.33, panos usually 3+
+  const PANO_THRESHOLD = 2.4;
+  const ULTRAWIDE_THRESHOLD = 4.0;
   if (ratio < PANO_THRESHOLD) return;
 
-  // Upgrade to highest available size for sharp panning. X3 is 1600px wide which is
-  // typically tall enough to be sharp at the viewer's height; X4 is 2048px for very tall panos.
   const newSrc = smXL(S.dpImages[S.dpIndex]);
   if (img.src !== newSrc) {
     img.src = newSrc;
-    img.onload = () => dpEnablePano(img, viewer);
+    img.onload = () => dpEnablePano(img, viewer, ratio >= ULTRAWIDE_THRESHOLD);
     return;
   }
-  dpEnablePano(img, viewer);
+  dpEnablePano(img, viewer, ratio >= ULTRAWIDE_THRESHOLD);
 }
 
-function dpEnablePano(img, viewer) {
+function dpEnablePano(img, viewer, ultraWide) {
   viewer.classList.add('pano-mode');
+  if (ultraWide) viewer.classList.add('pano-pannable');
+  else viewer.classList.remove('pano-pannable');
 
-  // Add a hint label
   const hint = document.createElement('div');
   hint.className = 'dp-pano-hint';
-  hint.textContent = '↔ drag or two-finger swipe to pan';
+  hint.textContent = ultraWide ? '↔ drag or two-finger swipe to pan' : 'panorama (fit to width)';
   viewer.appendChild(hint);
   setTimeout(() => { if (hint.parentNode) hint.remove(); }, 3000);
 
-  // Center initially
+  // Non-ultrawide panos: just show fit-to-width with letterbox, no pan handlers
+  if (!ultraWide) {
+    if (img._panoCleanup) img._panoCleanup();
+    img._panoCleanup = null;
+    return;
+  }
+
+  // Ultra-wide pan setup
   const containerW = viewer.clientWidth;
   const containerH = viewer.clientHeight;
   const scale = containerH / img.naturalHeight;
@@ -1745,7 +1752,6 @@ function dpEnablePano(img, viewer) {
     if (!isDragging) return;
     isDragging = false;
     img.classList.remove('dragging');
-    // If significant drag, suppress the upcoming click
     if (dragDistance > 5) S._suppressViewerClick = true;
   }
 
@@ -1757,13 +1763,10 @@ function dpEnablePano(img, viewer) {
   window.addEventListener('mouseup', onPointerUp);
   window.addEventListener('touchend', onPointerUp);
 
-  // Two-finger trackpad swipe (or shift+wheel) → pan horizontally.
-  // We listen on the viewer container so the scroll event fires anywhere over the pano.
   function onWheel(ev) {
-    // Use deltaX from native two-finger swipe; fall back to deltaY when shift is held.
     let dx = ev.deltaX;
     if (Math.abs(dx) < 1 && ev.shiftKey) dx = ev.deltaY;
-    if (Math.abs(dx) < 1) return;  // pure vertical scroll — let the page handle it
+    if (Math.abs(dx) < 1) return;
     ev.preventDefault();
     panX = Math.max(minPan, Math.min(maxPan, panX - dx));
     img.style.transform = `translateX(${panX}px)`;
@@ -1780,6 +1783,7 @@ function dpEnablePano(img, viewer) {
     viewer.removeEventListener('wheel', onWheel);
   };
 }
+
 
 // Called by the inline onclick on the viewer img. Routes to lightbox UNLESS
 // a drag just occurred (in pano mode), in which case the click is suppressed.
@@ -2167,6 +2171,9 @@ Estimated cost: ~$${estCost}`,
         p.description = c.description || '';
         p.is_sharp = c.is_sharp;
         p.composition = c.composition;
+        p.depth_quality = c.depth_quality || 3;
+        p.is_pano = !!c.is_pano;
+        p.dup_of = c.dup_of || '';
         p.role = c.role;
         p.room = c.room;
         p.tags = c.tags;
@@ -2229,10 +2236,13 @@ Estimated cost: ~$${estCost}`,
         role: p.role,
         room: p.room,
         composition: p.composition,
+        depth_quality: p.depth_quality || 3,
+        is_pano: !!p.is_pano,
+        dup_of: p.dup_of || '',
         is_sharp: p.is_sharp,
         tags: p.tags.slice(0, 8),
         isRejected: p.isRejected,
-        centerpieceSlot: centerpieceSlotByKey.get(p.key) || 0  // 1-5 if user picked it as centerpiece, 0 otherwise
+        centerpieceSlot: centerpieceSlotByKey.get(p.key) || 0
       }))
     });
     addUsage(totalUsageSonnet, organizeRes.usage);
@@ -2669,6 +2679,9 @@ async function dpSaveDeepTagResults(loc, data) {
       sonnet_tags: p.sonnetTags || [],
       is_sharp: p.is_sharp !== false,
       composition: p.composition || 5,
+      depth_quality: p.depth_quality || null,
+      is_pano: !!p.is_pano,
+      dup_of: p.dup_of || null,
       role: p.role || null,
       room: p.room || null,
       is_top_pick: !!p.isTopPick,
@@ -3120,7 +3133,7 @@ async function dpLoadExistingDeepTag(loc) {
       return;
     }
     const a = albumRes[0];
-    const photoRes = await db(`photo_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=image_key,description,haiku_tags,sonnet_tags,is_sharp,composition,role,room,is_top_pick,is_favorite,is_rejected,original_index,ranked_index,custom_index`);
+    const photoRes = await db(`photo_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=image_key,description,haiku_tags,sonnet_tags,is_sharp,composition,depth_quality,is_pano,dup_of,role,room,is_top_pick,is_favorite,is_rejected,original_index,ranked_index,custom_index`);
     const perPhoto = (photoRes || []).map(r => ({
       key: r.image_key,
       description: r.description || '',
@@ -3128,6 +3141,9 @@ async function dpLoadExistingDeepTag(loc) {
       sonnetTags: r.sonnet_tags || [],
       is_sharp: r.is_sharp !== false,
       composition: r.composition || 5,
+      depth_quality: r.depth_quality || 3,
+      is_pano: !!r.is_pano,
+      dup_of: r.dup_of || '',
       role: r.role || '',
       room: r.room || '',
       isTopPick: !!r.is_top_pick,
