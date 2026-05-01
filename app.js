@@ -1136,7 +1136,8 @@ window.openDetail = function (loc) {
   headerHtml += '<span class="dp-hbtn-sep"></span>';
   headerHtml += '<button class="dp-hbtn" onclick="openEditPanel(S.currentDetailLoc)" aria-label="Edit location">✏ edit</button>';
   headerHtml += '<button class="dp-hbtn" onclick="showRawNotes(S.currentDetailLoc)" aria-label="Show raw notes">raw notes</button>';
-  headerHtml += '<button class="dp-hbtn" onclick="dpDeepTag()" title="Run AI per-photo analysis: keywords + focus check + top 25% picks. Stores results in DB; doesn\'t modify SmugMug.">✨ deep tag</button>';
+  headerHtml += '<button class="dp-hbtn" onclick="dpOpenCoverPicker()" title="Pick centerpiece images for this album (cover + AI references)">⊡ cover</button>';
+  headerHtml += '<button class="dp-hbtn" onclick="dpDeepTag()" title="Run AI per-photo analysis: keywords + focus check + top picks. Stores results in DB; doesn\'t modify SmugMug.">✨ deep tag</button>';
   $('dp-header-bar').innerHTML = headerHtml;
 
   // Images
@@ -1735,12 +1736,11 @@ window.dpDeepTag = async function () {
   if (!loc || !loc.smugmug_album_key) { toast('No album to analyze', 'err'); return; }
   if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
 
-  // Pull image list. Reuse the gallery load if it's already populated; else fetch.
+  // Pull image list
   let imageList;
   try {
     let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=sm_key,thumb_url');
     if (!imgs || imgs.length <= 1) {
-      // Live-fetch via SmugMug API
       const tb = btoa(JSON.stringify(S.smTokens));
       const r = await fetch(`${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`, {
         headers: { Authorization: 'Bearer ' + tb }
@@ -1759,59 +1759,466 @@ window.dpDeepTag = async function () {
     imageList = imageList.slice(0, 200);
   }
 
-  const estCost = (imageList.length * 0.003).toFixed(2);
-  if (!confirm(`Run deep tag on ${imageList.length} photos in "${loc.name}"?\n\nFlow:\n  1. Haiku tags + focus + composition score for every photo\n  2. Distill consensus album keywords\n  3. Top 25% (~${Math.ceil(imageList.length * 0.25)} photos) get richer Sonnet tags\n  4. Soft photos get sorted to the back\n\nEstimated cost: ~$${estCost}`)) return;
+  // ── Step 0: centerpiece picker (1-5 images) ──
+  const centerpieces = await dpPickCenterpieces(loc, imageList, { purpose: 'deeptag' });
+  if (centerpieces === null) { toast('Cancelled', 'inf'); return; }
+  const contextImageUrls = centerpieces.map(c => c.url);
+
+  // Confirmation with realistic cost estimate based on the new pipeline
+  const estCost = (imageList.length * 0.005).toFixed(2);
+  if (!confirm(`Run deep tag on ${imageList.length} photos in "${loc.name}"?\n\nUsing ${centerpieces.length} centerpiece${centerpieces.length !== 1 ? 's' : ''} as AI reference.\n\nMulti-stage flow:\n  1. Triage (Haiku, all thumbnails) — flag blank / blurry / contextless\n  2. Classify (Haiku, large images) — survivors only\n  3. Organize (Sonnet, text + centerpieces) — walkthrough order\n  4. Enrich (Sonnet, top picks) — richer keywords\n\nEstimated cost: ~$${estCost}`)) return;
 
   const ctr = $('dp-counter');
-  if (ctr) { ctr.style.display = 'block'; ctr.textContent = `✨ analyzing ${imageList.length} photos…`; }
-  toast('Deep tag started — this takes 30-60 seconds', 'inf');
+  if (ctr) { ctr.style.display = 'block'; ctr.textContent = `1/4 triage…`; }
+  toast('Deep tag started — this takes ~1-2 min', 'inf');
+
+  let totalCost = 0;
+  let totalUsageHaiku = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  let totalUsageSonnet = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  function addUsage(target, u) {
+    if (!u) return;
+    target.input_tokens             += u.input_tokens || 0;
+    target.output_tokens            += u.output_tokens || 0;
+    target.cache_read_input_tokens  += u.cache_read_input_tokens || 0;
+    target.cache_creation_input_tokens += u.cache_creation_input_tokens || 0;
+  }
 
   try {
-    const r = await fetch(`${SM_BASE}/api/deep_tag`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        albumKey: loc.smugmug_album_key,
-        albumName: loc.name,
-        albumNotes: loc.notes || '',
-        albumTags: loc.tags || [],
-        albumCategory: getCatForLoc(loc) || '',
-        images: imageList.map(i => ({ key: i.sm_key, url: i.thumb_url }))
-      })
+    // ── Stage 1: triage ──
+    const triageRes = await dpStageCall('triage', {
+      images: imageList.map(i => ({ key: i.sm_key, url: i.thumb_url }))
     });
-    const data = await r.json();
-    if (!data.ok) throw new Error(data.error || 'deep tag failed');
+    addUsage(totalUsageHaiku, triageRes.usage);
+    totalCost += triageRes.costCents || 0;
+    const rejectedKeys = new Set(triageRes.results.filter(r => r.reject).map(r => r.key));
+    const survivors = imageList.filter(i => !rejectedKeys.has(i.sm_key));
+    if (ctr) ctr.textContent = `2/4 classify ${survivors.length}…`;
 
-    // Bill from real usage
-    const u = data.usage || {};
-    trackUsage('haiku-classify', {
-      costCents: data.costCents || 0,
-      meta: { stage: 'deep-tag', album_key: loc.smugmug_album_key, photos: imageList.length }
+    // ── Stage 2: classify survivors ──
+    const album = {
+      albumName: loc.name,
+      albumNotes: loc.notes || '',
+      albumTags: loc.tags || [],
+      albumCategory: getCatForLoc(loc) || ''
+    };
+    const classifyRes = await dpStageCall('classify', {
+      ...album,
+      contextImageUrls: contextImageUrls,
+      images: survivors.map(i => ({ key: i.sm_key, url: i.thumb_url }))
+    });
+    addUsage(totalUsageHaiku, classifyRes.usage);
+    totalCost += classifyRes.costCents || 0;
+
+    // Build per-photo records: rejected + survivors merged
+    const perPhotoMap = new Map();
+    imageList.forEach((img, idx) => {
+      perPhotoMap.set(img.sm_key, {
+        key: img.sm_key,
+        originalIndex: idx,
+        is_sharp: false,
+        composition: 1,
+        role: 'logistic',
+        room: '',
+        tags: [],
+        sonnetTags: [],
+        isTopPick: false,
+        isRejected: rejectedKeys.has(img.sm_key),
+        rejectionReason: ''
+      });
+    });
+    triageRes.results.forEach(t => {
+      const p = perPhotoMap.get(t.key);
+      if (p) p.rejectionReason = t.reason || '';
+    });
+    classifyRes.results.forEach(c => {
+      const p = perPhotoMap.get(c.key);
+      if (p) {
+        p.is_sharp = c.is_sharp;
+        p.composition = c.composition;
+        p.role = c.role;
+        p.room = c.room;
+        p.tags = c.tags;
+      }
+    });
+    const perPhoto = Array.from(perPhotoMap.values());
+
+    // Compute consensus tags locally (same logic as before)
+    const tagCounts = new Map();
+    perPhoto.forEach(p => {
+      if (p.isRejected) return;
+      (p.tags || []).forEach(t => {
+        const lower = String(t).toLowerCase();
+        tagCounts.set(lower, (tagCounts.get(lower) || 0) + 1);
+      });
+    });
+    const photoCount = perPhoto.filter(p => !p.isRejected).length;
+    const minCount = Math.max(2, Math.floor(photoCount * 0.10));
+    const consensusTags = [];
+    const outlierTags = [];
+    tagCounts.forEach((count, tag) => {
+      if (count >= minCount) consensusTags.push(tag);
+      else outlierTags.push(tag);
+    });
+    consensusTags.sort((a, b) => (tagCounts.get(b) || 0) - (tagCounts.get(a) || 0));
+
+    if (ctr) ctr.textContent = `3/4 organize…`;
+
+    // ── Stage 3: organize (Sonnet text-only) ──
+    const organizeRes = await dpStageCall('organize', {
+      albumName: loc.name,
+      albumNotes: loc.notes || '',
+      albumCategory: getCatForLoc(loc) || '',
+      contextImageUrls: contextImageUrls,
+      perPhoto: perPhoto.map(p => ({
+        key: p.key,
+        originalIndex: p.originalIndex,
+        role: p.role,
+        room: p.room,
+        composition: p.composition,
+        is_sharp: p.is_sharp,
+        tags: p.tags.slice(0, 8),
+        isRejected: p.isRejected
+      }))
+    });
+    addUsage(totalUsageSonnet, organizeRes.usage);
+    totalCost += organizeRes.costCents || 0;
+
+    // Apply Sonnet's order
+    const ordered = organizeRes.ordered || [];
+    const topPickKeys = new Set();
+    ordered.forEach((o, idx) => {
+      const p = perPhotoMap.get(o.key);
+      if (!p) return;
+      p.rankedIndex = idx;
+      p.isTopPick = !!o.top_pick;
+      if (o.top_pick) topPickKeys.add(o.key);
+    });
+    // Anything Sonnet didn't include (shouldn't happen but defensive) → push to back
+    perPhoto.forEach(p => { if (p.rankedIndex == null) p.rankedIndex = 9999 + p.originalIndex; });
+
+    // ── Stage 4: enrich top picks (Sonnet, large images) ──
+    if (ctr) ctr.textContent = `4/4 enrich ${topPickKeys.size}…`;
+    if (topPickKeys.size) {
+      const enrichImages = imageList.filter(i => topPickKeys.has(i.sm_key))
+        .map(i => ({ key: i.sm_key, url: i.thumb_url }));
+      try {
+        const enrichRes = await dpStageCall('enrich', {
+          images: enrichImages,
+          consensusTags: consensusTags
+        });
+        addUsage(totalUsageSonnet, enrichRes.usage);
+        totalCost += enrichRes.costCents || 0;
+        (enrichRes.results || []).forEach(r => {
+          const p = perPhotoMap.get(r.key);
+          if (p) p.sonnetTags = r.tags || [];
+        });
+      } catch (e) {
+        console.warn('Enrich failed (non-fatal):', e.message);
+      }
+    }
+
+    // ── Save everything to DB ──
+    const sharpCount = perPhoto.filter(p => p.is_sharp && !p.isRejected).length;
+    const softCount = perPhoto.length - sharpCount;
+    await dpSaveDeepTagResults(loc, {
+      perPhoto, consensusTags, outlierTags,
+      photoCount: perPhoto.length, sharpCount, softCount,
+      topPickCount: topPickKeys.size,
+      costCents: totalCost
     });
 
-    // Save to DB (per-photo + album-level aggregate)
-    await dpSaveDeepTagResults(loc, data);
+    // Track usage
+    if (totalUsageHaiku.input_tokens > 0) {
+      const haikuCost = Math.round(
+        totalUsageHaiku.input_tokens * 0.01 +
+        totalUsageHaiku.output_tokens * 0.05 +
+        totalUsageHaiku.cache_read_input_tokens * 0.001 +
+        totalUsageHaiku.cache_creation_input_tokens * 0.0125
+      );
+      trackUsage('haiku-classify', {
+        costCents: haikuCost,
+        meta: { stage: 'deep-tag-multistage', album_key: loc.smugmug_album_key, photos: imageList.length }
+      });
+    }
+    if (totalUsageSonnet.input_tokens > 0) {
+      const sonnetCost = Math.round(
+        totalUsageSonnet.input_tokens * 0.03 +
+        totalUsageSonnet.output_tokens * 0.15 +
+        totalUsageSonnet.cache_read_input_tokens * 0.003 +
+        totalUsageSonnet.cache_creation_input_tokens * 0.0375
+      );
+      trackUsage('sonnet-classify', {
+        costCents: sonnetCost,
+        meta: { stage: 'deep-tag-multistage', album_key: loc.smugmug_album_key, photos: imageList.length }
+      });
+    }
 
     // Update in-memory state
     S.dpDeepTag = {
       albumKey: loc.smugmug_album_key,
-      perPhoto: data.perPhoto || [],
-      consensusTags: data.consensusTags || [],
-      sharpCount: data.sharpCount || 0,
-      softCount: data.softCount || 0,
-      topPickCount: data.topPickCount || 0,
-      photoCount: data.photoCount || imageList.length,
-      orderMode: 'ranked'  // default to showing the curated order first
+      perPhoto,
+      consensusTags,
+      sharpCount, softCount,
+      topPickCount: topPickKeys.size,
+      photoCount: perPhoto.length,
+      orderMode: 'ranked'
     };
-    // Apply ranked order to the viewer
     dpApplyOrder();
-    if (ctr) ctr.textContent = `✓ analyzed: ${data.sharpCount} sharp, ${data.softCount} soft, ${data.topPickCount} top picks`;
-    setTimeout(() => { if (ctr && S.dpImages.length) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length; }, 3000);
-    toast(`Deep tag done · cost ~$${(data.costCents / 10000).toFixed(3)}`, 'ok');
+    if (ctr) ctr.textContent = `✓ ${sharpCount} sharp · ${rejectedKeys.size} rejected · ${topPickKeys.size} top picks`;
+    setTimeout(() => { if (ctr && S.dpImages.length) ctr.textContent = (S.dpIndex + 1) + ' / ' + S.dpImages.length; }, 4000);
+    toast(`Deep tag done · cost ~$${(totalCost / 10000).toFixed(3)}`, 'ok');
   } catch (e) {
+    console.error('deep tag error:', e);
     toast('Deep tag error: ' + (e.message || 'unknown'), 'err');
     if (ctr) ctr.style.display = 'none';
   }
+};
+
+// Helper: call the deep_tag endpoint with a stage param
+async function dpStageCall(stage, body) {
+  const r = await fetch(`${SM_BASE}/api/deep_tag?stage=${encodeURIComponent(stage)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) {
+    const errText = await r.text().catch(() => '');
+    throw new Error(`stage ${stage}: HTTP ${r.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await r.json();
+  if (!data.ok) throw new Error(`stage ${stage}: ${data.error || 'failed'}`);
+  return data;
+}
+
+// Modal: pick centerpiece images. Shows ALL thumbnails (paginated for large albums).
+// Multi-select up to 5. Returns the selected image objects [{key, url}], or null if cancelled.
+// The current cover is pre-selected.
+//
+// On confirm: writes centerpiece_keys + cover_photo_url to Supabase. If pushToSmugMug
+// is true and SmugMug is connected, also pushes the FIRST selection as the album's
+// HighlightImage (which is what shows in SmugMug's UI as the cover).
+function dpPickCenterpieces(loc, imageList, opts) {
+  opts = opts || {};
+  const pushToSmugMug = opts.pushToSmugMug !== false;
+  const purpose = opts.purpose || 'cover';  // 'cover' or 'deeptag'
+  return new Promise(resolve => {
+    // Determine starting selection: existing centerpiece_keys, or just the cover
+    const albumRow = (S.libAlbums || []).find(a => a.sm_key === loc.smugmug_album_key)
+      || (S.mapAlbums || []).find(a => a.sm_key === loc.smugmug_album_key)
+      || { centerpiece_keys: [] };
+    let initialKeys = Array.isArray(albumRow.centerpiece_keys) ? albumRow.centerpiece_keys.slice() : [];
+    // If no centerpieces yet, default to the existing cover (if it matches an image)
+    if (!initialKeys.length && loc.cover_photo_url) {
+      const coverImg = imageList.find(i => i.thumb_url === loc.cover_photo_url);
+      if (coverImg) initialKeys = [coverImg.sm_key];
+    }
+    const selected = new Set(initialKeys);  // ordered set is hard in JS — use array + Set together
+    const selectedOrder = initialKeys.filter(k => imageList.find(i => i.sm_key === k));
+
+    const PAGE_SIZE = 60;  // 60 thumbs per page — comfortable for browsing
+    let pageStart = 0;
+
+    const modal = document.createElement('div');
+    modal.id = 'cover-picker-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:800;background:rgba(0,0,0,.85);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px';
+    const titleText = purpose === 'deeptag'
+      ? 'Pick centerpiece images (1-5)'
+      : 'Pick centerpiece images';
+    const subText = purpose === 'deeptag'
+      ? 'These represent what the location IS — the AI uses them as reference. The first one becomes the cover.'
+      : 'Select 1-5 images that best represent this location. The first becomes the cover.';
+    modal.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(960px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+        <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:14px">
+          <div>
+            <div style="font-size:13px;font-weight:500;color:var(--text)">${E(titleText)}</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:3px">${E(subText)}</div>
+          </div>
+          <div id="cover-counter" style="font-size:11px;color:var(--text2);font-family:'DM Mono',monospace;white-space:nowrap"></div>
+        </div>
+        <div id="cover-grid" style="flex:1;overflow-y:auto;padding:14px 20px;background:var(--bg)"></div>
+        <div style="padding:10px 20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="org-btn" id="cover-prev-btn">←</button>
+            <span id="cover-page-info" style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;min-width:120px;text-align:center"></span>
+            <button class="org-btn" id="cover-next-btn">→</button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:4px;cursor:pointer">
+              <input type="checkbox" id="cover-push-smugmug" ${pushToSmugMug && S.smTokens ? 'checked' : ''} ${!S.smTokens ? 'disabled' : ''}>
+              push cover to SmugMug
+            </label>
+            <button class="org-btn" id="cover-cancel-btn">cancel</button>
+            <button class="org-btn primary" id="cover-ok-btn">continue</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    function updateCounter() {
+      const n = selectedOrder.length;
+      $('cover-counter').textContent = n === 0 ? 'no selection (click to pick)' : `${n} of 5 selected`;
+      $('cover-counter').style.color = n === 0 ? 'var(--text3)' : (n > 5 ? 'var(--red)' : 'var(--accent)');
+      $('cover-ok-btn').disabled = n === 0;
+    }
+
+    function renderGrid() {
+      const grid = $('cover-grid');
+      const slice = imageList.slice(pageStart, pageStart + PAGE_SIZE);
+      grid.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">' +
+        slice.map(img => {
+          const isSelected = selected.has(img.sm_key);
+          const orderIdx = isSelected ? selectedOrder.indexOf(img.sm_key) + 1 : 0;
+          return `
+            <div class="cover-cell ${isSelected ? 'selected' : ''}"
+                 data-key="${E(img.sm_key)}"
+                 data-url="${E(img.thumb_url)}"
+                 style="position:relative;cursor:pointer;border:2px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};border-radius:6px;overflow:hidden;aspect-ratio:1;background:var(--bg4);transition:all .12s">
+              <img src="${E(smMedium(img.thumb_url))}" loading="lazy" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">
+              ${isSelected ? `<div style="position:absolute;top:4px;left:4px;background:var(--accent);color:var(--bg);font-size:11px;font-weight:600;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace">${orderIdx}</div>` : ''}
+            </div>`;
+        }).join('') + '</div>';
+      grid.querySelectorAll('.cover-cell').forEach(cell => {
+        cell.addEventListener('click', () => {
+          const key = cell.getAttribute('data-key');
+          if (selected.has(key)) {
+            // Unselect
+            selected.delete(key);
+            const idx = selectedOrder.indexOf(key);
+            if (idx >= 0) selectedOrder.splice(idx, 1);
+          } else {
+            if (selected.size >= 5) {
+              toast('Max 5 centerpieces — unselect one first', 'inf');
+              return;
+            }
+            selected.add(key);
+            selectedOrder.push(key);
+          }
+          renderGrid();
+          updateCounter();
+        });
+      });
+      $('cover-page-info').textContent = `${pageStart + 1}–${Math.min(pageStart + PAGE_SIZE, imageList.length)} of ${imageList.length}`;
+      $('cover-prev-btn').disabled = pageStart === 0;
+      $('cover-next-btn').disabled = pageStart + PAGE_SIZE >= imageList.length;
+    }
+
+    function cleanup() { document.body.removeChild(modal); }
+
+    renderGrid();
+    updateCounter();
+
+    $('cover-prev-btn').onclick = () => { pageStart = Math.max(0, pageStart - PAGE_SIZE); renderGrid(); };
+    $('cover-next-btn').onclick = () => { pageStart = Math.min(imageList.length - PAGE_SIZE, pageStart + PAGE_SIZE); renderGrid(); };
+    $('cover-cancel-btn').onclick = () => { cleanup(); resolve(null); };
+    $('cover-ok-btn').onclick = async () => {
+      const finalKeys = selectedOrder.slice();
+      const items = finalKeys.map(k => {
+        const img = imageList.find(i => i.sm_key === k);
+        return img ? { key: k, url: img.thumb_url } : null;
+      }).filter(Boolean);
+      const wantPush = $('cover-push-smugmug').checked;
+      cleanup();
+      // Persist
+      await dpSaveCenterpieces(loc, items, wantPush);
+      resolve(items);
+    };
+  });
+}
+
+// Persist centerpiece selection: update Supabase + optionally push to SmugMug
+async function dpSaveCenterpieces(loc, items, pushToSmugMug) {
+  if (!loc || !loc.smugmug_album_key) return;
+  const keys = items.map(i => i.key);
+  const coverUrl = items[0] ? items[0].url : null;
+
+  // Update smugmug_albums row
+  try {
+    const patch = { centerpiece_keys: keys };
+    if (coverUrl) patch.highlight_url = coverUrl;
+    await fetch(`${SB_URL}/rest/v1/smugmug_albums?sm_key=eq.${loc.smugmug_album_key}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json', Prefer: 'return=minimal'
+      },
+      body: JSON.stringify(patch)
+    });
+    // Update in-memory caches
+    [S.libAlbums, S.mapAlbums].forEach(arr => {
+      if (!arr) return;
+      const a = arr.find(x => x.sm_key === loc.smugmug_album_key);
+      if (a) {
+        a.centerpiece_keys = keys;
+        if (coverUrl) a.highlight_url = coverUrl;
+      }
+    });
+  } catch (e) { console.warn('save centerpieces failed:', e); }
+
+  // Update locations.cover_photo_url too if linked
+  if (coverUrl) {
+    try {
+      await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=minimal'
+        },
+        body: JSON.stringify({ cover_photo_url: coverUrl })
+      });
+      loc.cover_photo_url = coverUrl;
+    } catch (e) {}
+  }
+
+  // Push to SmugMug as the album's HighlightImage if requested
+  if (pushToSmugMug && S.smTokens && items[0]) {
+    try {
+      const tb = btoa(JSON.stringify(S.smTokens));
+      const r = await fetch(`${SM_BASE}/api/smugmug?action=set_highlight`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + tb, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ albumKey: loc.smugmug_album_key, imageKey: items[0].key })
+      });
+      if (r.ok) toast('Cover updated · pushed to SmugMug', 'ok');
+      else toast('Cover saved · SmugMug push failed', 'inf');
+    } catch (e) {
+      toast('Cover saved · SmugMug push failed', 'inf');
+    }
+  } else {
+    toast('Cover updated', 'ok');
+  }
+
+  if (S.gmap) refreshPins();  // pin uses cover_photo_url for some glow effects
+}
+
+// Standalone: open the picker without running deep-tag
+window.dpOpenCoverPicker = async function () {
+  const loc = S.currentDetailLoc;
+  if (!loc || !loc.smugmug_album_key) { toast('No album', 'err'); return; }
+
+  // Pull image list
+  let imageList;
+  try {
+    let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=sm_key,thumb_url');
+    if (!imgs || imgs.length <= 1) {
+      if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
+      const tb = btoa(JSON.stringify(S.smTokens));
+      const r = await fetch(`${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`, {
+        headers: { Authorization: 'Bearer ' + tb }
+      });
+      const data = await r.json();
+      imgs = (data.images || []).filter(i => i.id && i.thumbUrl).map(i => ({ sm_key: i.id, thumb_url: i.thumbUrl }));
+    }
+    imageList = imgs;
+  } catch (e) {
+    toast('Could not fetch images', 'err');
+    return;
+  }
+  if (!imageList || !imageList.length) { toast('Album has no images', 'err'); return; }
+
+  await dpPickCenterpieces(loc, imageList, { purpose: 'cover' });
+  // Re-render the detail panel to show new cover
+  openDetail(loc);
 };
 
 async function dpSaveDeepTagResults(loc, data) {
