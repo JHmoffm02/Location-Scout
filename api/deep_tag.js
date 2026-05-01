@@ -184,7 +184,7 @@ function sumUsage(usages) {
 // for every photo. The frontend pre-filters obvious blur via local Laplacian
 // before calling this, so we don't pay AI to look at literal black frames.
 // ════════════════════════════════════════════════════════════════════════════
-function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, googlePlaces) {
+function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, googlePlaces, rejectedTags) {
   const cat = (albumCategory || '').toLowerCase();
   const isResidence = /residence|house|home|mansion|apartment|brownstone|townhouse|loft/.test(cat);
   const isCommercial = /restaurant|bar|cafe|store|shop|hotel|office|warehouse|event|venue|ballroom|reception/.test(cat);
@@ -202,18 +202,28 @@ function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, g
     if (googlePlaces.types && googlePlaces.types.length) placesContext += `\n  Types: ${googlePlaces.types.slice(0, 5).join(', ')}`;
   }
 
+  let avoidTags = '';
+  if (rejectedTags && rejectedTags.length) {
+    const slice = rejectedTags.slice(0, 25);
+    avoidTags = `\nUSER FEEDBACK — these tags have been removed by the user in past albums; AVOID them:\n  ${slice.join(', ')}`;
+  }
+
   return `You analyze film/TV scout photos. The first image in the batch is the COVER REFERENCE — that's what this location actually IS. Use it as context for judging the rest. Return metadata for each NUMBERED photo (skip the cover reference in your output).
 
 ALBUM CONTEXT:
   Album: ${albumName || '(unnamed)'}
   ${albumCategory ? `Category: ${albumCategory}` : ''}
   ${albumNotes ? `Notes: ${String(albumNotes).slice(0, 1500)}` : ''}
-  ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}${placesContext}
+  ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}${placesContext}${avoidTags}
 
 FOR EACH NUMBERED PHOTO, output:
   • description: ONE concise sentence (15-25 words) describing what's visible. Format: "Wide angle of [space] showing [key features]" or similar. Concrete details, not vague summaries. The description tells the next AI stage (which can't see this photo if it's not in the visual subset) what to expect.
-  • tags: 5-8 concrete descriptive tags (architecture, materials, mood, lighting, room types, distinctive features). Multi-word tags use hyphens. No location names. No generic words like "interior"/"building".
-  • is_sharp: TRUE only if the main subject is in CLEAR focus. BE STRICT — if there's any motion blur, soft focus on the intended subject, or general unsharpness, return FALSE. When in doubt, FALSE.
+  • tags: 5-8 SPECIFIC, DISTINCTIVE tags. Multi-word tags use hyphens.
+      AVOID GENERIC TAGS that apply to nearly any location: "interior", "building", "room", "wall", "floor", "ceiling", "window", "door", "kitchen", "bedroom", "bathroom", "living-room", "hallway"
+      PREFER SPECIFIC, SEARCHABLE TAGS: distinctive features (cul-de-sac, in-ground-pool, rooftop-deck, exposed-brick, cathedral-ceiling, marble-fireplace, art-deco-trim), materials (terrazzo-floor, wood-paneling, copper-hood), eras (pre-war, mid-century, brutalist), moods (cozy, sterile, gritty), unusual elements (spiral-staircase, sunken-living-room, juliet-balcony)
+      Generic room types are OK ONLY if combined with something distinctive (e.g. "open-kitchen" not "kitchen", "primary-suite" not "bedroom").
+      Don't include the location name. Don't include obvious words.
+  • is_sharp: TRUE only if the main subject is in CLEAR focus. BE STRICT — when in doubt, FALSE.
   • composition: integer 1-10 (10 = striking, 1 = blurry/blank/mistake).
   • reject: TRUE if this photo should NOT appear in a 30-photo scout deck — ANY of these:
       - Blank, near-blank, mostly black/white, no visible subject
@@ -279,7 +289,7 @@ async function classifyBatch(album, batch, contextImages, apiKey) {
     userParts.push({ type: 'image', source: p.src });
   });
 
-  const sys = classifySystemPrompt(album.name, album.notes, album.tags, album.category, album.googlePlaces);
+  const sys = classifySystemPrompt(album.name, album.notes, album.tags, album.category, album.googlePlaces, album.rejectedTags);
   // Bumped to 3000 tokens — descriptions add ~25 tokens × 10 photos = 250 tokens of output
   const r = await callAnthropic(HAIKU, sys, userParts, apiKey, 3000);
   const parsed = parseJSON(r.text);
@@ -378,6 +388,8 @@ RESPECT CHRONOLOGY when ranking is otherwise tied — prefer the lower original_
 
 OUTPUT — return ONLY this JSON, no prose, no markdown fences:
 {
+  "suggested_path": "category/subcategory",
+  "path_confidence": 0.0-1.0,
   "ordered": [
     { "key": "abc123", "top_pick": true,  "rank_reason": "hero exterior" },
     { "key": "def456", "top_pick": true,  "rank_reason": "ballroom overview, core space" },
@@ -385,9 +397,16 @@ OUTPUT — return ONLY this JSON, no prose, no markdown fences:
   ]
 }
 
+PATH SUGGESTION:
+  - Use existing taxonomy paths when one fits (passed in TAXONOMY below)
+  - Propose a new path only if no existing one fits well
+  - Lowercase, hyphenated, hierarchical (e.g. "residences/brownstones", "restaurants/diners", "events/ballrooms")
+  - For NY metro: respect borough/area distinctions (manhattan, brooklyn, queens, bronx, staten-island, long-island, westchester, jersey, hudson-valley)
+  - path_confidence: 0.95+ = certain, 0.85 = strong match, 0.70 = reasonable, <0.70 = uncertain
+
 Include EVERY photo (both the candidates you see and the rejected ones listed below) in "ordered". The order of items IS the new walkthrough order.`;
 
-async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, apiKey) {
+async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, taxonomy, apiKey) {
   const urls = Array.isArray(contextImageUrls) ? contextImageUrls.filter(Boolean).slice(0, 5) : [];
   const contextImages = [];
   for (const url of urls) {
@@ -490,19 +509,26 @@ async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, a
     });
   }
 
+  const taxonomyText = (Array.isArray(taxonomy) && taxonomy.length)
+    ? `\n\nEXISTING TAXONOMY (prefer one of these paths if it fits):\n  ${taxonomy.slice(0, 80).join('\n  ')}`
+    : '';
+
   userParts.push({
     type: 'text',
     text: `\nALBUM: ${album.name || '(unnamed)'}\n` +
           `Category: ${album.category || 'unknown'}\n` +
           `Notes: ${String(album.notes || '').slice(0, 1500)}` +
           placesText +
-          `\n\nALL PHOTOS (${perPhoto.length} total — visual candidates marked with IMG=N, the rest are text-only with their tags):\n${linesAll}\n\nReturn the walkthrough ordering. Include every photo's key in "ordered".`
+          taxonomyText +
+          `\n\nALL PHOTOS (${perPhoto.length} total — visual candidates marked with IMG=N, the rest are text-only with their tags):\n${linesAll}\n\nReturn the walkthrough ordering AND a suggested folder path. Include every photo's key in "ordered".`
   });
 
   const r = await callAnthropic(SONNET, ORGANIZE_PROMPT, userParts, apiKey, 5000);
   const parsed = parseJSON(r.text);
   const ordered = Array.isArray(parsed.ordered) ? parsed.ordered : [];
-  return { ordered, usage: r.usage };
+  const suggestedPath = typeof parsed.suggested_path === 'string' ? parsed.suggested_path : '';
+  const pathConfidence = typeof parsed.path_confidence === 'number' ? parsed.path_confidence : 0;
+  return { ordered, suggestedPath, pathConfidence, usage: r.usage };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -589,7 +615,8 @@ module.exports = async function handler(req, res) {
         notes: body.albumNotes || '',
         tags: Array.isArray(body.albumTags) ? body.albumTags : [],
         category: body.albumCategory || '',
-        googlePlaces: body.googlePlaces || null
+        googlePlaces: body.googlePlaces || null,
+        rejectedTags: Array.isArray(body.rejectedTags) ? body.rejectedTags : []
       };
       const images = Array.isArray(body.images) ? body.images : [];
       // Accept either contextImageUrls (new, array) or contextImageUrl (legacy, single)
@@ -611,13 +638,19 @@ module.exports = async function handler(req, res) {
       };
       const perPhoto = Array.isArray(body.perPhoto) ? body.perPhoto : [];
       const candidateImages = Array.isArray(body.candidateImages) ? body.candidateImages : [];
+      const taxonomy = Array.isArray(body.taxonomy) ? body.taxonomy : [];
       const contextImageUrls = Array.isArray(body.contextImageUrls)
         ? body.contextImageUrls
         : (body.contextImageUrl ? [body.contextImageUrl] : []);
       if (!perPhoto.length) return res.status(400).json({ ok: false, error: 'perPhoto required' });
       if (perPhoto.length > 250) return res.status(400).json({ ok: false, error: 'max 250 photos per organize' });
-      const { ordered, usage } = await runOrganize(album, perPhoto, contextImageUrls, candidateImages, apiKey);
-      return res.json({ ok: true, ordered, usage, costCents: calcCost(null, usage) });
+      const { ordered, suggestedPath, pathConfidence, usage } = await runOrganize(album, perPhoto, contextImageUrls, candidateImages, taxonomy, apiKey);
+      return res.json({
+        ok: true,
+        ordered,
+        suggestedPath, pathConfidence,
+        usage, costCents: calcCost(null, usage)
+      });
     }
 
     if (stage === 'enrich') {
