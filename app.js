@@ -314,13 +314,16 @@ async function trackUsage(api, opts) {
   const costCents = (typeof opts.costCents === 'number')
     ? opts.costCents
     : (baseCost != null ? baseCost * count : 0);
-  // Cache running session totals immediately so the UI feels live
-  S.usageSession = S.usageSession || { google: 0, anthropic: 0, calls: {} };
+  // Cache running session totals immediately so the UI feels live.
+  // Track BOTH count AND actual cost-cents per api, so the session view
+  // shows real costs (not estimated from base price, which is wrong for AI calls).
+  S.usageSession = S.usageSession || { google: 0, anthropic: 0, calls: {}, costs: {} };
   S.usageSession[provider] = (S.usageSession[provider] || 0) + costCents;
   S.usageSession.calls[api] = (S.usageSession.calls[api] || 0) + count;
+  S.usageSession.costs[api] = (S.usageSession.costs[api] || 0) + costCents;
 
   try {
-    await fetch(`${SB_URL}/rest/v1/api_usage`, {
+    const r = await fetch(`${SB_URL}/rest/v1/api_usage`, {
       method: 'POST',
       headers: {
         apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
@@ -331,7 +334,14 @@ async function trackUsage(api, opts) {
         meta: opts.meta || null
       })
     });
-  } catch (e) { /* silent — never break a real flow */ }
+    if (!r.ok) {
+      // Log but don't throw — usage tracking shouldn't break real flows
+      const errText = await r.text().catch(() => '');
+      console.warn(`[usage] write failed: HTTP ${r.status}: ${errText.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.warn('[usage] write threw:', e && e.message);
+  }
 }
 
 // Wrappers around the /api/geocode endpoint that auto-log usage.
@@ -401,17 +411,17 @@ window.renderUsage = async function (period) {
   let rows = [];
   try {
     if (period === 'session') {
-      // Synthesize from in-memory counters — instant, no DB call
-      const sess = S.usageSession || { google: 0, anthropic: 0, calls: {} };
+      // Synthesize from in-memory counters — instant, no DB call.
+      // Uses the actual cost-cents we tracked at trackUsage time, not a recomputed estimate.
+      const sess = S.usageSession || { google: 0, anthropic: 0, calls: {}, costs: {} };
       const googleCents  = sess.google || 0;
       const anthropicCents = sess.anthropic || 0;
-      const totalCents = googleCents + anthropicCents;
-      // Convert calls map to a row list
       const callRows = Object.keys(sess.calls || {}).map(api => {
         const info = API_DISPLAY[api] || { label: api, desc: '', provider: 'google' };
         const count = sess.calls[api];
-        const baseCost = API_PRICING[api] || 0;
-        const costCents = baseCost * count;
+        const costCents = (sess.costs && typeof sess.costs[api] === 'number')
+          ? sess.costs[api]
+          : ((API_PRICING[api] || 0) * count);  // fallback for older sessions
         return { api, info, count, costCents };
       });
       renderUsageContent(body, googleCents, anthropicCents, callRows);
@@ -1889,11 +1899,18 @@ Estimated cost: ~$${estCost}`,
     progress.update(`Stage 2 of 3: classifying ${survivors.length} photos at medium size… (${localRejectedKeys.size} pre-rejected as blur/black)`);
 
     // ── Stage 2: classify survivors (single Haiku pass — describes, tags, scores, rejects) ──
+    // Pull the user's history of rejected tags so the AI avoids them this time
+    const recentCorrections = (orgCorrectionsCache || []).slice(0, 30);
+    const rejectedTagsSet = new Set();
+    recentCorrections.forEach(c => {
+      (c.rejected_tags || []).forEach(t => { if (t) rejectedTagsSet.add(String(t).toLowerCase()); });
+    });
     const album = {
       albumName: loc.name,
       albumNotes: loc.notes || '',
       albumTags: loc.tags || [],
-      albumCategory: getCatForLoc(loc) || ''
+      albumCategory: getCatForLoc(loc) || '',
+      rejectedTags: Array.from(rejectedTagsSet)
     };
     const classifyRes = await dpStageCall('classify', {
       ...album,
@@ -1966,12 +1983,14 @@ Estimated cost: ~$${estCost}`,
     progress.update(`Stage 3 of 3: Sonnet organizing ${remaining} candidates visually… (Stage 2 dropped ${aiRejectedCount} as logistic/junk; ${remaining} carry forward)`);
 
     // ── Stage 3: organize (Sonnet sees up to 60 candidate photos as images) ──
+    const taxonomyPaths = (typeof buildTaxonomyPaths === 'function') ? buildTaxonomyPaths() : [];
     const organizeRes = await dpStageCall('organize', {
       albumName: loc.name,
       albumNotes: loc.notes || '',
       albumCategory: getCatForLoc(loc) || '',
       contextImageUrls: contextImageUrls,
       candidateImages: imageList.map(i => ({ key: i.sm_key, url: i.thumb_url })),
+      taxonomy: taxonomyPaths,
       perPhoto: perPhoto.map(p => ({
         key: p.key,
         originalIndex: p.originalIndex,
@@ -1986,6 +2005,8 @@ Estimated cost: ~$${estCost}`,
     });
     addUsage(totalUsageSonnet, organizeRes.usage);
     totalCost += organizeRes.costCents || 0;
+    const suggestedPath = organizeRes.suggestedPath || '';
+    const pathConfidence = organizeRes.pathConfidence || 0;
 
     // Apply Sonnet's order
     const ordered = organizeRes.ordered || [];
@@ -2071,7 +2092,60 @@ Estimated cost: ~$${estCost}`,
 
     progress.close();
     const totalDropped = localRejectedKeys.size + aiRejectedCount;
-    toast(`Deep tag done · ${sharpCount} sharp · ${totalDropped} dropped (${localRejectedKeys.size} blur + ${aiRejectedCount} logistic) · ${topPickKeys.size} top picks · cost ~$${(totalCost / 10000).toFixed(3)}`, 'ok');
+    toast(`Deep tag done · ${sharpCount} sharp · ${totalDropped} dropped · ${topPickKeys.size} top picks · cost ~$${(totalCost / 10000).toFixed(3)}`, 'ok');
+
+    // Offer to move the album if Sonnet suggested a path with confidence ≥ 0.70
+    if (suggestedPath && pathConfidence >= 0.70 && S.smTokens) {
+      // What's the album's CURRENT path under Master-Library? Skip if already there.
+      const albumRow = (S.libAlbums || []).find(a => a.sm_key === loc.smugmug_album_key)
+        || (S.mapAlbums || []).find(a => a.sm_key === loc.smugmug_album_key);
+      const currentPath = albumRow && albumRow.web_url
+        ? albumRow.web_url.replace('https://jordanhoffman.smugmug.com/', '').split('/').slice(1, -1).join('/')
+        : '';
+      if (currentPath !== suggestedPath) {
+        const wantMove = await showConfirm(
+`AI suggests organizing this album:
+
+  Current path: ${currentPath || '(unset)'}
+  Suggested:    ${suggestedPath}
+  Confidence:   ${Math.round(pathConfidence * 100)}%
+
+Move it on SmugMug now?`,
+          { title: 'Suggested path', okLabel: 'Move', cancelLabel: 'Skip' }
+        );
+        if (wantMove) {
+          try {
+            const tb = btoa(JSON.stringify(S.smTokens));
+            const destPath = 'Master-Library/' + suggestedPath;
+            const r = await fetchRetry(`${SM_BASE}/api/smugmug?action=move_album`, {
+              method: 'POST',
+              headers: { Authorization: 'Bearer ' + tb, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ albumKey: loc.smugmug_album_key, destPath })
+            });
+            const data = await r.json();
+            if (data.ok) {
+              // Update DB cache
+              try {
+                await fetch(`${SB_URL}/rest/v1/smugmug_albums?sm_key=eq.${loc.smugmug_album_key}`, {
+                  method: 'PATCH',
+                  headers: {
+                    apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+                    'Content-Type': 'application/json', Prefer: 'return=minimal'
+                  },
+                  body: JSON.stringify({ path: suggestedPath, web_url: data.newWebUri || (albumRow && albumRow.web_url) })
+                });
+              } catch (e) {}
+              if (albumRow) { albumRow.path = suggestedPath; if (data.newWebUri) albumRow.web_url = data.newWebUri; }
+              toast(`Moved to ${suggestedPath}`, 'ok');
+            } else {
+              toast(`Move failed: ${data.error || 'unknown'}`, 'err');
+            }
+          } catch (e) {
+            toast(`Move failed: ${e.message || 'unknown'}`, 'err');
+          }
+        }
+      }
+    }
   } catch (e) {
     console.error('deep tag error:', e);
     progress.close();
