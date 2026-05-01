@@ -1793,6 +1793,9 @@ function dpRenderDeepTagSection() {
     meta.push(`<span class="dp-comp-pill" title="composition score 1-10">${comp}/10</span>`);
     if (meta.length) html += ' · ' + meta.join(' ');
     html += '</div>';
+    if (activePhoto.description) {
+      html += `<div class="dp-deep-desc">${E(activePhoto.description)}</div>`;
+    }
     html += '<div class="dp-tags">';
     allTags.forEach(t => { html += `<span class="dp-tag dp-tag-deep">${E(t)}</span>`; });
     html += '</div></div>';
@@ -1838,18 +1841,18 @@ window.dpDeepTag = async function () {
   if (centerpieces === null) { toast('Cancelled', 'inf'); return; }
   const contextImageUrls = centerpieces.map(c => c.url);
 
-  // Confirmation with realistic cost estimate based on the new pipeline
-  const estCost = (imageList.length * 0.005).toFixed(2);
+  // Confirmation with realistic cost estimate
+  const estCost = (imageList.length * 0.007).toFixed(2);
   const ok = await showConfirm(
 `Run deep tag on ${imageList.length} photos in "${loc.name}"?
 
 Using ${centerpieces.length} centerpiece${centerpieces.length !== 1 ? 's' : ''} as AI reference.
 
-Multi-stage flow:
-  1. Triage (Haiku, all thumbnails) — flag blank / blurry / contextless
-  2. Classify (Haiku, large images) — survivors only
-  3. Organize (Sonnet, text + centerpieces) — walkthrough order
-  4. Enrich (Sonnet, top picks) — richer keywords
+Streamlined flow:
+  1. Local blur scan (free, fast) — pre-rejects obvious blur/black frames
+  2. Classify (Haiku, medium images) — describes + tags + role + room + reject in one pass
+  3. Organize (Sonnet, sees up to 60 candidate photos visually) — walkthrough order
+  + Enrich (Sonnet, top picks) — richer keywords for highlight reel
 
 Estimated cost: ~$${estCost}`,
     { title: 'Deep tag', okLabel: 'Run', cancelLabel: 'Cancel' }
@@ -1857,7 +1860,7 @@ Estimated cost: ~$${estCost}`,
   if (!ok) { toast('Cancelled', 'inf'); return; }
 
   // Show a persistent progress modal so the user knows it's working.
-  const progress = showProgress('Deep tag — analyzing album', `Stage 1 of 4: triaging ${imageList.length} thumbnails…`);
+  const progress = showProgress('Deep tag — analyzing album', `Stage 1 of 3: blur scan ${imageList.length} thumbnails (free, local)…`);
 
   let totalCost = 0;
   let totalUsageHaiku = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
@@ -1871,17 +1874,21 @@ Estimated cost: ~$${estCost}`,
   }
 
   try {
-    // ── Stage 1: triage ──
-    const triageRes = await dpStageCall('triage', {
-      images: imageList.map(i => ({ key: i.sm_key, url: i.thumb_url }))
+    // ── Stage 1: free local blur filter ──
+    // Fetch each thumbnail, compute Laplacian variance. Below threshold → pre-rejected.
+    // CORS-blocked images (variance=null) are NOT rejected — they go to AI classify.
+    const BLUR_THRESHOLD = 30;
+    const blurResults = await Promise.all(imageList.map(img => detectBlur(img.thumb_url)));
+    const localRejectedKeys = new Set();
+    blurResults.forEach((variance, i) => {
+      if (variance !== null && variance < BLUR_THRESHOLD) {
+        localRejectedKeys.add(imageList[i].sm_key);
+      }
     });
-    addUsage(totalUsageHaiku, triageRes.usage);
-    totalCost += triageRes.costCents || 0;
-    const rejectedKeys = new Set(triageRes.results.filter(r => r.reject).map(r => r.key));
-    const survivors = imageList.filter(i => !rejectedKeys.has(i.sm_key));
-    progress.update(`Stage 2 of 4: classifying ${survivors.length} survivors at full size… (${rejectedKeys.size} rejected at triage)`);
+    const survivors = imageList.filter(i => !localRejectedKeys.has(i.sm_key));
+    progress.update(`Stage 2 of 3: classifying ${survivors.length} photos at medium size… (${localRejectedKeys.size} pre-rejected as blur/black)`);
 
-    // ── Stage 2: classify survivors ──
+    // ── Stage 2: classify survivors (single Haiku pass — describes, tags, scores, rejects) ──
     const album = {
       albumName: loc.name,
       albumNotes: loc.notes || '',
@@ -1896,12 +1903,13 @@ Estimated cost: ~$${estCost}`,
     addUsage(totalUsageHaiku, classifyRes.usage);
     totalCost += classifyRes.costCents || 0;
 
-    // Build per-photo records: rejected + survivors merged
+    // Build per-photo records: locally-rejected + AI results merged
     const perPhotoMap = new Map();
     imageList.forEach((img, idx) => {
       perPhotoMap.set(img.sm_key, {
         key: img.sm_key,
         originalIndex: idx,
+        description: '',
         is_sharp: false,
         composition: 1,
         role: 'logistic',
@@ -1909,27 +1917,29 @@ Estimated cost: ~$${estCost}`,
         tags: [],
         sonnetTags: [],
         isTopPick: false,
-        isRejected: rejectedKeys.has(img.sm_key),
-        rejectionReason: ''
+        isRejected: localRejectedKeys.has(img.sm_key),
+        rejectionReason: localRejectedKeys.has(img.sm_key) ? 'low contrast / blank / blur (local)' : ''
       });
-    });
-    triageRes.results.forEach(t => {
-      const p = perPhotoMap.get(t.key);
-      if (p) p.rejectionReason = t.reason || '';
     });
     classifyRes.results.forEach(c => {
       const p = perPhotoMap.get(c.key);
       if (p) {
+        p.description = c.description || '';
         p.is_sharp = c.is_sharp;
         p.composition = c.composition;
         p.role = c.role;
         p.room = c.room;
         p.tags = c.tags;
+        // AI can reject too (joins the locally-rejected set)
+        if (c.reject) {
+          p.isRejected = true;
+          if (!p.rejectionReason) p.rejectionReason = 'AI rejected (logistic/contextless)';
+        }
       }
     });
     const perPhoto = Array.from(perPhotoMap.values());
 
-    // Compute consensus tags locally (same logic as before)
+    // Compute consensus tags locally (skip rejected photos)
     const tagCounts = new Map();
     perPhoto.forEach(p => {
       if (p.isRejected) return;
@@ -1948,17 +1958,19 @@ Estimated cost: ~$${estCost}`,
     });
     consensusTags.sort((a, b) => (tagCounts.get(b) || 0) - (tagCounts.get(a) || 0));
 
-    progress.update(`Stage 3 of 4: Sonnet organizing the walkthrough order…`);
+    progress.update(`Stage 3 of 3: Sonnet organizing visually…`);
 
-    // ── Stage 3: organize (Sonnet text-only) ──
+    // ── Stage 3: organize (Sonnet sees up to 60 candidate photos as images) ──
     const organizeRes = await dpStageCall('organize', {
       albumName: loc.name,
       albumNotes: loc.notes || '',
       albumCategory: getCatForLoc(loc) || '',
       contextImageUrls: contextImageUrls,
+      candidateImages: imageList.map(i => ({ key: i.sm_key, url: i.thumb_url })),
       perPhoto: perPhoto.map(p => ({
         key: p.key,
         originalIndex: p.originalIndex,
+        description: p.description || '',
         role: p.role,
         room: p.room,
         composition: p.composition,
@@ -1984,7 +1996,7 @@ Estimated cost: ~$${estCost}`,
     perPhoto.forEach(p => { if (p.rankedIndex == null) p.rankedIndex = 9999 + p.originalIndex; });
 
     // ── Stage 4: enrich top picks (Sonnet, large images) ──
-    progress.update(`Stage 4 of 4: enriching ${topPickKeys.size} top picks with Sonnet…`);
+    progress.update(`Final pass: enriching ${topPickKeys.size} top picks with Sonnet…`);
     if (topPickKeys.size) {
       const enrichImages = imageList.filter(i => topPickKeys.has(i.sm_key))
         .map(i => ({ key: i.sm_key, url: i.thumb_url }));
@@ -2316,6 +2328,7 @@ async function dpSaveDeepTagResults(loc, data) {
     const rows = perPhoto.map(p => ({
       image_key: p.key,
       album_key: albumKey,
+      description: p.description || null,
       haiku_tags: p.tags || [],
       sonnet_tags: p.sonnetTags || [],
       is_sharp: p.is_sharp !== false,
@@ -2748,9 +2761,10 @@ async function dpLoadExistingDeepTag(loc) {
       return;
     }
     const a = albumRes[0];
-    const photoRes = await db(`photo_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=image_key,haiku_tags,sonnet_tags,is_sharp,composition,role,room,is_top_pick,is_favorite,is_rejected,original_index,ranked_index,custom_index`);
+    const photoRes = await db(`photo_deep_tags?album_key=eq.${loc.smugmug_album_key}&select=image_key,description,haiku_tags,sonnet_tags,is_sharp,composition,role,room,is_top_pick,is_favorite,is_rejected,original_index,ranked_index,custom_index`);
     const perPhoto = (photoRes || []).map(r => ({
       key: r.image_key,
+      description: r.description || '',
       tags: r.haiku_tags || [],
       sonnetTags: r.sonnet_tags || [],
       is_sharp: r.is_sharp !== false,
