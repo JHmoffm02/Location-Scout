@@ -1,21 +1,20 @@
-// api/deep_tag.js — full per-photo analysis pipeline for one album.
+// api/deep_tag.js — multi-stage album analysis pipeline.
 //
-// STAGES:
-//   1. Haiku tags + sharpness + composition score for every photo (medium-size, batched)
-//   2. Distill album-level consensus keywords from per-photo tags
-//   4. Sonnet deep tags for top 25% by composition score (medium-size, batched)
+// PIPELINE (driven by ?stage= query param so the frontend runs in steps):
 //
-// Stage 3 (focus check) merges into Stage 1 — Haiku judges focus directly.
-// Stage 5 (reorder) is handled by the frontend / a separate write-back endpoint.
+//   stage=triage    Haiku on all THUMBNAILS. Marks blanks/super-blurry/contextless
+//                   shots as rejected. Returns survivor list.
 //
-// Request: POST { albumKey, images: [{key, url}], albumName, albumNotes, albumTags }
-// Returns: {
-//   ok, perPhoto: [{key, tags, sonnetTags, isSharp, composition, isTopPick, originalIndex}],
-//   consensusTags, outlierTags,
-//   sharpCount, softCount, topPickCount,
-//   usage: { input, output, cache_read, cache_write, sonnet_input, sonnet_output },
-//   costCents
-// }
+//   stage=classify  Haiku on LARGE images, only the survivors. Strict on focus and
+//                   logistic detection. Returns role/room/tags/composition. Optionally
+//                   takes a contextImageUrl (the user-picked cover) which is included
+//                   as a priming image in every batch.
+//
+//   stage=organize  Sonnet TEXT-ONLY (with the cover image only) given album notes,
+//                   Google Places data, and per-photo SUMMARIES from classify.
+//                   Returns the walkthrough order + top-pick set.
+//
+//   stage=enrich    Sonnet on LARGE images of the top picks. Adds richer tags.
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU = 'claude-haiku-4-5';
@@ -27,10 +26,11 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:5173'
 ]);
 
-const STAGE1_BATCH_SIZE = 15;     // photos per Haiku call (image content blocks)
-const STAGE4_BATCH_SIZE = 8;      // top picks per Sonnet call
-const PARALLEL_BATCHES = 2;       // concurrent batches per stage
-const STAGE1_MAX_RETRIES = 3;
+const TRIAGE_BATCH_SIZE   = 25;
+const CLASSIFY_BATCH_SIZE = 8;
+const ENRICH_BATCH_SIZE   = 6;
+const PARALLEL_BATCHES    = 2;
+const MAX_RETRIES         = 3;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function smThumb(url)  { return url ? url.replace(/\/(Ti|S|M|L|XL|X2|X3|X4|X5|O)\//, '/Th/') : ''; }
@@ -69,7 +69,6 @@ async function fetchImageAsBase64(url, timeoutMs) {
   } finally { clearTimeout(timer); }
 }
 
-// Robust JSON recovery (handles trunc + trailing commas + mid-string truncation)
 function parseJSON(text) {
   let cleaned = text.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
   const first = cleaned.indexOf('{');
@@ -84,7 +83,6 @@ function parseJSON(text) {
   if (lastClose > 0) {
     try { return JSON.parse(cleaned.slice(0, lastClose + 1)); } catch (e) {}
   }
-  // Fallback close-brackets
   let inStr = false, esc = false, bd = 0, kd = 0;
   for (let i = 0; i < cleaned.length; i++) {
     const c = cleaned[i];
@@ -106,7 +104,7 @@ function parseJSON(text) {
 
 async function callAnthropic(model, system, userContent, apiKey, maxTokens) {
   let lastErr;
-  for (let attempt = 0; attempt <= STAGE1_MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) await new Promise(r => setTimeout(r, 1500 * Math.pow(2, attempt)));
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 90000);
@@ -142,84 +140,204 @@ async function callAnthropic(model, system, userContent, apiKey, maxTokens) {
       return { text: txt.text, usage: data.usage || {} };
     } catch (e) {
       lastErr = e;
-      if (attempt >= STAGE1_MAX_RETRIES) throw e;
+      if (attempt >= MAX_RETRIES) throw e;
     } finally { clearTimeout(timer); }
   }
   throw lastErr || new Error('Anthropic call failed');
 }
 
-// ── Stage 1: Haiku tags + focus + composition + ROLE ────────────────────────
-function stage1SystemPrompt(albumName, albumNotes, albumTags, albumCategory) {
-  // Try to detect what kind of place this is so the prompt can prioritize accordingly
+function calcCost(haikuUsage, sonnetUsage) {
+  const h = haikuUsage || {};
+  const s = sonnetUsage || {};
+  const haikuCost =
+    (h.input_tokens || 0) * 0.01 +
+    (h.output_tokens || 0) * 0.05 +
+    (h.cache_read_input_tokens || 0) * 0.001 +
+    (h.cache_creation_input_tokens || 0) * 0.0125;
+  const sonnetCost =
+    (s.input_tokens || 0) * 0.03 +
+    (s.output_tokens || 0) * 0.15 +
+    (s.cache_read_input_tokens || 0) * 0.003 +
+    (s.cache_creation_input_tokens || 0) * 0.0375;
+  return Math.round(haikuCost + sonnetCost);
+}
+
+function sumUsage(usages) {
+  const out = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  usages.forEach(u => {
+    if (!u) return;
+    out.input_tokens             += u.input_tokens || 0;
+    out.output_tokens            += u.output_tokens || 0;
+    out.cache_read_input_tokens  += u.cache_read_input_tokens || 0;
+    out.cache_creation_input_tokens += u.cache_creation_input_tokens || 0;
+  });
+  return out;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// STAGE: TRIAGE — Haiku on thumbnails, mark blanks/blurry/contextless
+// ════════════════════════════════════════════════════════════════════════════
+const TRIAGE_PROMPT = `You're triaging photos for a film/TV scout. For each photo in this batch, decide whether it should be REJECTED (kept in album but moved to back as low-value) or KEPT (worth analyzing in depth).
+
+REJECT if any of these are true:
+  • Blank, near-blank, mostly black, or mostly white — no visible subject
+  • Severely out of focus or motion-blurred to the point of being unusable
+  • Just an empty wall, blank corner, or featureless surface with no scene context
+  • Just stairs with no surrounding context (a single step, a partial railing — no room visible)
+  • A doorbell, light switch, electrical panel, signage closeup, parking-lot ground, or other "reference shot" with no scene value
+  • Accidental camera shots (ground, sky, blurred motion, finger covering lens)
+
+KEEP everything else — even imperfect photos. Better to keep a mediocre shot of a real space than reject it.
+
+OUTPUT — return ONLY this JSON, no prose, no markdown fences:
+{
+  "photos": [
+    { "i": 0, "reject": true, "reason": "blank wall, no subject" },
+    { "i": 1, "reject": false }
+  ]
+}`;
+
+async function triageBatch(batch, apiKey) {
+  const sources = await Promise.all(batch.map(async img => {
+    try { return await fetchImageAsBase64(smThumb(img.url), 6000); }
+    catch (e) { return null; }
+  }));
+  const validPairs = sources.map((src, i) => src ? { src, img: batch[i] } : null).filter(Boolean);
+  if (!validPairs.length) return { results: [], usage: {} };
+
+  const userParts = [{ type: 'text', text: `Triage these ${validPairs.length} thumbnails.` }];
+  validPairs.forEach((p, i) => {
+    userParts.push({ type: 'text', text: `Photo ${i}:` });
+    userParts.push({ type: 'image', source: p.src });
+  });
+  const r = await callAnthropic(HAIKU, TRIAGE_PROMPT, userParts, apiKey, 1200);
+  const parsed = parseJSON(r.text);
+  const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
+
+  const results = [];
+  validPairs.forEach((p, i) => {
+    const m = photos.find(x => x && x.i === i);
+    results.push({
+      key: p.img.key,
+      reject: m ? !!m.reject : false,
+      reason: m ? (m.reason || '') : ''
+    });
+  });
+  return { results, usage: r.usage };
+}
+
+async function runTriage(images, apiKey) {
+  const batches = [];
+  for (let i = 0; i < images.length; i += TRIAGE_BATCH_SIZE) {
+    batches.push(images.slice(i, i + TRIAGE_BATCH_SIZE));
+  }
+  const batchResults = await pmap(batches, b => triageBatch(b, apiKey), PARALLEL_BATCHES);
+  const allResults = [];
+  const usages = [];
+  batchResults.forEach(br => {
+    if (!br || br.__error) return;
+    (br.results || []).forEach(r => allResults.push(r));
+    usages.push(br.usage);
+  });
+  return { results: allResults, usage: sumUsage(usages) };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// STAGE: CLASSIFY — Haiku on LARGE survivors, strict on focus + logistic
+// ════════════════════════════════════════════════════════════════════════════
+function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, googlePlaces) {
   const cat = (albumCategory || '').toLowerCase();
   const isResidence = /residence|house|home|mansion|apartment|brownstone|townhouse|loft/.test(cat);
-  const isCommercial = /restaurant|bar|cafe|store|shop|hotel|office|warehouse/.test(cat);
+  const isCommercial = /restaurant|bar|cafe|store|shop|hotel|office|warehouse|event|venue|ballroom|reception/.test(cat);
   const isOutdoor = /park|garden|street|beach|lot/.test(cat);
 
   let typeGuidance = '';
-  if (isResidence) {
-    typeGuidance = `\nThis is a RESIDENTIAL location. The most important photos are: (1) the hero exterior of the front, (2) the entry views, (3) wide establishing shots of each interior room. Most photos should be interior. Outdoor/garden shots are useful but secondary.`;
-  } else if (isCommercial) {
-    typeGuidance = `\nThis is a COMMERCIAL location. The most important photos are: (1) the storefront/entrance from outside, (2) the entry view from inside, (3) wide establishing shots of the main interior spaces, (4) any distinctive features (bar, dining room, kitchen). Most photos should be interior.`;
-  } else if (isOutdoor) {
-    typeGuidance = `\nThis is an OUTDOOR location. Wide establishing shots and varied angles of the space are most important.`;
+  if (isResidence) typeGuidance = `\nRESIDENTIAL: prioritize interior establishing shots; exteriors are secondary.`;
+  else if (isCommercial) typeGuidance = `\nCOMMERCIAL: prioritize storefront → main interior establishing shots → distinctive features.`;
+  else if (isOutdoor) typeGuidance = `\nOUTDOOR: wide establishing shots and varied angles are most important.`;
+
+  let placesContext = '';
+  if (googlePlaces && (googlePlaces.formatted || googlePlaces.types)) {
+    placesContext = `\nGOOGLE PLACES DATA:`;
+    if (googlePlaces.formatted) placesContext += `\n  Address: ${googlePlaces.formatted}`;
+    if (googlePlaces.types && googlePlaces.types.length) placesContext += `\n  Types: ${googlePlaces.types.slice(0, 5).join(', ')}`;
   }
 
-  return `You analyze film/TV scout photos. For each photo in this batch, return concrete useful metadata.
+  return `You analyze film/TV scout photos. The first image in the batch is the COVER REFERENCE — that's what this location actually IS. Use it as context for judging the rest. Return metadata for each NUMBERED photo (skip the cover reference in your output).
 
 ALBUM CONTEXT:
   Album: ${albumName || '(unnamed)'}
   ${albumCategory ? `Category: ${albumCategory}` : ''}
-  ${albumNotes ? `Notes excerpt: ${String(albumNotes).slice(0, 400)}` : ''}
-  ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}
+  ${albumNotes ? `Notes: ${String(albumNotes).slice(0, 1500)}` : ''}
+  ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}${placesContext}
 
-FOR EACH PHOTO, output:
+FOR EACH NUMBERED PHOTO, output:
   • tags: 5-8 concrete descriptive tags (architecture, materials, mood, lighting, room types, distinctive features). Multi-word tags use hyphens. No location names. No generic words like "interior"/"building".
-  • is_sharp: TRUE if the main subject is in good focus, FALSE if motion-blurred, badly focused, accidentally taken, or BLANK (mostly black/white/featureless).
-  • composition: integer 1-10 of overall photo quality.
-      - 1-2: blurry, blank, mistake shot, or empty/featureless frame
-      - 3-4: usable but not striking
-      - 5-6: solid documentation shot
-      - 7-8: well-composed, balanced, good lighting
-      - 9-10: striking, would lead a presentation
-    PANORAMA HANDLING: very wide images (panoramas) often look "smushed" but are useful establishing shots. Judge a panorama by what's in its central area — don't penalize it for the format. A well-shot interior pano of a ballroom might be a 7-8 even if it looks crammed in this preview.
+  • is_sharp: TRUE only if the main subject is in CLEAR focus. BE STRICT — if there's any motion blur, soft focus on the intended subject, or general unsharpness, return FALSE. When in doubt, FALSE.
+  • composition: integer 1-10 (10 = striking, 1 = blurry/blank/mistake).
   • role: ONE of:
-      - "hero-exterior"  — establishing front facade
-      - "side-exterior"  — supporting exterior
+      - "hero-exterior"  — establishing front facade of the location
+      - "side-exterior"  — supporting exterior context
       - "entry-in"       — looking INTO the space from outside
-      - "entry-out"      — looking OUT FROM inside toward entry/door
-      - "room-overview"  — WIDE establishing shot of a distinct interior space
-      - "room-detail"    — closer/featured detail (furniture, art, materials, corner)
-      - "outdoor-feature" — distinct outdoor space (yard, pool, patio, garden)
-      - "logistic"       — accidental/redundant/blank/low-value: partial walls, single stairs, doorbell closeups, signage, parking-lot ground, navigational shots, BLANK or near-blank frames
-      - "transition"     — passages without features (plain hallway, plain stairwell, vestibule)
-  • room: short consistent label (e.g. "kitchen", "primary-bedroom", "ballroom", "bath-1", "front-exterior"). Empty string if unknown.
+      - "entry-out"      — looking OUT from inside toward entry
+      - "room-overview"  — WIDE establishing of a distinct interior space, showing how the space lives
+      - "room-detail"    — closer feature of furniture/art/materials that adds character to the space
+      - "outdoor-feature" — yard, pool, patio, garden — distinct outdoor space
+      - "logistic"       — REFERENCE shots, NOT story shots. Practical-but-not-presentable. The KEY question: does this photo answer "what is this place LIKE?" (story) or "what does this specific feature look like?" (reference). Reference goes here:
+                            • a blank door (just the door, no surrounding room context)
+                            • stairs in isolation (a stairwell shot, single steps, partial railing)
+                            • a closet interior (random closet, utility closet, no surrounding context)
+                            • bathroom fixtures in isolation (just a sink, just a toilet, hardware closeup)
+                            • material/detail close-ups (a swatch of wallpaper, ceiling tile, a hinge)
+                            • blank corners, alcoves, empty walls
+                            • doorbells, light switches, electrical panels
+                            • signage closeups, reference shots of permits/numbers
+                          Even if the photo is well-framed and well-focused, mark logistic if it's a REFERENCE shot rather than something that sells the space. BE GENEROUS marking logistic — wide shots are story; tight crops of single features are usually reference.
+      - "transition"     — passages with no distinctive character (plain hallway, plain stairwell, vestibule)
+  • room: short label (e.g. "kitchen", "ballroom", "bath-1"). Empty string if unknown.
+
+PANORAMA HANDLING: judge a panorama by what's in its central region. Don't penalize for the format.
+
+BE STRICT on logistic and is_sharp. We're trying to surface the TRUE WALKTHROUGH that sells the space — eliminate everything that's just reference.
 
 OUTPUT — return ONLY this JSON, no prose, no markdown fences:
 {
   "photos": [
     { "i": 0, "tags": ["..."], "is_sharp": true, "composition": 7, "role": "room-overview", "room": "kitchen" },
-    { "i": 1, ... }
+    ...
   ]
 }`;
 }
 
-async function stage1Batch(album, batch, apiKey) {
+async function classifyBatch(album, batch, contextImages, apiKey) {
   const sources = await Promise.all(batch.map(async img => {
-    try { return await fetchImageAsBase64(smMedium(img.url), 8000); }
+    try { return await fetchImageAsBase64(smLarge(img.url), 10000); }
     catch (e) { return null; }
   }));
   const validPairs = sources.map((src, i) => src ? { src, img: batch[i] } : null).filter(Boolean);
-  if (!validPairs.length) return { results: [], usage: { input_tokens: 0, output_tokens: 0 } };
+  if (!validPairs.length) return { results: [], usage: {} };
 
-  const userParts = [{ type: 'text', text: `Analyze these ${validPairs.length} photos.` }];
+  const userParts = [];
+  if (contextImages && contextImages.length) {
+    userParts.push({
+      type: 'text',
+      text: `CENTERPIECE REFERENCE${contextImages.length > 1 ? 'S' : ''} (${contextImages.length} image${contextImages.length > 1 ? 's' : ''} representing what this location IS — use for context, do NOT classify):`
+    });
+    contextImages.forEach((img, i) => {
+      if (contextImages.length > 1) userParts.push({ type: 'text', text: `Centerpiece ${i + 1}:` });
+      userParts.push({ type: 'image', source: img });
+    });
+    userParts.push({ type: 'text', text: `Now classify these ${validPairs.length} numbered photos:` });
+  } else {
+    userParts.push({ type: 'text', text: `Classify these ${validPairs.length} photos.` });
+  }
   validPairs.forEach((p, i) => {
     userParts.push({ type: 'text', text: `Photo ${i}:` });
     userParts.push({ type: 'image', source: p.src });
   });
 
-  const sys = stage1SystemPrompt(album.name, album.notes, album.tags, album.category);
-  const r = await callAnthropic(HAIKU, sys, userParts, apiKey, 1800);
+  const sys = classifySystemPrompt(album.name, album.notes, album.tags, album.category, album.googlePlaces);
+  const r = await callAnthropic(HAIKU, sys, userParts, apiKey, 2000);
   const parsed = parseJSON(r.text);
   const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
 
@@ -242,254 +360,178 @@ async function stage1Batch(album, batch, apiKey) {
   return { results, usage: r.usage };
 }
 
-// ── Stage 2: distill consensus tags from per-photo tags ─────────────────────
-function distillConsensus(perPhoto) {
-  const counts = new Map();
-  perPhoto.forEach(p => {
-    (p.tags || []).forEach(t => {
-      const lower = String(t).toLowerCase();
-      counts.set(lower, (counts.get(lower) || 0) + 1);
-    });
+async function runClassify(album, images, contextImageUrls, apiKey) {
+  const urls = Array.isArray(contextImageUrls) ? contextImageUrls.filter(Boolean).slice(0, 5) : [];
+  const contextImages = [];
+  for (const url of urls) {
+    try { contextImages.push(await fetchImageAsBase64(smMedium(url), 8000)); }
+    catch (e) {}
+  }
+  const batches = [];
+  for (let i = 0; i < images.length; i += CLASSIFY_BATCH_SIZE) {
+    batches.push(images.slice(i, i + CLASSIFY_BATCH_SIZE));
+  }
+  const batchResults = await pmap(batches, b => classifyBatch(album, b, contextImages, apiKey), PARALLEL_BATCHES);
+  const allResults = [];
+  const usages = [];
+  batchResults.forEach(br => {
+    if (!br || br.__error) return;
+    (br.results || []).forEach(r => allResults.push(r));
+    usages.push(br.usage);
   });
-  // A tag is "consensus" if it appears in at least min(3, photoCount * 0.10) photos
-  const photoCount = perPhoto.length;
-  const minCount = Math.max(2, Math.floor(photoCount * 0.10));
-  const consensus = [];
-  const outliers = [];
-  counts.forEach((count, tag) => {
-    if (count >= minCount) consensus.push({ tag, count });
-    else outliers.push({ tag, count });
-  });
-  consensus.sort((a, b) => b.count - a.count);
-  return {
-    consensus_tags: consensus.map(c => c.tag),
-    outlier_tags:   outliers.map(o => o.tag)
-  };
+  return { results: allResults, usage: sumUsage(usages) };
 }
 
-// ── Pick the walkthrough — at least 5 photos, target ~30% of the album ──
-// Order of priorities:
-//   1. 1-2 best hero-exterior  (capped — lead-in only)
-//   2. 1 best entry-in
-//   3. 1 best entry-out
-//   4. ROOMS, ranked by RELEVANCE to the album's purpose:
-//      - "core" rooms (whose photos heavily match album consensus tags) get up to 2 photos each
-//      - "secondary" rooms (lightly matching) get 1 photo max
-//      - room weight ranks them by core/secondary status, then by composition
-//   5. Fill remaining slots with room-detail / outdoor-feature
-//   6. Skip logistic + transition entirely
-//
-// Returns a Set of chosen image keys.
-function pickWalkthrough(perPhoto, targetCount, consensusTags) {
-  const sharp = perPhoto.filter(p => p.is_sharp);
-  const consensusSet = new Set((consensusTags || []).map(t => String(t).toLowerCase()));
+// ════════════════════════════════════════════════════════════════════════════
+// STAGE: ORGANIZE — Sonnet TEXT-ONLY (with cover image) returns walkthrough order
+// ════════════════════════════════════════════════════════════════════════════
+const ORGANIZE_PROMPT = `You're a film/TV scout's assistant. Given album metadata + a cover reference image + per-photo summaries, return the ideal walkthrough ORDER for presenting the location.
 
-  // Group by role
-  const byRole = {};
-  sharp.forEach(p => {
-    const r = p.role || 'unknown';
-    if (!byRole[r]) byRole[r] = [];
-    byRole[r].push(p);
-  });
-  Object.keys(byRole).forEach(r => {
-    byRole[r].sort((a, b) => (b.composition - a.composition) || (a.originalIndex - b.originalIndex));
-  });
+WALKTHROUGH PRINCIPLES:
+  1. Lead with 1-2 hero exterior shots (establishing where we are)
+  2. Show the entry — outside-looking-in, then inside-looking-out
+  3. Move through the SIGNIFICANT spaces — the rooms that ARE the location's purpose
+  4. Within each space: best wide overview first, then maybe a detail
+  5. Outdoor features after interiors (unless it's an outdoor location)
+  6. Side exteriors / reference shots / logistic photos go to the back
+  7. Anything marked is_sharp:false or role:logistic goes to the END
 
-  // ── Score each ROOM by relevance to the album's purpose ──
-  // For each room, count how many of its photos' tags overlap with consensus.
-  // Higher overlap → core room. Ties broken by total photo count (more = more documented).
-  const roomStats = {};
-  sharp.forEach(p => {
-    const room = p.room || '';
-    if (!room) return;
-    if (!roomStats[room]) roomStats[room] = { photoCount: 0, consensusHits: 0, photos: [] };
-    roomStats[room].photoCount++;
-    roomStats[room].photos.push(p);
-    (p.tags || []).forEach(t => {
-      if (consensusSet.has(String(t).toLowerCase())) roomStats[room].consensusHits++;
-    });
-  });
+SPACE PRIORITIZATION (this is the key judgment):
+  - The cover image and album notes/category tell you what the location IS
+  - Rooms whose tags align with the album's purpose are CORE — feature them
+  - Rooms that exist but aren't the main draw are SECONDARY — give them a token mention
+  - For a ballroom venue: ballroom + grand entrance are core; bathrooms are secondary
+  - For a residence: living/family rooms + kitchen are core; bathrooms usually secondary
 
-  // Compute relevance score per room: avg consensus hits per photo.
-  // Rooms with high avg are CORE — they ARE what this album is about.
-  const roomEntries = Object.entries(roomStats).map(([room, s]) => ({
-    room,
-    avgRelevance: s.photoCount > 0 ? s.consensusHits / s.photoCount : 0,
-    photoCount: s.photoCount,
-    photos: s.photos
-  }));
-  // Sort: high relevance first, then high photo count
-  roomEntries.sort((a, b) => (b.avgRelevance - a.avgRelevance) || (b.photoCount - a.photoCount));
+TOP PICKS:
+  - Mark roughly 30% of photos (minimum 5) as top_pick=true
+  - These are the photos that, in this order, would be the highlight reel
+  - Skip logistic/blurry/blank from top picks entirely
 
-  // Tier rooms: core (top half by relevance, or any with relevance >= 1.0), secondary (the rest)
-  // If no consensus tags exist, treat all rooms as equal (fall back to original behavior).
-  let coreRooms = new Set(), secondaryRooms = new Set();
-  if (consensusSet.size && roomEntries.some(r => r.avgRelevance > 0)) {
-    const cutoff = Math.max(0.5, roomEntries[0].avgRelevance * 0.5);
-    roomEntries.forEach(r => {
-      if (r.avgRelevance >= cutoff) coreRooms.add(r.room);
-      else secondaryRooms.add(r.room);
-    });
-  } else {
-    // No consensus to lean on — every room is "core", picker uses photo-count ordering
-    roomEntries.forEach(r => coreRooms.add(r.room));
-  }
-
-  const picked = [];
-  const pickedKeys = new Set();
-  function pick(p) {
-    if (!p || pickedKeys.has(p.key)) return false;
-    pickedKeys.add(p.key);
-    picked.push(p);
-    return true;
-  }
-
-  // (1) Up to 2 hero-exteriors
-  const heroLimit = Math.min(2, Math.max(1, Math.floor(targetCount * 0.15)));
-  (byRole['hero-exterior'] || []).slice(0, heroLimit).forEach(pick);
-  // (2) 1 entry-in
-  if (byRole['entry-in'] && byRole['entry-in'][0]) pick(byRole['entry-in'][0]);
-  // (3) 1 entry-out
-  if (byRole['entry-out'] && byRole['entry-out'][0]) pick(byRole['entry-out'][0]);
-
-  // (4) For each room, in relevance order: best room-overview from that room first,
-  //     then up to 1 more from CORE rooms only (to prevent secondary-room over-representation)
-  const roomOverviews = byRole['room-overview'] || [];
-  const overviewsByRoom = {};
-  roomOverviews.forEach(p => {
-    const r = p.room || '';
-    if (!overviewsByRoom[r]) overviewsByRoom[r] = [];
-    overviewsByRoom[r].push(p);
-  });
-
-  // Pass 1: best overview per room, walking rooms in relevance order
-  for (const re of roomEntries) {
-    if (picked.length >= targetCount) break;
-    const list = overviewsByRoom[re.room] || [];
-    if (list.length) pick(list[0]);
-  }
-
-  // Pass 2: a SECOND overview from CORE rooms only, if any (and if we still need photos)
-  for (const re of roomEntries) {
-    if (picked.length >= targetCount) break;
-    if (!coreRooms.has(re.room)) continue;
-    const list = overviewsByRoom[re.room] || [];
-    if (list.length > 1) pick(list[1]);
-  }
-
-  // (5) Fill remaining slots — prioritize details from CORE rooms, then anything else
-  const detailsByRoom = {};
-  (byRole['room-detail'] || []).forEach(p => {
-    const r = p.room || '';
-    if (!detailsByRoom[r]) detailsByRoom[r] = [];
-    detailsByRoom[r].push(p);
-  });
-
-  // Pass A: 1 detail per CORE room
-  for (const re of roomEntries) {
-    if (picked.length >= targetCount) break;
-    if (!coreRooms.has(re.room)) continue;
-    const list = detailsByRoom[re.room] || [];
-    if (list.length) pick(list[0]);
-  }
-
-  // Pass B: outdoor-feature shots if relevant
-  if (picked.length < targetCount) {
-    (byRole['outdoor-feature'] || []).slice(0, 2).forEach(pick);
-  }
-
-  // Pass C: more details from core rooms (composition-sorted)
-  const moreDetails = (byRole['room-detail'] || [])
-    .filter(p => coreRooms.has(p.room || ''))
-    .filter(p => !pickedKeys.has(p.key));
-  for (const p of moreDetails) {
-    if (picked.length >= targetCount) break;
-    pick(p);
-  }
-
-  // Pass D: side exteriors as last resort (capped)
-  if (picked.length < targetCount) {
-    (byRole['side-exterior'] || []).slice(0, 2).forEach(pick);
-  }
-
-  // Pass E: anything left from secondary rooms (last priority — won't overrepresent)
-  const leftoverSecondary = sharp
-    .filter(p => secondaryRooms.has(p.room) && !pickedKeys.has(p.key) && p.role !== 'logistic' && p.role !== 'transition')
-    .sort((a, b) => b.composition - a.composition);
-  for (const p of leftoverSecondary) {
-    if (picked.length >= targetCount) break;
-    pick(p);
-  }
-
-  return pickedKeys;
-}
-function stage4SystemPrompt(albumName, consensusTags) {
-  return `You are providing enriched, high-detail keywords for the BEST photos in a film/TV scout album.
-
-The album has been classified with these consensus keywords: ${consensusTags.slice(0, 12).join(', ')}.
-
-For each photo in this batch, return MORE SPECIFIC and EVOCATIVE tags than usual — capture distinctive details, mood, and cinematic potential. 8-15 tags per photo. Multi-word tags use hyphens.
+RESPECT CHRONOLOGY when ranking is otherwise tied — prefer the lower original_index.
 
 OUTPUT — return ONLY this JSON, no prose, no markdown fences:
+{
+  "ordered": [
+    { "key": "abc123", "top_pick": true,  "rank_reason": "hero exterior" },
+    { "key": "def456", "top_pick": true,  "rank_reason": "ballroom overview, core space" },
+    ...
+  ]
+}
+
+Include EVERY photo in "ordered". The order of items IS the new walkthrough order.`;
+
+async function runOrganize(album, perPhoto, contextImageUrls, apiKey) {
+  const urls = Array.isArray(contextImageUrls) ? contextImageUrls.filter(Boolean).slice(0, 5) : [];
+  const contextImages = [];
+  for (const url of urls) {
+    try { contextImages.push(await fetchImageAsBase64(smMedium(url), 8000)); }
+    catch (e) {}
+  }
+
+  const lines = perPhoto.map(p => {
+    const parts = [`key=${p.key}`];
+    parts.push(`idx=${p.originalIndex}`);
+    if (p.role) parts.push(`role=${p.role}`);
+    if (p.room) parts.push(`room=${p.room}`);
+    parts.push(`comp=${p.composition || 5}`);
+    parts.push(`sharp=${p.is_sharp !== false}`);
+    if (p.tags && p.tags.length) parts.push(`tags=[${p.tags.slice(0, 8).join(',')}]`);
+    if (p.isRejected) parts.push('REJECTED');
+    return parts.join(' · ');
+  }).join('\n');
+
+  const placesText = album.googlePlaces
+    ? `\n\nGOOGLE PLACES:\n  ${album.googlePlaces.formatted || ''}\n  Types: ${(album.googlePlaces.types || []).join(', ')}`
+    : '';
+
+  const userParts = [];
+  if (contextImages.length) {
+    userParts.push({
+      type: 'text',
+      text: `CENTERPIECE IMAGE${contextImages.length > 1 ? 'S' : ''} (${contextImages.length} user-selected reference${contextImages.length > 1 ? 's' : ''} for what this location IS):`
+    });
+    contextImages.forEach((img, i) => {
+      if (contextImages.length > 1) userParts.push({ type: 'text', text: `Centerpiece ${i + 1}:` });
+      userParts.push({ type: 'image', source: img });
+    });
+  }
+  userParts.push({
+    type: 'text',
+    text: `ALBUM: ${album.name || '(unnamed)'}\n` +
+          `Category: ${album.category || 'unknown'}\n` +
+          `Notes: ${String(album.notes || '').slice(0, 1500)}` +
+          placesText +
+          `\n\nPER-PHOTO SUMMARIES (${perPhoto.length} photos):\n${lines}\n\nReturn the walkthrough ordering.`
+  });
+
+  const r = await callAnthropic(SONNET, ORGANIZE_PROMPT, userParts, apiKey, 4000);
+  const parsed = parseJSON(r.text);
+  const ordered = Array.isArray(parsed.ordered) ? parsed.ordered : [];
+  return { ordered, usage: r.usage };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// STAGE: ENRICH — Sonnet large images on top picks
+// ════════════════════════════════════════════════════════════════════════════
+const ENRICH_PROMPT_TMPL = consensus =>
+  `You provide enriched, evocative keywords for the BEST photos in a film/TV scout album.
+
+Album consensus: ${consensus.slice(0, 12).join(', ')}.
+
+For each photo: 8-15 specific tags. Capture distinctive details, mood, cinematic potential. Multi-word tags use hyphens.
+
+OUTPUT — return ONLY this JSON, no prose:
 {
   "photos": [
     { "i": 0, "tags": ["..."] },
     ...
   ]
 }`;
-}
 
-async function stage4Batch(album, batch, consensusTags, apiKey) {
+async function enrichBatch(batch, consensus, apiKey) {
   const sources = await Promise.all(batch.map(async img => {
-    try { return await fetchImageAsBase64(smMedium(img.url), 10000); }
+    try { return await fetchImageAsBase64(smLarge(img.url), 10000); }
     catch (e) { return null; }
   }));
   const validPairs = sources.map((src, i) => src ? { src, img: batch[i] } : null).filter(Boolean);
-  if (!validPairs.length) return { results: [], usage: { input_tokens: 0, output_tokens: 0 } };
+  if (!validPairs.length) return { results: [], usage: {} };
 
   const userParts = [{ type: 'text', text: `Provide enriched tags for these ${validPairs.length} top-pick photos.` }];
   validPairs.forEach((p, i) => {
     userParts.push({ type: 'text', text: `Photo ${i}:` });
     userParts.push({ type: 'image', source: p.src });
   });
-  const sys = stage4SystemPrompt(album.name, consensusTags);
-  const r = await callAnthropic(SONNET, sys, userParts, apiKey, 2000);
+  const r = await callAnthropic(SONNET, ENRICH_PROMPT_TMPL(consensus || []), userParts, apiKey, 2000);
   const parsed = parseJSON(r.text);
   const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
-
   const results = [];
   validPairs.forEach((p, i) => {
     const m = photos.find(x => x && x.i === i);
-    results.push({
-      key: p.img.key,
-      tags: m && Array.isArray(m.tags) ? m.tags : []
-    });
+    results.push({ key: p.img.key, tags: m && Array.isArray(m.tags) ? m.tags : [] });
   });
   return { results, usage: r.usage };
 }
 
-// ── Pricing ──────────────────────────────────────────────────────────────────
-// Returns total cost in 1/100ths of a cent.
-function calcCost(haikuUsage, sonnetUsage) {
-  // Haiku: $1/M input, $5/M output, cache reads $0.10/M, cache writes $1.25/M
-  // 1/100ths cent units: input × 0.01, output × 0.05, cache read × 0.001, cache write × 0.0125
-  const h = haikuUsage || {};
-  const s = sonnetUsage || {};
-  const haikuCost =
-    (h.input_tokens || 0) * 0.01 +
-    (h.output_tokens || 0) * 0.05 +
-    (h.cache_read_input_tokens || 0) * 0.001 +
-    (h.cache_creation_input_tokens || 0) * 0.0125;
-  // Sonnet: $3/M input, $15/M output (3x and 3x of Haiku)
-  const sonnetCost =
-    (s.input_tokens || 0) * 0.03 +
-    (s.output_tokens || 0) * 0.15 +
-    (s.cache_read_input_tokens || 0) * 0.003 +
-    (s.cache_creation_input_tokens || 0) * 0.0375;
-  return Math.round(haikuCost + sonnetCost);
+async function runEnrich(images, consensus, apiKey) {
+  const batches = [];
+  for (let i = 0; i < images.length; i += ENRICH_BATCH_SIZE) {
+    batches.push(images.slice(i, i + ENRICH_BATCH_SIZE));
+  }
+  const batchResults = await pmap(batches, b => enrichBatch(b, consensus, apiKey), PARALLEL_BATCHES);
+  const allResults = [];
+  const usages = [];
+  batchResults.forEach(br => {
+    if (!br || br.__error) return;
+    (br.results || []).forEach(r => allResults.push(r));
+    usages.push(br.usage);
+  });
+  return { results: allResults, usage: sumUsage(usages) };
 }
 
-// ── Top-level handler ────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// HANDLER
+// ════════════════════════════════════════════════════════════════════════════
 module.exports = async function handler(req, res) {
   const origin = req.headers.origin || '';
   if (ALLOWED_ORIGINS.has(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
@@ -505,144 +547,62 @@ module.exports = async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const albumKey = body.albumKey || '';
-    const images = Array.isArray(body.images) ? body.images : [];
-    const album = {
-      key: albumKey,
-      name: body.albumName || '',
-      notes: body.albumNotes || '',
-      tags: Array.isArray(body.albumTags) ? body.albumTags : [],
-      category: body.albumCategory || ''  // e.g. "residences", "restaurants" — drives prompt bias
-    };
-    if (!albumKey) return res.status(400).json({ ok: false, error: 'albumKey required' });
-    if (!images.length) return res.status(400).json({ ok: false, error: 'images required' });
-    if (images.length > 200) return res.status(400).json({ ok: false, error: 'max 200 photos per pass' });
+    const stage = (req.query && req.query.stage) || body.stage || 'classify';
 
-    // ── STAGE 1: per-photo Haiku tagging in batches ──
-    const stage1Batches = [];
-    for (let i = 0; i < images.length; i += STAGE1_BATCH_SIZE) {
-      stage1Batches.push(images.slice(i, i + STAGE1_BATCH_SIZE));
+    if (stage === 'triage') {
+      const images = Array.isArray(body.images) ? body.images : [];
+      if (!images.length) return res.status(400).json({ ok: false, error: 'images required' });
+      if (images.length > 250) return res.status(400).json({ ok: false, error: 'max 250 photos per triage' });
+      const { results, usage } = await runTriage(images, apiKey);
+      return res.json({ ok: true, results, usage, costCents: calcCost(usage, null) });
     }
-    const stage1Results = await pmap(
-      stage1Batches,
-      batch => stage1Batch(album, batch, apiKey),
-      PARALLEL_BATCHES
-    );
-    // Merge per-photo results + sum usage
-    const perPhoto = [];
-    let haikuUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
-    stage1Results.forEach((batchResult, batchIdx) => {
-      if (!batchResult || batchResult.__error) {
-        console.error(`Stage 1 batch ${batchIdx} failed:`, batchResult && batchResult.__error);
-        return;
-      }
-      (batchResult.results || []).forEach(r => perPhoto.push(r));
-      const u = batchResult.usage || {};
-      haikuUsage.input_tokens             += u.input_tokens || 0;
-      haikuUsage.output_tokens            += u.output_tokens || 0;
-      haikuUsage.cache_read_input_tokens  += u.cache_read_input_tokens || 0;
-      haikuUsage.cache_creation_input_tokens += u.cache_creation_input_tokens || 0;
-    });
 
-    // Preserve original order using the input array
-    const indexByKey = new Map();
-    images.forEach((img, idx) => indexByKey.set(img.key, idx));
-    perPhoto.forEach(p => { p.originalIndex = indexByKey.get(p.key); });
-
-    // ── STAGE 2: distill consensus tags ──
-    const { consensus_tags, outlier_tags } = distillConsensus(perPhoto);
-
-    // ── STAGE 3: focus check (already merged into Stage 1) ──
-    const sharpPhotos = perPhoto.filter(p => p.is_sharp);
-    const softCount = perPhoto.length - sharpPhotos.length;
-
-    // ── STAGE 4: walkthrough-style top picks (~30%, but always at least 5) ──
-    // Roles + room relevance drive selection. Logistic + transition are excluded.
-    const targetCount = Math.max(5, Math.ceil(perPhoto.length * 0.30));
-    const topPickKeys = pickWalkthrough(perPhoto, targetCount, consensus_tags);
-    perPhoto.forEach(p => { p.isTopPick = topPickKeys.has(p.key); });
-
-    // Build batches of top picks with their URLs (from the original images list)
-    const topPicks = images.filter(img => topPickKeys.has(img.key));
-    const stage4Batches = [];
-    for (let i = 0; i < topPicks.length; i += STAGE4_BATCH_SIZE) {
-      stage4Batches.push(topPicks.slice(i, i + STAGE4_BATCH_SIZE));
+    if (stage === 'classify') {
+      const album = {
+        name: body.albumName || '',
+        notes: body.albumNotes || '',
+        tags: Array.isArray(body.albumTags) ? body.albumTags : [],
+        category: body.albumCategory || '',
+        googlePlaces: body.googlePlaces || null
+      };
+      const images = Array.isArray(body.images) ? body.images : [];
+      // Accept either contextImageUrls (new, array) or contextImageUrl (legacy, single)
+      const contextImageUrls = Array.isArray(body.contextImageUrls)
+        ? body.contextImageUrls
+        : (body.contextImageUrl ? [body.contextImageUrl] : []);
+      if (!images.length) return res.status(400).json({ ok: false, error: 'images required' });
+      if (images.length > 200) return res.status(400).json({ ok: false, error: 'max 200 photos per classify' });
+      const { results, usage } = await runClassify(album, images, contextImageUrls, apiKey);
+      return res.json({ ok: true, results, usage, costCents: calcCost(usage, null) });
     }
-    const stage4Results = await pmap(
-      stage4Batches,
-      batch => stage4Batch(album, batch, consensus_tags, apiKey),
-      PARALLEL_BATCHES
-    );
-    let sonnetUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
-    const sonnetTagsByKey = new Map();
-    stage4Results.forEach((batchResult, batchIdx) => {
-      if (!batchResult || batchResult.__error) {
-        console.error(`Stage 4 batch ${batchIdx} failed:`, batchResult && batchResult.__error);
-        return;
-      }
-      (batchResult.results || []).forEach(r => sonnetTagsByKey.set(r.key, r.tags));
-      const u = batchResult.usage || {};
-      sonnetUsage.input_tokens             += u.input_tokens || 0;
-      sonnetUsage.output_tokens            += u.output_tokens || 0;
-      sonnetUsage.cache_read_input_tokens  += u.cache_read_input_tokens || 0;
-      sonnetUsage.cache_creation_input_tokens += u.cache_creation_input_tokens || 0;
-    });
-    perPhoto.forEach(p => {
-      if (sonnetTagsByKey.has(p.key)) p.sonnetTags = sonnetTagsByKey.get(p.key) || [];
-      else p.sonnetTags = [];
-    });
 
-    // Compute ranked_index: top picks in TOUR ORDER, then sharp non-picks chronologically, then soft.
-    // Tour order = hero → entry-in → entry-out → room-overviews (chrono) → room-details (chrono) → other (chrono).
-    const ROLE_ORDER = {
-      'hero-exterior':   1,
-      'entry-in':        2,
-      'entry-out':       3,
-      'room-overview':   4,
-      'room-detail':     5,
-      'outdoor-feature': 6,
-      'side-exterior':   7,
-      'unknown':         8,
-      'transition':      9,
-      'logistic':       10
-    };
-    const tourSorted = perPhoto.slice().sort((a, b) => {
-      // Top picks first (and within them, by tour-role then chrono)
-      const aPick = a.isTopPick ? 0 : 1;
-      const bPick = b.isTopPick ? 0 : 1;
-      if (aPick !== bPick) return aPick - bPick;
-      if (aPick === 0) {
-        // Both top picks — order by role priority, then chronologically within role
-        const ra = ROLE_ORDER[a.role] || 99;
-        const rb = ROLE_ORDER[b.role] || 99;
-        if (ra !== rb) return ra - rb;
-        return (a.originalIndex || 0) - (b.originalIndex || 0);
-      }
-      // Both NOT top picks — sharp first (chrono), then soft (chrono)
-      const aSharp = a.is_sharp ? 0 : 1;
-      const bSharp = b.is_sharp ? 0 : 1;
-      if (aSharp !== bSharp) return aSharp - bSharp;
-      return (a.originalIndex || 0) - (b.originalIndex || 0);
-    });
-    tourSorted.forEach((p, idx) => { p.rankedIndex = idx; });
+    if (stage === 'organize') {
+      const album = {
+        name: body.albumName || '',
+        notes: body.albumNotes || '',
+        category: body.albumCategory || '',
+        googlePlaces: body.googlePlaces || null
+      };
+      const perPhoto = Array.isArray(body.perPhoto) ? body.perPhoto : [];
+      const contextImageUrls = Array.isArray(body.contextImageUrls)
+        ? body.contextImageUrls
+        : (body.contextImageUrl ? [body.contextImageUrl] : []);
+      if (!perPhoto.length) return res.status(400).json({ ok: false, error: 'perPhoto required' });
+      if (perPhoto.length > 250) return res.status(400).json({ ok: false, error: 'max 250 photos per organize' });
+      const { ordered, usage } = await runOrganize(album, perPhoto, contextImageUrls, apiKey);
+      return res.json({ ok: true, ordered, usage, costCents: calcCost(null, usage) });
+    }
 
-    const costCents = calcCost(haikuUsage, sonnetUsage);
+    if (stage === 'enrich') {
+      const images = Array.isArray(body.images) ? body.images : [];
+      const consensus = Array.isArray(body.consensusTags) ? body.consensusTags : [];
+      if (!images.length) return res.status(400).json({ ok: false, error: 'images required' });
+      if (images.length > 60) return res.status(400).json({ ok: false, error: 'max 60 photos per enrich' });
+      const { results, usage } = await runEnrich(images, consensus, apiKey);
+      return res.json({ ok: true, results, usage, costCents: calcCost(null, usage) });
+    }
 
-    return res.json({
-      ok: true,
-      perPhoto,
-      consensusTags: consensus_tags,
-      outlierTags: outlier_tags,
-      photoCount: perPhoto.length,
-      sharpCount: sharpPhotos.length,
-      softCount,
-      topPickCount: topPickKeys.size,
-      usage: {
-        haiku:  haikuUsage,
-        sonnet: sonnetUsage
-      },
-      costCents
-    });
+    return res.status(400).json({ ok: false, error: `unknown stage: ${stage}` });
   } catch (e) {
     console.error('deep_tag error:', e);
     return res.status(500).json({ ok: false, error: e.message || 'deep tag failed' });
