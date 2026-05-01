@@ -309,7 +309,7 @@ FOR EACH NUMBERED PHOTO, output:
       - "transition"     — passages with no distinctive character (plain hallway, plain stairwell, vestibule)
   • room: short label (e.g. "kitchen", "ballroom", "bath-1"). Empty string if unknown.
 
-PANORAMA HANDLING: judge a panorama by what's in its central region. Don't penalize for the format.
+PANORAMA HANDLING: judge a panorama by what's in its central 16x9 region. Don't penalize for the format.
 
 BE STRICT on logistic and is_sharp. We're trying to surface the TRUE WALKTHROUGH that sells the space — eliminate everything that's just reference.
 
@@ -399,6 +399,7 @@ async function runClassify(album, images, contextImageUrls, apiKey) {
 // STAGE: ORGANIZE — Sonnet TEXT-ONLY (with cover image) returns walkthrough order
 // ════════════════════════════════════════════════════════════════════════════
 const ORGANIZE_PROMPT = `You're a film/TV scout's assistant. Given album metadata + a cover reference image + per-photo summaries, return the ideal walkthrough ORDER for presenting the location.
+Imagine you are walking through the space looking around, as you go through each room you turn around to look at the room from the other direction, then continue on to the next room. The original order of rooms is close to reality but the order within room is maliable.
 
 WALKTHROUGH PRINCIPLES:
   1. Lead with 1-2 hero exterior shots (establishing where we are)
