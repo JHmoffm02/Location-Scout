@@ -242,11 +242,20 @@ FOR EACH NUMBERED PHOTO, output:
       PREFER SPECIFIC, SEARCHABLE TAGS: distinctive features (cul-de-sac, in-ground-pool, rooftop-deck, exposed-brick, cathedral-ceiling, marble-fireplace, art-deco-trim), materials (terrazzo-floor, wood-paneling, copper-hood), eras (pre-war, mid-century, brutalist), moods (cozy, sterile, gritty), unusual elements (spiral-staircase, sunken-living-room, juliet-balcony)
       Generic room types are OK ONLY if combined with something distinctive (e.g. "open-kitchen" not "kitchen", "primary-suite" not "bedroom").
       Don't include the location name. Don't include obvious words.
-  • is_sharp: TRUE only if the main subject is in CLEAR focus. BE STRICT — when in doubt, FALSE.
+  • is_sharp: TRUE only if the main subject is in CRISP focus. BE STRICT — any soft focus, motion blur, or general unsharpness gets FALSE. Even slight unsharpness on the main subject = FALSE. When in doubt, FALSE. We'd rather demote a borderline photo than feature one that looks soft on a presentation deck.
   • composition: integer 1-10 (10 = striking, 1 = blurry/blank/mistake).
+  • depth_quality: integer 1-5 measuring spatial depth in the image:
+      5 = strong depth-of-field, layered foreground/midground/background, clear leading lines, you can FEEL the space
+      4 = good depth, three-dimensional read of the space
+      3 = adequate depth, you understand the space's volume
+      2 = mostly flat, one plane dominates
+      1 = no depth signal — flat wall shot, fully head-on detail, no spatial information
+    Photos with high depth_quality help directors visualize the space — score them strongly.
+  • is_pano: TRUE if this image is a panorama (very wide aspect ratio, stitched-together field of view). Used for duplicate detection — a pano + non-pano of the same view counts as duplicates.
+  • dup_of: empty string OR the index 'i' of an EARLIER photo in this same batch that this photo is a near-duplicate of. Examples: same vantage point shot twice, pano + non-pano of same view, two photos of same corner from same angle. Only set this if you're CONFIDENT they're duplicates of essentially the same shot. Don't flag "two angles of the same room" as duplicates — they show different things.
   • reject: TRUE if this photo should NOT appear in a 30-photo scout deck — ANY of these:
       - Blank, near-blank, mostly black/white, no visible subject
-      - Out of focus or motion-blurred to the point of being unusable
+      - Out of focus, soft-focused on the subject, or motion-blurred (apply same strict bar as is_sharp)
       - An empty wall, blank corner, featureless surface
       - Stairs/stairwells in isolation (no surrounding room context)
       - A door alone (no room visible around it)
@@ -257,7 +266,7 @@ FOR EACH NUMBERED PHOTO, output:
       - Accidental shots (sky, ground, lens cover, finger over lens)
       - Tight architectural details (single molding, single beam) without surrounding room
       - Anything that answers "what does this specific feature look like?" rather than "what is this place LIKE?"
-    KEEP (reject:false) only if the photo communicates "what this place is like" — even imperfect framing is OK if it shows a recognizable space.
+    KEEP (reject:false) only if the photo communicates "what this place is like" — even imperfect framing is OK if it shows a recognizable space AND is sharp enough to use.
   • role: ONE of:
       - "hero-exterior"  — establishing front facade of the location
       - "side-exterior"  — supporting exterior context
@@ -270,12 +279,12 @@ FOR EACH NUMBERED PHOTO, output:
       - "transition"     — passages with no distinctive character (plain hallway, plain stairwell, vestibule)
   • room: short label (e.g. "kitchen", "ballroom", "bath-1"). Empty string if unknown.
 
-PANORAMA HANDLING: judge a panorama by what's in its central 16x9 region. Don't penalize for the format.
+PANORAMA HANDLING: judge a panorama by what's in its central 16x9 region. Don't penalize for the format. But mark is_pano:true so duplicate detection can match it against non-pano shots of the same view.
 
 OUTPUT — return ONLY this JSON, no prose, no markdown fences:
 {
   "photos": [
-    { "i": 0, "description": "Wide angle of...", "tags": ["..."], "is_sharp": true, "composition": 7, "reject": false, "role": "room-overview", "room": "kitchen" },
+    { "i": 0, "description": "Wide angle of...", "tags": ["..."], "is_sharp": true, "composition": 7, "depth_quality": 4, "is_pano": false, "dup_of": "", "reject": false, "role": "room-overview", "room": "kitchen" },
     ...
   ]
 }`;
@@ -320,16 +329,29 @@ async function classifyBatch(album, batch, contextImages, apiKey) {
     if (!m) {
       results.push({
         key: p.img.key, description: '', tags: [],
-        is_sharp: true, composition: 5, reject: false,
-        role: 'unknown', room: ''
+        is_sharp: true, composition: 5, depth_quality: 3, is_pano: false, dup_of: '',
+        reject: false, role: 'unknown', room: ''
       });
     } else {
+      // dup_of comes back as a number index — convert to the actual photo key in this batch
+      let dupOfKey = '';
+      if (m.dup_of !== undefined && m.dup_of !== null && m.dup_of !== '') {
+        const dupIdx = typeof m.dup_of === 'number' ? m.dup_of : parseInt(String(m.dup_of), 10);
+        if (Number.isFinite(dupIdx) && dupIdx >= 0 && dupIdx < i) {
+          // Look up the key of the photo that came at that index
+          const target = validPairs[dupIdx];
+          if (target) dupOfKey = target.img.key;
+        }
+      }
       results.push({
         key: p.img.key,
         description: typeof m.description === 'string' ? m.description.trim() : '',
         tags: Array.isArray(m.tags) ? m.tags : [],
         is_sharp: m.is_sharp !== false,
         composition: typeof m.composition === 'number' ? Math.max(1, Math.min(10, m.composition)) : 5,
+        depth_quality: typeof m.depth_quality === 'number' ? Math.max(1, Math.min(5, m.depth_quality)) : 3,
+        is_pano: !!m.is_pano,
+        dup_of: dupOfKey,
         reject: !!m.reject,
         role: typeof m.role === 'string' ? m.role : 'unknown',
         room: typeof m.room === 'string' ? m.room.toLowerCase().trim() : ''
@@ -368,56 +390,75 @@ async function runClassify(album, images, contextImageUrls, apiKey) {
 // not just text summaries. Logistic/rejected photos stay text-only at the back.
 // This is the meaningful upgrade: the AI doing the organizing now actually SEES
 // the photos rather than trusting Stage 2's tags.
-const ORGANIZE_PROMPT = `You're a film/TV scout's assistant. You see (1) one or more centerpiece reference images that show what this location IS, and (2) the actual candidate photos to be ordered. Return the ideal walkthrough ORDER for presenting the location.
+const ORGANIZE_PROMPT = `You're a film/TV scout's assistant. Your output is a presentation order — a walkthrough that leads a director through this location as if they're physically touring it. The viewer's experience is the priority. Quality and composition are SECONDARY to flow.
 
-WALKTHROUGH PRINCIPLES:
-  1. Lead with the BEST single full-subject hero exterior — the establishing wide that shows the whole front of the building/property. Pick ONE, not two or three. (If the album has only side-exteriors, lead with the best of those.)
-  2. Then the tighter shot of the front entrance (closer crop of the door, awning, signage — the moment-of-arrival shot)
-  3. Then move INSIDE — entry-in (looking through the front door into the space), then a wide entry-out (looking back at the door from inside)
-  4. Move through the SIGNIFICANT spaces — the rooms that ARE the location's purpose
-  5. Within each space: best wide overview first, then the reverse angle if available
-  6. Outdoor features after interiors (unless it's an outdoor location)
-  7. Additional exteriors / reference shots / logistic photos go to the back
-  8. Anything marked is_sharp:false or role:logistic goes to the END
+═══ FLOW PRINCIPLES (the most important rule) ═══
 
-FRONT EXTERIOR DISCIPLINE:
-  - At most ONE hero exterior in the top 5 picks
-  - At most ONE entry-tight shot in the top 5 picks
-  - All other front exteriors (alternate angles, daylight vs. night, redundant frames) go AFTER the interior walkthrough — not in the lead-in
-  - Side and rear exteriors only appear after all interiors are covered, capped at 2 in top picks
+You are walking the viewer through a physical space. Don't bounce around. Think like you're actually leading them by the hand:
 
-CENTERPIECE PRIORITY (when applicable):
-  - The FIRST centerpiece image (centerpiece 1) is the user's PRIMARY pick — what they consider the defining image of this location
-  - If centerpiece 1 IS an exterior shot, it should be the lead-in hero exterior of the walkthrough
-  - If centerpiece 1 is an interior, the walkthrough can still open with a hero exterior (if available) but should reach centerpiece 1's space EARLY
-  - Treat centerpieces 2-5 as user-preferred photos worth elevating in the order — each should appear in the top picks unless clearly inappropriate for the slot
+  • Lead with the BEST single hero exterior — establish where we are
+  • Walk to the door (entry tight)
+  • Step inside (entry-in, then a wide of inside-looking-out)
+  • Move through interior spaces ONE AT A TIME
+    - Finish a room before moving on
+    - Don't return to a room you've already shown unless there's a reason
+    - The reason can be: showing it from a balcony or upper floor that requires going through other spaces first; or a different time/state of the same room (e.g. set up vs. broken down)
+  • Outdoor features last (unless this IS an outdoor location)
+  • Side/back exteriors at the very end (unless they show the centerpiece hero)
 
-EXTERIOR HERO RULE (centerpiece-driven):
-  - If ANY centerpiece is an exterior (role:hero-exterior or role:side-exterior), those centerpiece exteriors define what the HERO of the building/feature looks like
-  - Exteriors NOT marked as centerpieces should ONLY appear in the lead-in if they show the SAME hero element as a centerpiece exterior (same building, same defining feature, just a different angle of that hero)
-  - Exteriors that show OTHER parts of the property (side wings, back of building, neighboring buildings, parking lots, distant context shots, peripheral structures) are LOGISTICAL — push them to the very end with role:logistic flagging
-  - When in doubt about whether an exterior matches the hero, demote it to the back. The walkthrough should establish ONE clear hero, not survey the whole property at the start.
+═══ EYE CONTINUITY (when possible, not a rule) ═══
 
-SPACE PRIORITIZATION (this is the key judgment):
-  - The centerpiece image(s) and album notes/category tell you what the location IS
-  - Rooms whose tags align with the album's purpose are CORE — feature them
-  - Original order is the starting point for the flow of the file
-  - Rooms that exist but aren't the main draw are SECONDARY — give them a token mention
-  - For a ballroom venue: ballroom + grand entrance are core; bathrooms are secondary
-  - For a residence: living/family rooms + kitchen are core; bathrooms usually secondary
+Within and between connected spaces, prefer photo sequences where the viewer's eye can follow:
+  • If photo A shows the couch from the right and photo B shows the same couch from the other side, sequence them adjacent — the viewer can follow the couch as the orientation point.
+  • If a photo includes BOTH the current room and a glimpse of the next room (e.g. living room with the kitchen visible through a doorway), use it as a TRANSITION SHOT before pivoting to that next room.
+  • Use the descriptions to identify these continuity opportunities.
+  • This is a soft preference, not a hard rule. When eye continuity conflicts with flow, flow wins.
 
-COVERAGE OVER REPETITION:
-  - When choosing top picks, prefer VARIETY across the location's distinctive features over duplicates of the same view.
-  - If two photos show the same angle of the same room, pick one.
-  - Wide ranges (different rooms, different angles, different scales) tell the story better than 5 great shots of the same area.
+═══ ROOM ALLOCATION (use the per-room overview) ═══
 
-TOP PICKS:
-  - These are the photos that, in this order, would be the highlight reel
-  - Skip logistic/blurry/blank from top picks entirely
+The PER-ROOM SUMMARY below tells you how many photos exist for each space. Allocate top-pick slots accordingly:
+  • Major spaces central to the location's purpose — 2-3 top picks each
+  • Medium spaces — 1-2 top picks each
+  • Minor/peripheral spaces — 1 top pick if notable, otherwise skip
+  • Don't give bathrooms 3 top picks just because there are 8 bathroom photos. Allocate by importance to the location's purpose, not by photo count.
 
-RESPECT CHRONOLOGY when ranking is otherwise tied — prefer the lower original_index.
+═══ DUPLICATE DETECTION (be aggressive) ═══
 
-OUTPUT — return ONLY this JSON, no prose, no markdown fences. KEEP IT MINIMAL:
+These are duplicates — keep ONE, push the rest to the end:
+  • A panorama and a non-panorama from the same vantage point of the same space — the pano IS the non-pano, just wider. Pick whichever is sharper / better composed; demote the other.
+  • Two shots from nearly the same position (within a few feet, same room, same angle) — pick the better one
+  • Photos with marker [DUP_OF:keyXXX] in the summary — the per-photo classifier flagged these as visually redundant. Treat the linked photo as primary; demote this one.
+  • "Multiple angles of the same feature" is NOT a duplicate (e.g. ballroom from balcony + ballroom from floor are both useful — they show different things).
+
+═══ FRONT EXTERIOR DISCIPLINE ═══
+
+  • At most ONE hero exterior in the top 5 picks
+  • At most ONE entry-tight shot in the top 5 picks
+  • Other front exteriors → only in lead-in if they show the SAME hero element as a centerpiece exterior
+  • Side wings, back of building, peripheral exteriors → role:logistic, push to end
+
+═══ CENTERPIECE PRIORITY ═══
+
+  • Centerpiece 1 is the user's PRIMARY pick — what defines this location
+  • If centerpiece 1 is exterior, it leads the walkthrough
+  • If centerpiece 1 is interior, hero exterior still opens (if available) but reach centerpiece 1's space EARLY
+  • Centerpieces 2-5 always appear in top picks unless clearly inappropriate
+
+═══ DEPTH AND COMPOSITION (tiebreaker only) ═══
+
+For a given role/room slot, prefer photos with:
+  • depth_quality high (depth-of-field, leading lines, foreground+midground+background layers)
+  • higher composition score
+But these break ties. They do NOT override flow. A composition-7 wide of the kitchen comes before a composition-9 cabinet detail.
+
+═══ TOP PICKS ═══
+
+  • These are the photos that, in this order, would be the highlight reel
+  • Skip logistic, blurry, blank, and duplicate from top picks entirely
+
+═══ OUTPUT FORMAT ═══
+
+Return ONLY this JSON, no prose, no markdown fences. KEEP IT MINIMAL:
 {
   "suggested_path": "category/subcategory",
   "path_confidence": 0.0-1.0,
@@ -429,18 +470,18 @@ OUTPUT — return ONLY this JSON, no prose, no markdown fences. KEEP IT MINIMAL:
 }
 
 CRITICAL FORMATTING RULES — your output will be machine-parsed:
-  - Each ordered item is JUST { "key": "...", "top_pick": true|false } — NO other fields
-  - Do NOT include rank_reason or any explanation in the JSON
-  - Album keys are alphanumeric only — copy them exactly from the input
-  - Do NOT include any text before the opening { or after the closing }
-  - Do NOT use markdown formatting
+  • Each ordered item is JUST { "key": "...", "top_pick": true|false } — NO other fields
+  • Do NOT include rank_reason or any explanation in the JSON
+  • Album keys are alphanumeric only — copy them exactly from the input
+  • Do NOT include any text before the opening { or after the closing }
+  • Do NOT use markdown formatting
 
 PATH SUGGESTION:
-  - Use existing taxonomy paths when one fits (passed in TAXONOMY below)
-  - Propose a new path only if no existing one fits well
-  - Lowercase, hyphenated, hierarchical (e.g. "residences/brownstones", "restaurants/diners", "events/ballrooms")
-  - For NY metro: respect borough/area distinctions (manhattan, brooklyn, queens, bronx, staten-island, long-island, westchester, jersey, hudson-valley)
-  - path_confidence: 0.95+ = certain, 0.85 = strong match, 0.70 = reasonable, <0.70 = uncertain
+  • Use existing taxonomy paths when one fits (passed in TAXONOMY below)
+  • Propose a new path only if no existing one fits well
+  • Lowercase, hyphenated, hierarchical (e.g. "residences/brownstones", "restaurants/diners", "events/ballrooms")
+  • For NY metro: respect borough/area distinctions (manhattan, brooklyn, queens, bronx, staten-island, long-island, westchester, jersey, hudson-valley)
+  • path_confidence: 0.95+ = certain, 0.85 = strong, 0.70 = reasonable, <0.70 = uncertain
 
 Include EVERY photo (both the candidates you see and the rejected ones listed below) in "ordered". The order of items IS the new walkthrough order.`;
 
@@ -499,6 +540,11 @@ async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, t
     score += ROLE_BONUS[p.role] || 0;
     score += roomRarityBonus(p.room);
     if (p.centerpieceSlot && p.centerpieceSlot > 0) score += 5;
+    // Depth bonus — high depth_quality means the photo conveys spatial volume,
+    // which is exactly what scout decks need to communicate scale of a space.
+    if (p.depth_quality) score += (p.depth_quality - 3);  // -2 to +2 around the median of 3
+    // Hard penalty for AI-flagged duplicates
+    if (p.dup_of) score -= 5;
     p._impScore = score;
   });
 
@@ -559,7 +605,10 @@ async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, t
     if (p.role) parts.push(`role=${p.role}`);
     if (p.room) parts.push(`room=${p.room}`);
     parts.push(`comp=${p.composition || 5}`);
+    if (p.depth_quality) parts.push(`depth=${p.depth_quality}`);
     parts.push(`sharp=${p.is_sharp !== false}`);
+    if (p.is_pano) parts.push('PANO');
+    if (p.dup_of) parts.push(`[DUP_OF:${p.dup_of}]`);
     if (p.tags && p.tags.length) parts.push(`tags=[${p.tags.slice(0, 8).join(',')}]`);
     if (p.description) parts.push(`desc="${String(p.description).replace(/"/g, "'").slice(0, 200)}"`);
     if (p.isRejected) parts.push('REJECTED');
@@ -570,6 +619,18 @@ async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, t
     }
     return parts.join(' · ');
   }).join('\n');
+
+  // Per-room overview — gives Sonnet the data to allocate picks proportionally
+  const roomCounts = new Map();
+  perPhoto.forEach(p => {
+    if (p.isRejected || p.role === 'logistic' || p.role === 'transition') return;
+    const r = p.room || '(unspecified)';
+    roomCounts.set(r, (roomCounts.get(r) || 0) + 1);
+  });
+  const roomOverview = Array.from(roomCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([r, c]) => `  ${r}: ${c} photos`)
+    .join('\n');
 
   // Notes get sanitized before sending — module-level sanitizeNotes() strips HTML
   // entities and markdown link syntax that confuse Sonnet's JSON output.
@@ -613,6 +674,7 @@ async function runOrganize(album, perPhoto, contextImageUrls, candidateImages, t
           `Notes: ${cleanNotes}` +
           placesText +
           taxonomyText +
+          (roomOverview ? `\n\nPER-ROOM SUMMARY (use this to allocate top-pick slots proportionally):\n${roomOverview}` : '') +
           `\n\nALL PHOTOS (${perPhoto.length} total — visual candidates marked with IMG=N, the rest are text-only with their tags):\n${linesAll}\n\nReturn the walkthrough ordering AND a suggested folder path. Include every photo's key in "ordered".`
   });
 
