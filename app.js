@@ -2116,8 +2116,8 @@ Estimated cost: ~$${estCost}`,
       rejectedTags: Array.from(rejectedTagsSet)
     };
     // Chunk classify into smaller calls to avoid Vercel function timeout.
-    // Each call processes ~30 photos (server batches them in groups of 10 with PARALLEL_BATCHES=2).
-    const CLASSIFY_CHUNK_SIZE = 30;
+    // 15 photos per chunk = ~3 server-side batches × ~5-8s each ≈ 20-30s per call.
+    const CLASSIFY_CHUNK_SIZE = 15;
     const allResults = [];
     let aggUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
     let aggCost = 0;
@@ -2578,8 +2578,11 @@ async function dpSaveCenterpieces(loc, items, pushToSmugMug) {
     });
   } catch (e) { console.warn('save centerpieces failed:', e); }
 
-  // Update locations.cover_photo_url too if linked
-  if (coverUrl) {
+  // Update locations.cover_photo_url too if linked.
+  // Skip for synthetic stub IDs (created when an Organize-tab album has no linked location yet) —
+  // there's no row to update, and PostgREST returns 400 on the colon-prefixed id.
+  const isStub = !loc.id || String(loc.id).startsWith('stub:') || loc._isStub;
+  if (coverUrl && !isStub) {
     try {
       await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
         method: 'PATCH',
@@ -2591,6 +2594,9 @@ async function dpSaveCenterpieces(loc, items, pushToSmugMug) {
       });
       loc.cover_photo_url = coverUrl;
     } catch (e) {}
+  } else if (coverUrl) {
+    // For stubs, just set in-memory so subsequent renders pick it up
+    loc.cover_photo_url = coverUrl;
   }
 
   // Push to SmugMug as the album's HighlightImage if requested
@@ -5525,7 +5531,11 @@ async function detectBlur(url) {
   return new Promise(resolve => {
     if (!url) return resolve(null);
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // Don't request CORS — SmugMug doesn't send Access-Control-Allow-Origin headers,
+    // so requesting crossOrigin would fail outright. Without it, the image loads but
+    // the canvas becomes "tainted" and getImageData throws — which we catch and treat
+    // as "blur unknown, send to AI for judgment". Net effect: we attempt blur detection
+    // on permissive sources (rare) and gracefully skip on the rest.
     let done = false;
     const timer = setTimeout(() => { if (!done) { done = true; resolve(null); } }, 5000);
     img.onload = () => {
@@ -5539,6 +5549,7 @@ async function detectBlur(url) {
         canvas.width = w; canvas.height = h;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, w, h);
+        // This throws SecurityError on tainted canvases — caught below
         const data = ctx.getImageData(0, 0, w, h).data;
         let sum = 0, sumSq = 0, count = 0;
         for (let y = 1; y < h - 1; y++) {
@@ -5559,7 +5570,8 @@ async function detectBlur(url) {
         const mean = sum / count;
         resolve(sumSq / count - mean * mean);
       } catch (e) {
-        // Likely CORS — silently skip blur detection for this image
+        // Tainted canvas (CORS) or other failure — return null so the caller
+        // treats this image as "send to AI for judgment, don't pre-reject".
         resolve(null);
       }
     };
