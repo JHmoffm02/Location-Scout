@@ -177,22 +177,35 @@ function sumUsage(usages) {
 // ════════════════════════════════════════════════════════════════════════════
 // STAGE: TRIAGE — Haiku on thumbnails, mark blanks/blurry/contextless
 // ════════════════════════════════════════════════════════════════════════════
-const TRIAGE_PROMPT = `You're triaging photos for a film/TV scout. For each photo in this batch, decide whether it should be REJECTED (kept in album but moved to back as low-value) or KEPT (worth analyzing in depth).
+const TRIAGE_PROMPT = `You're triaging photos for a film/TV scout. Be STRICT — when in doubt, REJECT. The goal is to surface only photos that meaningfully sell the location. Reference shots, accidents, and feature-only details get rejected.
 
-REJECT if any of these are true:
-  • Blank, near-blank, mostly black, or mostly white — no visible subject
-  • Severely out of focus or motion-blurred to the point of being unusable
-  • Just an empty wall, blank corner, or featureless surface with no scene context
-  • Just stairs with no surrounding context (a single step, a partial railing — no room visible)
-  • A doorbell, light switch, electrical panel, signage closeup, parking-lot ground, or other "reference shot" with no scene value
-  • Accidental camera shots (ground, sky, blurred motion, finger covering lens)
+REJECT (mark reject:true) if ANY of these apply:
+  • Blank, near-blank, mostly black, or mostly white — no clear subject
+  • Out of focus, motion-blurred, or visibly soft on the intended subject
+  • An empty wall, blank corner, or featureless surface
+  • Stairs, stairwells, or steps photographed in isolation (no surrounding room context)
+  • A door photographed alone (just the door — no room visible)
+  • A hallway or transition with no distinctive character
+  • A closet interior, utility space, or storage area in isolation
+  • Bathroom fixtures alone (just a toilet, just a sink, just a tub) without showing the room
+  • Material/hardware close-ups — wallpaper swatches, ceiling tiles, hinges, light switches, doorbells, electrical panels
+  • Signage, address plates, permits, parking-lot ground, ceiling or floor textures
+  • Accidental camera shots (sky, ground, lens-cover blur, finger over lens)
+  • Tight architectural details (a single molding, a single beam) without the surrounding room
+  • Anything that answers "what does this specific feature look like?" rather than "what is this place LIKE?"
 
-KEEP everything else — even imperfect photos. Better to keep a mediocre shot of a real space than reject it.
+KEEP (mark reject:false) if ALL of these apply:
+  • The subject is in clear focus
+  • The frame shows a recognizable space, room, exterior, or distinctive composition
+  • The shot communicates "what this place is like" to a director who's never been there
+  • Even imperfect framing is OK if the photo describes a real space
+
+The threshold: if a photo wouldn't appear in a 30-photo scout deck of this location, reject it.
 
 OUTPUT — return ONLY this JSON, no prose, no markdown fences:
 {
   "photos": [
-    { "i": 0, "reject": true, "reason": "blank wall, no subject" },
+    { "i": 0, "reject": true, "reason": "isolated stairs, no room context" },
     { "i": 1, "reject": false }
   ]
 }`;
@@ -389,22 +402,22 @@ const ORGANIZE_PROMPT = `You're a film/TV scout's assistant. Given album metadat
 
 WALKTHROUGH PRINCIPLES:
   1. Lead with 1-2 hero exterior shots (establishing where we are)
-  2. Show the entry — outside-looking-in, then inside-looking-out
+  2. Show the entry — outside-looking-in, then a wide of inside-looking-out
   3. Move through the SIGNIFICANT spaces — the rooms that ARE the location's purpose
-  4. Within each space: best wide overview first, then maybe a detail
+  4. Within each space: best wide overview first, then the reverse
   5. Outdoor features after interiors (unless it's an outdoor location)
-  6. Side exteriors / reference shots / logistic photos go to the back
+  6. additional exteriors / reference shots / logistic photos go to the back
   7. Anything marked is_sharp:false or role:logistic goes to the END
 
 SPACE PRIORITIZATION (this is the key judgment):
   - The cover image and album notes/category tell you what the location IS
   - Rooms whose tags align with the album's purpose are CORE — feature them
+  - Original order is the starting point for the flow of the file
   - Rooms that exist but aren't the main draw are SECONDARY — give them a token mention
   - For a ballroom venue: ballroom + grand entrance are core; bathrooms are secondary
   - For a residence: living/family rooms + kitchen are core; bathrooms usually secondary
 
 TOP PICKS:
-  - Mark roughly 30% of photos (minimum 5) as top_pick=true
   - These are the photos that, in this order, would be the highlight reel
   - Skip logistic/blurry/blank from top picks entirely
 
