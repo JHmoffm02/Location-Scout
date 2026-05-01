@@ -2115,9 +2115,9 @@ Estimated cost: ~$${estCost}`,
       albumCategory: getCatForLoc(loc) || '',
       rejectedTags: Array.from(rejectedTagsSet)
     };
-    // Chunk classify into very small calls — 8 photos × ~1 server-side batch ≈ 10-15s.
-    // Keeps us well under any function-timeout threshold and limits memory peak.
-    const CLASSIFY_CHUNK_SIZE = 8;
+    // Chunk classify into manageable calls. On Vercel Pro (60s default, configurable
+    // up to 300s via vercel.json), 30 photos per chunk runs in ~30-50s comfortably.
+    const CLASSIFY_CHUNK_SIZE = 30;
     const allResults = [];
     let aggUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
     let aggCost = 0;
