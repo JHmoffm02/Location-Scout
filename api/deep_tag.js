@@ -150,6 +150,24 @@ async function callAnthropic(model, system, userContent, apiKey, maxTokens) {
   throw lastErr || new Error('Anthropic call failed');
 }
 
+// Returns total cost in 1/100ths of a cent (NOT cents, NOT dollars).
+//
+// Storage unit choice: we use integer 1/100ths-of-a-cent (a.k.a. "millicents")
+// so we can store costs as INTEGER in the api_usage DB column without losing precision.
+// Converting back: dollars = cost_centhsofacent / 10000, cents = cost_centhsofacent / 100.
+//
+// Per-token multipliers:
+//   Haiku 4.5 input  = $1/M tokens = 100 millicents per token? NO — $1/M = $0.000001/tok
+//   = 0.0001 cents/tok = 0.01 millicents/tok. ← that's the 0.01 multiplier below.
+//   Haiku output     = $5/M = 0.05 millicents/tok
+//   Haiku cache-read = $0.10/M = 0.001 millicents/tok
+//   Haiku cache-write= $1.25/M = 0.0125 millicents/tok
+//   Sonnet input     = $3/M = 0.03 millicents/tok
+//   Sonnet output    = $15/M = 0.15 millicents/tok
+//   Sonnet cache-read= $0.30/M = 0.003 millicents/tok
+//   Sonnet cache-write= $3.75/M = 0.0375 millicents/tok
+//
+// Sanity check: 100,000 Haiku input tokens × 0.01 = 1000 millicents = 10 cents = $0.10 ✓
 function calcCost(haikuUsage, sonnetUsage) {
   const h = haikuUsage || {};
   const s = sonnetUsage || {};
@@ -240,7 +258,7 @@ function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, g
     }
   }
 
-  return `You analyze film/TV scout photos. The first image in the batch is the COVER REFERENCE — that's what this location actually IS. Use it as context for judging the rest. Return metadata for each NUMBERED photo (skip the cover reference in your output).
+  return `You analyze film/TV scout photos for a location library. Return metadata for each NUMBERED photo. The user message may begin with one or more labeled CENTERPIECE images that show what the location IS — use those as context, do NOT classify them.
 
 ALBUM CONTEXT:
   Album: ${albumName || '(unnamed)'}
@@ -282,20 +300,19 @@ FOR EACH NUMBERED PHOTO, output:
       - Shots that show different parts of the same space
     BE CAREFUL with similar-looking spaces: two different auditoriums, two different bedrooms, two different bathrooms in the same property are NOT duplicates of each other even if they look similar. Only flag as duplicate when you're confident it's the SAME space + nearly the same composition.
     Only set this if you're CONFIDENT. When in doubt, leave empty.
-  • reject: TRUE if this photo should NOT appear in a 30-photo scout deck — ANY of these:
+  • reject: TRUE if this photo doesn't belong in any presentation deck — it's a technical mistake or shows nothing useful:
       - Blank, near-blank, mostly black/white, no visible subject
-      - Out of focus, soft-focused on the subject, or motion-blurred (apply same strict bar as is_sharp)
-      - An empty wall, blank corner, featureless surface
-      - Stairs/stairwells in isolation (no surrounding room context)
-      - A door alone (no room visible around it)
-      - A closet interior, utility space, or storage area in isolation
-      - Bathroom fixtures alone (just toilet/sink/tub) without showing the room
-      - Material/hardware close-ups — wallpaper swatches, ceiling tiles, hinges, light switches, doorbells, electrical panels
-      - Signage, address plates, permits, parking-lot ground, ceiling/floor textures
+      - Out of focus, soft-focused on the subject, or motion-blurred
       - Accidental shots (sky, ground, lens cover, finger over lens)
-      - Tight architectural details (single molding, single beam) without surrounding room
-      - Anything that answers "what does this specific feature look like?" rather than "what is this place LIKE?"
-    KEEP (reject:false) only if the photo communicates "what this place is like" — even imperfect framing is OK if it shows a recognizable space AND is sharp enough to use.
+      - Duplicate of an already-better-captured shot (only if obviously redundant)
+    KEEP (reject:false) if the photo shows ANY recognizable space and is sharp enough to use, even if it's a "reference" shot. Reference shots are fine — they just go to the back via role:logistic.
+
+    THE DISTINCTION between reject and logistic:
+      • reject = "this photo is technically broken or accidentally taken — toss it"
+      • logistic = "this photo is fine, it just isn't a story shot — use it as reference, keep at the back"
+    A blurry shot of a great room → reject:true (it's broken).
+    A sharp shot of a doorbell → reject:false, role:logistic (fine photo, just not a story shot).
+    A blurry shot of a doorbell → reject:true (broken AND not story-worthy).
   • role: ONE of:
       - "hero-exterior"  — establishing front facade of the location
       - "side-exterior"  — supporting exterior context
@@ -304,7 +321,7 @@ FOR EACH NUMBERED PHOTO, output:
       - "room-overview"  — WIDE establishing of a distinct interior space, showing how the space lives
       - "room-detail"    — closer feature of furniture/art/materials that adds character to the space
       - "outdoor-feature" — yard, pool, patio, garden — distinct outdoor space
-      - "logistic"       — REFERENCE shots, NOT story shots. (Most reject:true items are also role:logistic.) The KEY question: does this photo answer "what is this place LIKE?" (story) or "what does this specific feature look like?" (reference). BE GENEROUS marking logistic — wide shots are story; tight crops of single features are usually reference.
+      - "logistic"       — REFERENCE shots, kept-but-not-story. Sharp photos that show a single feature without scene context: a closet, a doorbell, a single stair, a hardware closeup, a blank wall, a partial of something. The KEY question: does this answer "what is this place LIKE?" (story → not logistic) or "what does this specific feature look like?" (reference → logistic). BE GENEROUS marking logistic — wide shots are story; tight crops of single features are usually reference.
       - "transition"     — passages with no distinctive character (plain hallway, plain stairwell, vestibule)
   • room: short label (e.g. "kitchen", "ballroom", "bath-1"). Empty string if unknown.
 
@@ -376,7 +393,8 @@ async function classifyBatch(album, batch, contextImages, apiKey) {
         key: p.img.key,
         description: typeof m.description === 'string' ? m.description.trim() : '',
         tags: Array.isArray(m.tags) ? m.tags : [],
-        is_sharp: m.is_sharp !== false,
+        // BE STRICT: only true if Haiku explicitly returned true. Missing/null → false.
+        is_sharp: m.is_sharp === true,
         composition: typeof m.composition === 'number' ? Math.max(1, Math.min(10, m.composition)) : 5,
         depth_quality: typeof m.depth_quality === 'number' ? Math.max(1, Math.min(5, m.depth_quality)) : 3,
         is_pano: !!m.is_pano,
@@ -478,12 +496,15 @@ NOT duplicates — keep both:
   • If centerpiece 1 is interior, hero exterior still opens (if available) but reach centerpiece 1's space EARLY
   • Centerpieces 2-5 always appear in top picks unless clearly inappropriate
 
-═══ DEPTH AND COMPOSITION (tiebreaker only) ═══
+═══ DEPTH AND COMPOSITION (slot-fillers, not slot-decisions) ═══
 
-For a given role/room slot, prefer photos with:
-  • depth_quality high (depth-of-field, leading lines, foreground+midground+background layers)
-  • higher composition score
-But these break ties. They do NOT override flow. A composition-7 wide of the kitchen comes before a composition-9 cabinet detail.
+Flow decides WHICH SLOTS exist in the walkthrough (lead-in, kitchen overview, kitchen detail, etc.).
+Composition + depth decide WHICH PHOTO FILLS each slot when there are multiple candidates.
+
+So when flow says "we need a kitchen overview here," choose among kitchen-overview-tagged photos by:
+  • depth_quality (higher = more spatial information for the director)
+  • composition score (higher = better looking)
+These two never override flow. They never promote a kitchen detail above a kitchen overview just because it scored 9. They ONLY pick between candidates that flow has already deemed slot-equivalent.
 
 ═══ TOP PICKS ═══
 
