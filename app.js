@@ -300,6 +300,11 @@ function db(path, opts) {
   );
 }
 
+// Expose db + dbAll on window so console diagnostics can use them
+if (typeof window !== 'undefined') {
+  window.db = db;
+}
+
 // Paginated GET for tables that may exceed Supabase's 1000-row default cap.
 // Walks Range: 0-999, 1000-1999, etc. until a partial page is returned.
 // ── API usage tracking ──
@@ -557,6 +562,10 @@ async function dbAll(path, pageSize) {
     offset += limit;
   }
   return all;
+}
+
+if (typeof window !== 'undefined') {
+  window.dbAll = dbAll;
 }
 
 async function loadLocations(forceRefresh) {
@@ -3440,11 +3449,12 @@ window.runPlacePins = async function () {
   closeDock();
   if (!confirm(`Place pins for ${candidates.length} location${candidates.length !== 1 ? 's' : ''}?\n\nPriority chain:\n  1. Photo GPS metadata (free, instant)\n  2. Geocoded address (~1¢ each via Google)\n  3. Place name lookup (~3¢ each)\n\nLocations with no GPS, address, or matchable name will stay unpinned.\nEstimated cost: up to ~$${(candidates.length * 0.03).toFixed(2)} (most resolve via the cheaper paths first).`)) return;
   const r = await placePins();
-  const total = r.fromGps + r.fromAddr + r.fromName;
+  const total = r.fromGps + r.fromAddr + r.fromName + (r.fromCleanup || 0);
   const parts = [];
   if (r.fromGps)  parts.push(`${r.fromGps} from photo GPS`);
   if (r.fromAddr) parts.push(`${r.fromAddr} from address`);
   if (r.fromName) parts.push(`${r.fromName} from name`);
+    if (r.fromCleanup) parts.push(`${r.fromCleanup} from cleanup retry`);
   if (total > 0) toast(`Pinned ${total}: ${parts.join(' · ')}${r.failed ? ' · ' + r.failed + ' couldn\'t locate' : ''}`, 'ok');
   else toast(`No pins placed (${r.failed} unlocatable)`, 'inf');
 };
@@ -3514,11 +3524,12 @@ Cost: up to ~$${(total * 0.03).toFixed(2)}, typically much less.`
 
   // Run pin chain. Pass forceAll: true so verified locations are re-considered.
   const r = await placePins({ forceAll: true });
-  const placed = r.fromGps + r.fromAddr + r.fromName;
+  const placed = r.fromGps + r.fromAddr + r.fromName + (r.fromCleanup || 0);
   const parts = [];
   if (r.fromGps)  parts.push(`${r.fromGps} GPS`);
   if (r.fromAddr) parts.push(`${r.fromAddr} address`);
   if (r.fromName) parts.push(`${r.fromName} name`);
+  if (r.fromCleanup) parts.push(`${r.fromCleanup} cleanup`);
   toast(`Repinned ${placed}/${ids.length}: ${parts.join(' · ')}${r.failed ? ' · ' + r.failed + ' unlocatable' : ''}`, 'ok');
   if (ns) ns.textContent = '';
 };
@@ -5422,12 +5433,13 @@ window.startFullSync = async function () {
     } else {
       console.log(`[sync] running placePins on ${before} unpinned locations`);
       const r = await placePins();
-      const total = r.fromGps + r.fromAddr + r.fromName;
+      const total = r.fromGps + r.fromAddr + r.fromName + (r.fromCleanup || 0);
       if (total > 0) {
         const parts = [];
         if (r.fromGps)  parts.push(`${r.fromGps} from photo GPS`);
         if (r.fromAddr) parts.push(`${r.fromAddr} from address`);
         if (r.fromName) parts.push(`${r.fromName} from name`);
+    if (r.fromCleanup) parts.push(`${r.fromCleanup} from cleanup retry`);
         toast(`Pinned ${total} new locations: ${parts.join(' · ')}${r.failed ? ' · ' + r.failed + ' couldn\'t be located' : ''}`, 'ok');
       } else if (r.failed) {
         toast(`${r.failed} locations couldn't be located (no GPS, address, or matchable name)`, 'inf');
@@ -5654,6 +5666,67 @@ async function placePins(opts) {
     await new Promise(r => setTimeout(r, 150));
   }
 
+  // ── Pass 4: cleanup-and-retry for street-corner / intersection names ──
+  // Names like "Bullard Ave & Bronx Blvd (Btw 240th St & E 242nd St)" don't
+  // resolve via Places Text Search because of the "(Btw X & Y)" parenthetical.
+  // Strip parentheticals, "Btw" notation, and various noise markers, then retry.
+  // This is a separate pass so cleaner names get tried first (which is faster).
+  const stillMissing3 = candidates.filter(l => !hasCoords(l));
+  let fromCleanup = 0;
+  for (let i = 0; i < stillMissing3.length; i++) {
+    const loc = stillMissing3[i];
+    if (!loc.name) continue;
+    // Strip noise: parentheticals, "Btw X & Y" notation, leading/trailing dashes
+    let cleaned = String(loc.name)
+      .replace(/\([^)]*\)/g, '')               // (Btw 240th St & E 242nd St) → ''
+      .replace(/\bBtw\s+[^,&-]+(?:\s*&\s*[^,&-]+)?/gi, '')  // Btw X & Y → ''
+      .replace(/\bbetween\s+[^,&-]+(?:\s*and\s+[^,&-]+)?/gi, '')
+      .replace(/\s+/g, ' ').trim()
+      .replace(/^[-,\s]+|[-,\s]+$/g, '');
+    // If the cleaned name is too different from the original, it's probably worth trying
+    if (cleaned && cleaned !== loc.name && cleaned.length >= 5) {
+      if (ns) ns.textContent = `pin pass 4 — cleanup retry ${i + 1}/${stillMissing3.length}`;
+      // First try a regular geocode (cheaper) on the cleaned address
+      const stateParam = loc.state_code ? '&state=' + encodeURIComponent(loc.state_code) : '';
+      try {
+        const r = await fetch(`${SM_BASE}/api/geocode?address=${encodeURIComponent(cleaned)}${stateParam}`);
+        const d = await r.json();
+        trackUsage('geocode', { meta: { trigger: 'place-pins-pass4-cleanup', loc_id: loc.id } });
+        if (d.ok && d.lat && d.lng) {
+          await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+            method: 'PATCH',
+            headers: {
+              apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+              'Content-Type': 'application/json', Prefer: 'return=minimal'
+            },
+            body: JSON.stringify({ lat: d.lat, lng: d.lng })
+          });
+          loc.lat = d.lat; loc.lng = d.lng;
+          fromCleanup++;
+          await new Promise(r => setTimeout(r, 150));
+          continue;
+        }
+      } catch (e) {}
+      // Fall back to Places by name on the cleaned version
+      try {
+        const d = await placeByName(cleaned, loc.state_code || '', { trigger: 'place-pins-pass4-name', loc_id: loc.id });
+        if (d.ok && d.lat && d.lng) {
+          await fetch(`${SB_URL}/rest/v1/locations?id=eq.${loc.id}`, {
+            method: 'PATCH',
+            headers: {
+              apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+              'Content-Type': 'application/json', Prefer: 'return=minimal'
+            },
+            body: JSON.stringify({ lat: d.lat, lng: d.lng })
+          });
+          loc.lat = d.lat; loc.lng = d.lng;
+          fromCleanup++;
+        } else { failed++; }
+      } catch (e) { failed++; }
+      await new Promise(r => setTimeout(r, 150));
+    }
+  }
+
   if (ns) ns.textContent = '';
 
   // Update local cache so the map reflects everything immediately
@@ -5666,7 +5739,7 @@ async function placePins(opts) {
   } catch (e) {}
   if (S.gmap) refreshPins();
 
-  return { fromGps, fromAddr, fromName, failed };
+  return { fromGps, fromAddr, fromName, fromCleanup, failed };
 }
 
 // Backward-compatible alias for old call sites
