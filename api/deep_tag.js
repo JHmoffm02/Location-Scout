@@ -24,6 +24,7 @@
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU = 'claude-haiku-4-5';
 const SONNET = 'claude-sonnet-4-5';
+const { parseJSON } = require('./_lib/parseClaude');
 
 const ALLOWED_ORIGINS = new Set([
   'https://location-scout-sand.vercel.app',
@@ -73,38 +74,7 @@ async function fetchImageAsBase64(url, timeoutMs) {
   } finally { clearTimeout(timer); }
 }
 
-function parseJSON(text) {
-  let cleaned = text.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
-  const first = cleaned.indexOf('{');
-  if (first < 0) {
-    const arrStart = cleaned.indexOf('[');
-    if (arrStart < 0) throw new Error('No JSON found');
-    cleaned = cleaned.slice(arrStart);
-  } else {
-    cleaned = cleaned.slice(first);
-  }
-  const lastClose = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
-  if (lastClose > 0) {
-    try { return JSON.parse(cleaned.slice(0, lastClose + 1)); } catch (e) {}
-  }
-  let inStr = false, esc = false, bd = 0, kd = 0;
-  for (let i = 0; i < cleaned.length; i++) {
-    const c = cleaned[i];
-    if (esc) { esc = false; continue; }
-    if (inStr) { if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
-    if (c === '"') inStr = true;
-    else if (c === '{') bd++;
-    else if (c === '}') bd--;
-    else if (c === '[') kd++;
-    else if (c === ']') kd--;
-  }
-  let candidate = cleaned;
-  if (inStr) candidate += '"';
-  for (let i = 0; i < kd; i++) candidate += ']';
-  for (let i = 0; i < bd; i++) candidate += '}';
-  candidate = candidate.replace(/,(\s*[\]}])/g, '$1');
-  return JSON.parse(candidate);
-}
+
 
 async function callAnthropic(model, system, userContent, apiKey, maxTokens) {
   let lastErr;
