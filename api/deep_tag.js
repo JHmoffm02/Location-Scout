@@ -197,7 +197,7 @@ function sanitizeNotes(s, maxLen) {
 // for every photo. The frontend pre-filters obvious blur via local Laplacian
 // before calling this, so we don't pay AI to look at literal black frames.
 // ════════════════════════════════════════════════════════════════════════════
-function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, googlePlaces, rejectedTags) {
+function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, googlePlaces, rejectedTags, userExamples) {
   const cat = (albumCategory || '').toLowerCase();
   const isResidence = /residence|house|home|mansion|apartment|brownstone|townhouse|loft/.test(cat);
   const isCommercial = /restaurant|bar|cafe|store|shop|hotel|office|warehouse|event|venue|ballroom|reception/.test(cat);
@@ -221,13 +221,32 @@ function classifySystemPrompt(albumName, albumNotes, albumTags, albumCategory, g
     avoidTags = `\nUSER FEEDBACK — these tags have been removed by the user in past albums; AVOID them:\n  ${slice.join(', ')}`;
   }
 
+  let exampleBlock = '';
+  if (userExamples && userExamples.length) {
+    const fav = userExamples.filter(e => e.action === 'favorite').slice(0, 8);
+    const rej = userExamples.filter(e => e.action === 'reject').slice(0, 8);
+    if (fav.length || rej.length) {
+      exampleBlock = `\nUSER PRECEDENT FROM SIMILAR ALBUMS (this user's past edits in albums of the same category — calibrate your judgments accordingly):`;
+      if (fav.length) {
+        exampleBlock += `\n  PROMOTED (user favorited these):\n` + fav.map(e =>
+          `    - role:${e.role} tags:[${(e.tags || []).join(',')}]`
+        ).join('\n');
+      }
+      if (rej.length) {
+        exampleBlock += `\n  DEMOTED (user rejected these):\n` + rej.map(e =>
+          `    - role:${e.role} tags:[${(e.tags || []).join(',')}]`
+        ).join('\n');
+      }
+    }
+  }
+
   return `You analyze film/TV scout photos. The first image in the batch is the COVER REFERENCE — that's what this location actually IS. Use it as context for judging the rest. Return metadata for each NUMBERED photo (skip the cover reference in your output).
 
 ALBUM CONTEXT:
   Album: ${albumName || '(unnamed)'}
   ${albumCategory ? `Category: ${albumCategory}` : ''}
   ${albumNotes ? `Notes: ${sanitizeNotes(albumNotes)}` : ''}
-  ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}${placesContext}${avoidTags}
+  ${albumTags && albumTags.length ? `Existing keywords: ${albumTags.slice(0, 20).join(', ')}` : ''}${typeGuidance}${placesContext}${avoidTags}${exampleBlock}
 
 FOR EACH NUMBERED PHOTO, output:
   • description: ONE concise sentence (15-25 words) describing what's visible — focus on the PERMANENT location, not transient conditions. Format: "Wide angle of [space] showing [permanent features]" or similar. Concrete details, not vague summaries. Skip weather, parked vehicles, present-but-temporary staging — describe the place, not what's happening to be in the frame today.
@@ -252,7 +271,17 @@ FOR EACH NUMBERED PHOTO, output:
       1 = no depth signal — flat wall shot, fully head-on detail, no spatial information
     Photos with high depth_quality help directors visualize the space — score them strongly.
   • is_pano: TRUE if this image is a panorama (very wide aspect ratio, stitched-together field of view). Used for duplicate detection — a pano + non-pano of the same view counts as duplicates.
-  • dup_of: empty string OR the index 'i' of an EARLIER photo in this same batch that this photo is a near-duplicate of. Examples: same vantage point shot twice, pano + non-pano of same view, two photos of same corner from same angle. Only set this if you're CONFIDENT they're duplicates of essentially the same shot. Don't flag "two angles of the same room" as duplicates — they show different things.
+  • dup_of: empty string OR the index 'i' of an EARLIER photo in this same batch that this photo is a near-duplicate of. STRICT RULE — a tighter version of an earlier wide is ONLY a duplicate if the framing is similar enough that they don't add separate value. Specifically:
+      - Two shots from the same vantage point within a few feet of each other, same angle = DUPLICATE
+      - A pano and a non-pano showing essentially the same view = DUPLICATE
+      - A tighter shot of the SAME composition (same subject centered, same angle, just zoomed in less than 50% of the wide's framing) = DUPLICATE
+      - A genuinely closer shot that focuses on a specific feature within the wider scene (subject is a SMALLER portion of the wide's frame, ~50% or less) = NOT A DUPLICATE — these are continuity shots that lead the eye in. Keep both.
+    DON'T flag as duplicate:
+      - Two angles of the same room from different positions
+      - Wide of a room + closeup of a feature within that room (different intent)
+      - Shots that show different parts of the same space
+    BE CAREFUL with similar-looking spaces: two different auditoriums, two different bedrooms, two different bathrooms in the same property are NOT duplicates of each other even if they look similar. Only flag as duplicate when you're confident it's the SAME space + nearly the same composition.
+    Only set this if you're CONFIDENT. When in doubt, leave empty.
   • reject: TRUE if this photo should NOT appear in a 30-photo scout deck — ANY of these:
       - Blank, near-blank, mostly black/white, no visible subject
       - Out of focus, soft-focused on the subject, or motion-blurred (apply same strict bar as is_sharp)
@@ -317,7 +346,7 @@ async function classifyBatch(album, batch, contextImages, apiKey) {
     userParts.push({ type: 'image', source: p.src });
   });
 
-  const sys = classifySystemPrompt(album.name, album.notes, album.tags, album.category, album.googlePlaces, album.rejectedTags);
+  const sys = classifySystemPrompt(album.name, album.notes, album.tags, album.category, album.googlePlaces, album.rejectedTags, album.userExamples);
   // Bumped to 3000 tokens — descriptions add ~25 tokens × 10 photos = 250 tokens of output
   const r = await callAnthropic(HAIKU, sys, userParts, apiKey, 3000);
   const parsed = parseJSON(r.text);
@@ -422,13 +451,18 @@ The PER-ROOM SUMMARY below tells you how many photos exist for each space. Alloc
   • Minor/peripheral spaces — 1 top pick if notable, otherwise skip
   • Don't give bathrooms 3 top picks just because there are 8 bathroom photos. Allocate by importance to the location's purpose, not by photo count.
 
-═══ DUPLICATE DETECTION (be aggressive) ═══
+═══ DUPLICATE DETECTION (be aggressive but careful) ═══
 
 These are duplicates — keep ONE, push the rest to the end:
   • A panorama and a non-panorama from the same vantage point of the same space — the pano IS the non-pano, just wider. Pick whichever is sharper / better composed; demote the other.
   • Two shots from nearly the same position (within a few feet, same room, same angle) — pick the better one
+  • A tighter version of the same wide (same composition, just less zoomed-out) where the framing isn't meaningfully different — pick the wide, demote the tight
   • Photos with marker [DUP_OF:keyXXX] in the summary — the per-photo classifier flagged these as visually redundant. Treat the linked photo as primary; demote this one.
-  • "Multiple angles of the same feature" is NOT a duplicate (e.g. ballroom from balcony + ballroom from floor are both useful — they show different things).
+
+NOT duplicates — keep both:
+  • A wide of a room + a closeup of a specific feature inside that room (the closeup focuses on something distinct within the wider scene) — these are continuity shots, sequence them adjacent
+  • Two angles of the same room from different positions
+  • Two different rooms that happen to look similar (e.g. two auditoriums in the same property, two similar bedrooms in a hotel) — DO NOT cross-reference them as duplicates of each other. Each distinct space gets its own treatment. Use the room field and descriptions to distinguish.
 
 ═══ FRONT EXTERIOR DISCIPLINE ═══
 
@@ -792,7 +826,8 @@ module.exports = async function handler(req, res) {
         tags: Array.isArray(body.albumTags) ? body.albumTags : [],
         category: body.albumCategory || '',
         googlePlaces: body.googlePlaces || null,
-        rejectedTags: Array.isArray(body.rejectedTags) ? body.rejectedTags : []
+        rejectedTags: Array.isArray(body.rejectedTags) ? body.rejectedTags : [],
+        userExamples: Array.isArray(body.userExamples) ? body.userExamples : []
       };
       const images = Array.isArray(body.images) ? body.images : [];
       // Accept either contextImageUrls (new, array) or contextImageUrl (legacy, single)
