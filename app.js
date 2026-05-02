@@ -153,7 +153,7 @@ function showConfirm(message, opts) {
         <div style="padding:16px 20px;font-size:12px;color:var(--text2);line-height:1.6;white-space:pre-wrap">${E(message)}</div>
         ${checkboxHtml}
         <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
-          <button class="org-btn" id="confirm-cancel">${E(cancelLabel)}</button>
+          ${cancelLabel ? `<button class="org-btn" id="confirm-cancel">${E(cancelLabel)}</button>` : ''}
           <button class="org-btn primary" id="confirm-ok">${E(okLabel)}</button>
         </div>
       </div>`;
@@ -166,7 +166,8 @@ function showConfirm(message, opts) {
     function makeResult(ok) {
       return checkbox ? { ok, checked: ok ? getChecked() : false } : ok;
     }
-    m.querySelector('#confirm-cancel').onclick = () => { const r = makeResult(false); cleanup(); resolve(r); };
+    const cancelBtn = m.querySelector('#confirm-cancel');
+    if (cancelBtn) cancelBtn.onclick = () => { const r = makeResult(false); cleanup(); resolve(r); };
     m.querySelector('#confirm-ok').onclick = () => { const r = makeResult(true); cleanup(); resolve(r); };
     m.addEventListener('keydown', e => {
       if (e.key === 'Escape') { e.stopPropagation(); const r = makeResult(false); cleanup(); resolve(r); }
@@ -649,7 +650,65 @@ function rebuildLookups() {
   });
   // Refresh the state filter row to reflect any new states in the data
   rebuildStateCheckboxes();
+  // Update the nav counts pill
+  updateNavCounts();
 }
+
+// Update the count pill in the nav with total locations + how many have pins.
+// Shows at-a-glance: "1042 locs · 891 pinned" with the unpinned count highlighted
+// in gold if there are any unpinned (signaling there's work to do).
+function updateNavCounts() {
+  const el = $('nav-counts');
+  if (!el) return;
+  const total = S.locations.length;
+  const withCoords = S.locations.filter(l => l.lat && l.lng).length;
+  const unpinned = total - withCoords;
+  const albumTotal = (S.mapAlbums || []).length;
+  if (!total) {
+    el.innerHTML = '';
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'flex';
+  let html = `<span>${total.toLocaleString()} loc${total !== 1 ? 's' : ''}</span>`;
+  if (unpinned > 0) {
+    html += `<span style="color:var(--text3)">·</span><span class="count-warn">${unpinned.toLocaleString()} unpinned</span>`;
+  } else {
+    html += `<span style="color:var(--text3)">·</span><span style="color:var(--green)">all pinned</span>`;
+  }
+  if (albumTotal > 0 && albumTotal !== total) {
+    html += `<span style="color:var(--text3)">·</span><span>${albumTotal.toLocaleString()} albums</span>`;
+  }
+  el.innerHTML = html;
+}
+
+// Click handler for the nav-counts pill — show a small breakdown of where locations stand.
+window.dpShowCountsBreakdown = function () {
+  const total = S.locations.length;
+  const withCoords = S.locations.filter(l => l.lat && l.lng).length;
+  const unpinned = total - withCoords;
+  const verified = S.locations.filter(l => l.address_verified).length;
+  const withAddress = S.locations.filter(l => l.address).length;
+  const albumTotal = (S.mapAlbums || []).length;
+  const albumsWithLoc = new Set(S.locations.map(l => l.smugmug_album_key).filter(Boolean)).size;
+  const albumsWithoutLoc = albumTotal - albumsWithLoc;
+  showConfirm(
+`Library breakdown:
+
+  Locations total:       ${total.toLocaleString()}
+    with pin (lat/lng):    ${withCoords.toLocaleString()}
+    unpinned:              ${unpinned.toLocaleString()}
+    address verified:      ${verified.toLocaleString()}
+    has address:           ${withAddress.toLocaleString()}
+
+  SmugMug albums total:  ${albumTotal.toLocaleString()}
+    linked to a location:  ${albumsWithLoc.toLocaleString()}
+    no location yet:       ${albumsWithoutLoc.toLocaleString()}
+
+${unpinned > 0 ? '\nTo pin the rest: ⚙ actions → Place pins' : ''}`,
+    { title: 'Counts', okLabel: 'OK', cancelLabel: '' }
+  );
+};
 
 function getCatForLoc(loc)  { return loc ? (S.catByAlbumKey.get(loc.smugmug_album_key) || '')  : ''; }
 function getAreaForLoc(loc) { return loc ? (S.areaByAlbumKey.get(loc.smugmug_album_key) || '') : ''; }
