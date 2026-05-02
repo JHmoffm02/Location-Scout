@@ -132,14 +132,26 @@ function showConfirm(message, opts) {
   const title = opts.title || 'Confirm';
   const okLabel = opts.okLabel || 'Continue';
   const cancelLabel = opts.cancelLabel || 'Cancel';
+  // Optional: a single checkbox the user can toggle. If passed, the resolved
+  // value becomes { ok: bool, checked: bool } instead of just bool.
+  const checkbox = opts.checkbox; // { label, default }
   return new Promise(resolve => {
     const m = document.createElement('div');
     m.setAttribute('role', 'dialog');
     m.style.cssText = 'position:fixed;inset:0;z-index:850;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px';
+    const checkboxHtml = checkbox
+      ? `<div style="padding:8px 20px 0;font-size:11px;color:var(--text2)">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="confirm-checkbox" ${checkbox.default ? 'checked' : ''}>
+            <span>${E(checkbox.label)}</span>
+          </label>
+        </div>`
+      : '';
     m.innerHTML = `
       <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:min(480px,94vw);overflow:hidden">
         <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:500;color:var(--text)">${E(title)}</div>
         <div style="padding:16px 20px;font-size:12px;color:var(--text2);line-height:1.6;white-space:pre-wrap">${E(message)}</div>
+        ${checkboxHtml}
         <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
           <button class="org-btn" id="confirm-cancel">${E(cancelLabel)}</button>
           <button class="org-btn primary" id="confirm-ok">${E(okLabel)}</button>
@@ -147,11 +159,17 @@ function showConfirm(message, opts) {
       </div>`;
     document.body.appendChild(m);
     function cleanup() { document.body.removeChild(m); }
-    m.querySelector('#confirm-cancel').onclick = () => { cleanup(); resolve(false); };
-    m.querySelector('#confirm-ok').onclick = () => { cleanup(); resolve(true); };
-    // Esc cancels
+    function getChecked() {
+      const cb = m.querySelector('#confirm-checkbox');
+      return cb ? cb.checked : false;
+    }
+    function makeResult(ok) {
+      return checkbox ? { ok, checked: ok ? getChecked() : false } : ok;
+    }
+    m.querySelector('#confirm-cancel').onclick = () => { const r = makeResult(false); cleanup(); resolve(r); };
+    m.querySelector('#confirm-ok').onclick = () => { const r = makeResult(true); cleanup(); resolve(r); };
     m.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { e.stopPropagation(); cleanup(); resolve(false); }
+      if (e.key === 'Escape') { e.stopPropagation(); const r = makeResult(false); cleanup(); resolve(r); }
     });
     setTimeout(() => m.querySelector('#confirm-ok').focus(), 50);
   });
@@ -2025,24 +2043,82 @@ function dpRenderDeepTagSection() {
 //     consensusTags, sharpCount, softCount, topPickCount, photoCount,
 //     orderMode: 'original' | 'ranked' }
 
+// Extract the trailing number from a filename for chronology sorting.
+// "IMG_1796.jpg"          → 1796
+// "IMG_1796-Pano.jpg"     → 1796
+// "IMG_1864-Pano-2.jpg"   → 1864 (the photo number; the -2 is a series suffix)
+// "DSC09182.jpg"          → 9182
+// "Photo 47.jpg"          → 47
+// "vacation-summer.jpg"   → null
+function dpExtractFilenameNumber(filename) {
+  if (!filename || typeof filename !== 'string') return null;
+  // Strip extension first
+  const base = filename.replace(/\.[a-z0-9]{2,5}$/i, '');
+  // Look for a number that follows a typical camera prefix or is a standalone digit run
+  // Prefer the FIRST significant number (camera files are PREFIX_NUMBER, not NUMBER_PREFIX)
+  const m = base.match(/^[A-Za-z_]*(\d{3,7})/);
+  if (m) return parseInt(m[1], 10);
+  // Fallback: any standalone number anywhere
+  const m2 = base.match(/(\d{3,7})/);
+  if (m2) return parseInt(m2[1], 10);
+  return null;
+}
+
+// Chronology comparator — sorts photos by best available shutter-time signal.
+// Priority: EXIF date_taken > filename number > unchanged.
+// When neither photo has a comparable signal, returns 0 to preserve input order.
+function dpChronoCompare(a, b) {
+  // 1. EXIF date — most reliable
+  const da = a.date_taken;
+  const db = b.date_taken;
+  if (da && db) {
+    if (da !== db) return da < db ? -1 : 1;
+  } else if (da && !db) {
+    return -1;  // photos with timestamps come before photos without
+  } else if (!da && db) {
+    return 1;
+  }
+  // 2. Filename number
+  const fa = dpExtractFilenameNumber(a.filename || '');
+  const fb = dpExtractFilenameNumber(b.filename || '');
+  if (fa != null && fb != null) {
+    if (fa !== fb) return fa - fb;
+  } else if (fa != null && fb == null) {
+    return -1;
+  } else if (fa == null && fb != null) {
+    return 1;
+  }
+  // 3. Tie — preserve input order
+  return 0;
+}
+
 window.dpDeepTag = async function () {
   const loc = S.currentDetailLoc;
   if (!loc || !loc.smugmug_album_key) { toast('No album to analyze', 'err'); return; }
   if (!S.smTokens) { toast('Connect SmugMug first', 'err'); return; }
 
-  // Pull image list
+  // Pull image list. Now we also fetch date_taken + filename so we can sort by
+  // shutter chronology rather than the SmugMug AlbumImage order, which can
+  // get jumbled by manual reorders, sync timing, partial moves, etc.
   let imageList;
   try {
-    let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=sm_key,thumb_url');
+    let imgs = await db('smugmug_images?album_key=eq.' + loc.smugmug_album_key + '&select=sm_key,thumb_url,date_taken,filename');
     if (!imgs || imgs.length <= 1) {
       const tb = btoa(JSON.stringify(S.smTokens));
       const r = await fetch(`${SM_BASE}/api/smugmug?action=album-images&albumKey=${loc.smugmug_album_key}`, {
         headers: { Authorization: 'Bearer ' + tb }
       });
       const data = await r.json();
-      imgs = (data.images || []).filter(i => i.id && i.thumbUrl).map(i => ({ sm_key: i.id, thumb_url: i.thumbUrl }));
+      imgs = (data.images || []).filter(i => i.id && i.thumbUrl).map(i => ({
+        sm_key: i.id, thumb_url: i.thumbUrl,
+        date_taken: i.date || null, filename: i.filename || ''
+      }));
     }
-    imageList = imgs;
+    // Sort by best-available chronology signal:
+    //   1. date_taken (EXIF DateTimeOriginal — shutter timestamp, ground truth)
+    //   2. filename number (e.g. IMG_1796 → 1796)
+    //   3. existing position
+    imageList = imgs.slice().sort((a, b) => dpChronoCompare(a, b));
   } catch (e) {
     toast('Could not fetch images: ' + (e.message || 'unknown'), 'err');
     return;
@@ -2058,22 +2134,35 @@ window.dpDeepTag = async function () {
   if (centerpieces === null) { toast('Cancelled', 'inf'); return; }
   const contextImageUrls = centerpieces.map(c => c.url);
 
-  // Confirmation with realistic cost estimate
-  const estCost = (imageList.length * 0.007).toFixed(2);
-  const ok = await showConfirm(
+  // Confirmation with realistic cost estimate. Enrich is opt-in via checkbox —
+  // it's the most expensive sub-step (Sonnet on top picks at large) and adds richer
+  // tags but doesn't affect organization. Default off; check the box for albums you'll present.
+  const baseCost = (imageList.length * 0.005).toFixed(2);
+  const enrichCostEst = (Math.min(imageList.length * 0.30, 25) * 0.012).toFixed(2);  // ~25 top picks × ~$0.012
+  const result = await showConfirm(
 `Run deep tag on ${imageList.length} photos in "${loc.name}"?
 
 Using ${centerpieces.length} centerpiece${centerpieces.length !== 1 ? 's' : ''} as AI reference.
 
-Streamlined flow:
-  1. Local blur scan (free, fast) — pre-rejects obvious blur/black frames
-  2. Classify (Haiku, medium images) — describes + tags + role + room + reject in one pass
-  3. Organize (Sonnet, sees up to 60 candidate photos visually) — walkthrough order
-  + Enrich (Sonnet, top picks) — richer keywords for highlight reel
+Pipeline:
+  1. Local blur+pHash scan (free)
+  2. Classify (Haiku, all photos at medium) — describes + tags + role + reject
+  3. Organize (Sonnet, sees up to 60 visually) — walkthrough order + path
 
-Estimated cost: ~$${estCost}`,
-    { title: 'Deep tag', okLabel: 'Run', cancelLabel: 'Cancel' }
+Estimated cost: ~$${baseCost}
++ Optional: enrich top picks with richer tags (~$${enrichCostEst}, off by default)`,
+    {
+      title: 'Deep tag',
+      okLabel: 'Run',
+      cancelLabel: 'Cancel',
+      checkbox: {
+        label: `Also enrich top picks with Sonnet at large (+~$${enrichCostEst}). Best for albums you'll present from.`,
+        default: false
+      }
+    }
   );
+  const ok = result === true || (result && result.ok);
+  const wantEnrich = result && typeof result === 'object' && result.checked;
   if (!ok) { toast('Cancelled', 'inf'); return; }
 
   // Show a persistent progress modal so the user knows it's working.
@@ -2329,9 +2418,10 @@ Estimated cost: ~$${estCost}`,
     // Anything Sonnet didn't include (shouldn't happen but defensive) → push to back
     perPhoto.forEach(p => { if (p.rankedIndex == null) p.rankedIndex = 9999 + p.originalIndex; });
 
-    // ── Stage 4: enrich top picks (Sonnet, large images) ──
-    progress.update(`Final pass: enriching ${topPickKeys.size} top picks with Sonnet…`);
-    if (topPickKeys.size) {
+    // ── Stage 4 (optional): enrich top picks with Sonnet at large ──
+    // Only runs if user opted in via the confirmation checkbox.
+    if (wantEnrich && topPickKeys.size) {
+      progress.update(`Final pass: enriching ${topPickKeys.size} top picks with Sonnet…`);
       const enrichImages = imageList.filter(i => topPickKeys.has(i.sm_key))
         .map(i => ({ key: i.sm_key, url: i.thumb_url }));
       try {
