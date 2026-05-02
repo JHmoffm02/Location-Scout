@@ -12,8 +12,8 @@
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU = 'claude-haiku-4-5';
-const { parseJSON } = require('./_lib/parseClaude');
 const SONNET = 'claude-sonnet-4-6';
+const { parseJSON } = require('./_lib/parseClaude');
 const TARGET_COUNT = 15;         // images selected for the deep classification
 const MAX_THUMBS_PER_PASS1 = 100; // hard cap on Pass 1 input size
 const PARALLEL = 2;              // concurrent classifications (was 3 — Sonnet rate-limit at Tier 1 is 30K tok/min)
@@ -315,61 +315,6 @@ async function callClaude(model, systemPrompt, userContent, apiKey, maxTokens) {
     }
   }
   throw lastErr || new Error('Failed after retries');
-}
-
-
-
-  // Determine cut point for repair
-  let cut;
-  if (inString && currentStringStart >= 0) {
-    // Mid-string truncation: cut to before the opening " of the unclosed string
-    cut = currentStringStart;
-    // Walk back over whitespace, then optional ':' (key separator), then optional key string
-    while (cut > 0 && /\s/.test(cleaned[cut - 1])) cut--;
-    if (cut > 0 && cleaned[cut - 1] === ':') {
-      cut--;
-      while (cut > 0 && /\s/.test(cleaned[cut - 1])) cut--;
-      // Strip the key (string in quotes)
-      if (cut > 0 && cleaned[cut - 1] === '"') {
-        cut--;  // past closing quote of key
-        while (cut > 0 && cleaned[cut - 1] !== '"') cut--;
-        if (cut > 0) cut--;  // past opening quote of key
-      }
-    }
-    // Strip preceding comma + whitespace
-    while (cut > 0 && /[\s,]/.test(cleaned[cut - 1])) cut--;
-  } else {
-    cut = lastTokenEnd > 0 ? lastTokenEnd : cleaned.length;
-    while (cut > 0 && /[\s,]/.test(cleaned[cut - 1])) cut--;
-  }
-
-  // Re-scan up to cut to compute open-bracket/open-brace counts
-  let bd = 0, kd = 0, str = false, esc = false;
-  for (let i = 0; i < cut; i++) {
-    const c = cleaned[i];
-    if (esc) { esc = false; continue; }
-    if (str) {
-      if (c === '\\') esc = true;
-      else if (c === '"') str = false;
-      continue;
-    }
-    if (c === '"') str = true;
-    else if (c === '{') bd++;
-    else if (c === '}') bd--;
-    else if (c === '[') kd++;
-    else if (c === ']') kd--;
-  }
-
-  let candidate = cleaned.slice(0, cut);
-  // Close arrays first (typically inner), then objects
-  for (let i = 0; i < kd; i++) candidate += ']';
-  for (let i = 0; i < bd; i++) candidate += '}';
-  // Strip trailing commas before closers
-  candidate = candidate.replace(/,(\s*[\]}])/g, '$1');
-
-  try { return JSON.parse(candidate); } catch (e) {
-    throw new Error('JSON parse failed (recovery exhausted): ' + e.message + ' | head: ' + cleaned.slice(0, 80));
-  }
 }
 
 // ── Pass 1: Curate images ─────────────────────────────────────────────────
