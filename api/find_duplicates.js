@@ -118,45 +118,6 @@ async function callHaiku(systemPrompt, userText, apiKey) {
   } finally { clearTimeout(timer); }
 }
 
-
-  let cut;
-  if (inString && currentStringStart >= 0) {
-    cut = currentStringStart;
-    while (cut > 0 && /\s/.test(cleaned[cut - 1])) cut--;
-    if (cut > 0 && cleaned[cut - 1] === ':') {
-      cut--;
-      while (cut > 0 && /\s/.test(cleaned[cut - 1])) cut--;
-      if (cut > 0 && cleaned[cut - 1] === '"') {
-        cut--;
-        while (cut > 0 && cleaned[cut - 1] !== '"') cut--;
-        if (cut > 0) cut--;
-      }
-    }
-    while (cut > 0 && /[\s,]/.test(cleaned[cut - 1])) cut--;
-  } else {
-    cut = lastTokenEnd > 0 ? lastTokenEnd : cleaned.length;
-    while (cut > 0 && /[\s,]/.test(cleaned[cut - 1])) cut--;
-  }
-  let bd = 0, kd = 0, str = false, esc = false;
-  for (let i = 0; i < cut; i++) {
-    const c = cleaned[i];
-    if (esc) { esc = false; continue; }
-    if (str) { if (c === '\\') esc = true; else if (c === '"') str = false; continue; }
-    if (c === '"') str = true;
-    else if (c === '{') bd++;
-    else if (c === '}') bd--;
-    else if (c === '[') kd++;
-    else if (c === ']') kd--;
-  }
-  let candidate = cleaned.slice(0, cut);
-  for (let i = 0; i < kd; i++) candidate += ']';
-  for (let i = 0; i < bd; i++) candidate += '}';
-  candidate = candidate.replace(/,(\s*[\]}])/g, '$1');
-  try { return JSON.parse(candidate); } catch (e) {
-    throw new Error('JSON parse failed: ' + e.message + ' | head: ' + cleaned.slice(0, 80));
-  }
-}
-
 module.exports = async function handler(req, res) {
   const origin = req.headers.origin || '';
   if (ALLOWED_ORIGINS.has(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
