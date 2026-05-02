@@ -12,6 +12,7 @@
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU = 'claude-haiku-4-5';
+const { parseJSON } = require('./_lib/parseClaude');
 const SONNET = 'claude-sonnet-4-6';
 const TARGET_COUNT = 15;         // images selected for the deep classification
 const MAX_THUMBS_PER_PASS1 = 100; // hard cap on Pass 1 input size
@@ -316,49 +317,7 @@ async function callClaude(model, systemPrompt, userContent, apiKey, maxTokens) {
   throw lastErr || new Error('Failed after retries');
 }
 
-function parseJSON(text) {
-  let cleaned = text.trim();
-  cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
-  const first = cleaned.indexOf('{');
-  if (first < 0) throw new Error('No JSON in: ' + cleaned.slice(0, 120));
-  cleaned = cleaned.slice(first);
 
-  // Strategy 1: direct parse if it ends in '}'
-  const lastBrace = cleaned.lastIndexOf('}');
-  if (lastBrace > 0) {
-    try { return JSON.parse(cleaned.slice(0, lastBrace + 1)); } catch (e) { /* fall through */ }
-  }
-
-  // Strategy 2: scan, tracking depths + the current string's start position
-  let inString = false, escape = false;
-  let braceDepth = 0, bracketDepth = 0;
-  let lastSafeEnd = -1;             // index just past last completion at root depth
-  let lastTokenEnd = -1;            // index just past last completed value (any depth)
-  let currentStringStart = -1;      // position of unmatched " (if we end mid-string)
-
-  for (let i = 0; i < cleaned.length; i++) {
-    const c = cleaned[i];
-    if (escape) { escape = false; continue; }
-    if (inString) {
-      if (c === '\\') escape = true;
-      else if (c === '"') { inString = false; currentStringStart = -1; lastTokenEnd = i + 1; }
-      continue;
-    }
-    if (c === '"') { inString = true; currentStringStart = i; continue; }
-    if (c === '{') braceDepth++;
-    else if (c === '}') {
-      braceDepth--;
-      lastTokenEnd = i + 1;
-      if (braceDepth === 0 && bracketDepth === 0) lastSafeEnd = i + 1;
-    }
-    else if (c === '[') bracketDepth++;
-    else if (c === ']') { bracketDepth--; lastTokenEnd = i + 1; }
-    else if (/[\d\.\-]/.test(c) || /[truefalsn]/i.test(c)) lastTokenEnd = i + 1;
-  }
-
-  if (lastSafeEnd > 0) {
-    try { return JSON.parse(cleaned.slice(0, lastSafeEnd)); } catch (e) {}
-  }
 
   // Determine cut point for repair
   let cut;
