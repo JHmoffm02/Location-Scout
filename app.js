@@ -4310,7 +4310,7 @@ window.saveEdit = async function () {
     try {
       const query = [addrParts.street, addrParts.city, addrParts.state, addrParts.zip].filter(Boolean).join(', ');
       const stateParam = addrParts.state ? '&state=' + addrParts.state : '';
-      const d = await geocodeAddress(query, stateForBias || (loc && loc.state_code) || null, { trigger: 'address-geocode', loc_id: loc && loc.id });
+      const d = await geocodeAddress(query, addrParts.state || null, { trigger: 'address-geocode', loc_id: S.editingLoc && S.editingLoc.id });
       if (d.ok && d.lat) { updates.lat = d.lat; updates.lng = d.lng; }
     } catch (e) { /* keep existing coords */ }
     btn.textContent = 'Saving...';
