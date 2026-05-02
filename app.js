@@ -2091,33 +2091,90 @@ Estimated cost: ~$${estCost}`,
   }
 
   try {
-    // ── Stage 1: free local blur filter ──
-    // Fetch each thumbnail, compute Laplacian variance. Below threshold → pre-rejected.
-    // CORS-blocked images (variance=null) are NOT rejected — they go to AI classify.
+    // ── Stage 1: free local pre-pass ──
+    // For each thumbnail, compute Laplacian variance (blur signal) AND a
+    // perceptual hash (visual fingerprint) in parallel. Both are free.
+    progress.update(`Stage 1 of 3: scanning ${imageList.length} thumbnails for blur and duplicates (free, local)…`);
+    const localResults = await Promise.all(imageList.map(async img => {
+      const [variance, phash] = await Promise.all([
+        detectBlur(img.thumb_url),
+        computePHash(img.thumb_url)
+      ]);
+      return { variance, phash };
+    }));
+
     const BLUR_THRESHOLD = 30;
-    const blurResults = await Promise.all(imageList.map(img => detectBlur(img.thumb_url)));
+    const PHASH_DUP_THRESHOLD = 8;  // Hamming distance ≤ 8 bits = visually near-identical
     const localRejectedKeys = new Set();
-    blurResults.forEach((variance, i) => {
-      if (variance !== null && variance < BLUR_THRESHOLD) {
+    localResults.forEach((r, i) => {
+      if (r.variance !== null && r.variance < BLUR_THRESHOLD) {
         localRejectedKeys.add(imageList[i].sm_key);
       }
     });
+
+    // Cluster surviving images by perceptual hash similarity. Each cluster gets a
+    // representative key (the first one chronologically). Other members get marked
+    // as "local-dup-of:<rep>" so Stage 2 and Stage 3 know to demote them.
+    const localDupOf = new Map();   // sm_key → key of the representative it duplicates
+    const clusterReps = new Map();  // cluster index → representative sm_key
+    const clusterByKey = new Map(); // sm_key → cluster index
+    let nextCluster = 0;
+    for (let i = 0; i < imageList.length; i++) {
+      const img = imageList[i];
+      if (localRejectedKeys.has(img.sm_key)) continue;
+      const phash = localResults[i].phash;
+      if (!phash) continue;
+      // Try to find an existing cluster within Hamming threshold
+      let foundCluster = -1;
+      for (const [clusterIdx, repKey] of clusterReps.entries()) {
+        const repIdx = imageList.findIndex(x => x.sm_key === repKey);
+        if (repIdx < 0) continue;
+        const repHash = localResults[repIdx].phash;
+        if (!repHash) continue;
+        if (hammingDist(phash, repHash) <= PHASH_DUP_THRESHOLD) {
+          foundCluster = clusterIdx;
+          break;
+        }
+      }
+      if (foundCluster >= 0) {
+        clusterByKey.set(img.sm_key, foundCluster);
+        localDupOf.set(img.sm_key, clusterReps.get(foundCluster));
+      } else {
+        clusterReps.set(nextCluster, img.sm_key);
+        clusterByKey.set(img.sm_key, nextCluster);
+        nextCluster++;
+      }
+    }
+    const localDupCount = localDupOf.size;
+    console.log(`[deep_tag] local pre-pass: ${localRejectedKeys.size} blur, ${localDupCount} pHash duplicates of ${clusterReps.size} clusters`);
+
     const survivors = imageList.filter(i => !localRejectedKeys.has(i.sm_key));
-    progress.update(`Stage 2 of 3: classifying ${survivors.length} photos at medium size… (${localRejectedKeys.size} pre-rejected as blur/black)`);
+    progress.update(`Stage 2 of 3: classifying ${survivors.length} photos at medium size… (${localRejectedKeys.size} blur + ${localDupCount} dup hints)`);
 
     // ── Stage 2: classify survivors (single Haiku pass — describes, tags, scores, rejects) ──
-    // Pull the user's history of rejected tags so the AI avoids them this time
+    // Pull the user's history of corrections so the AI learns from past edits.
+    // Two sources:
+    //   1. Recent rejected_tags from org_corrections (album-level tag rejections)
+    //   2. Recent photo_corrections for albums in the SAME category (per-photo edits)
     const recentCorrections = (orgCorrectionsCache || []).slice(0, 30);
     const rejectedTagsSet = new Set();
     recentCorrections.forEach(c => {
       (c.rejected_tags || []).forEach(t => { if (t) rejectedTagsSet.add(String(t).toLowerCase()); });
     });
+
+    // Pull category-matched photo corrections to feed back as worked examples.
+    // We look at the last ~50 favorites and rejects within albums that share this
+    // location's category. Sonnet sees these as: "user previously rejected/favorited
+    // photos with role=X and tags=[...] in albums of similar type."
+    const categorySimilarCorrections = await dpFetchCategorySimilarCorrections(loc, getCatForLoc(loc));
+
     const album = {
       albumName: loc.name,
       albumNotes: loc.notes || '',
       albumTags: loc.tags || [],
       albumCategory: getCatForLoc(loc) || '',
-      rejectedTags: Array.from(rejectedTagsSet)
+      rejectedTags: Array.from(rejectedTagsSet),
+      userExamples: categorySimilarCorrections   // array of {action, role, tags}
     };
     // Chunk classify into manageable calls. On Vercel Pro (60s default, configurable
     // up to 300s via vercel.json), 30 photos per chunk runs in ~30-50s comfortably.
@@ -2185,6 +2242,15 @@ Estimated cost: ~$${estCost}`,
       }
     });
     const perPhoto = Array.from(perPhotoMap.values());
+
+    // Apply pHash-derived dup_of as a fallback signal. Only sets dup_of if the
+    // AI didn't already flag the photo as a duplicate (AI's judgment wins —
+    // it can tell "different room that looks similar" from "actual duplicate").
+    perPhoto.forEach(p => {
+      if (!p.dup_of && localDupOf.has(p.key)) {
+        p.dup_of = localDupOf.get(p.key);
+      }
+    });
 
     // Compute consensus tags locally (skip rejected photos)
     const tagCounts = new Map();
@@ -2420,6 +2486,46 @@ Move it on SmugMug now?`,
 };
 
 // Helper: call the deep_tag endpoint with a stage param
+// Pull the most recent photo_corrections for albums that share this location's
+// category. Used as worked examples in the classify prompt — Haiku sees what
+// kinds of photos the user has accepted vs. rejected in similar albums.
+//
+// Returns up to 20 records: { action, ai_role, ai_tags } so we feed compact training signal.
+async function dpFetchCategorySimilarCorrections(loc, category) {
+  if (!category) return [];
+  try {
+    // Find albums in this category by scanning libAlbums (already loaded)
+    const sameCatAlbumKeys = (S.libAlbums || [])
+      .filter(a => {
+        const path = a.path || a.web_url || '';
+        return path.toLowerCase().includes(category.toLowerCase());
+      })
+      .map(a => a.sm_key)
+      .filter(k => k && k !== loc.smugmug_album_key)  // exclude self
+      .slice(0, 50);  // cap to keep query small
+
+    if (!sameCatAlbumKeys.length) return [];
+
+    // Query photo_corrections for those albums, most recent first
+    const list = sameCatAlbumKeys.map(k => `"${k}"`).join(',');
+    const rows = await db(`photo_corrections?album_key=in.(${list})&select=action,ai_role,ai_tags&order=created_at.desc&limit=40`);
+    if (!rows || !rows.length) return [];
+
+    // Compact into examples — only keep favorite/reject actions (not unfav/unreject/move noise)
+    return rows
+      .filter(r => r.action === 'favorite' || r.action === 'reject')
+      .slice(0, 20)
+      .map(r => ({
+        action: r.action,
+        role: r.ai_role || '',
+        tags: Array.isArray(r.ai_tags) ? r.ai_tags.slice(0, 6) : []
+      }));
+  } catch (e) {
+    console.warn('[deep_tag] correction fetch failed:', e && e.message);
+    return [];
+  }
+}
+
 async function dpStageCall(stage, body) {
   const r = await fetch(`${SM_BASE}/api/deep_tag?stage=${encodeURIComponent(stage)}`, {
     method: 'POST',
@@ -5553,6 +5659,74 @@ function selectCorrectionsForPrompt(history, max) {
 // ══════════════════════════════════════════════════════════════════════════
 // BLUR DETECTION (client-side, Laplacian variance on thumbnails)
 // ══════════════════════════════════════════════════════════════════════════
+// Compute a perceptual hash (dHash variant) — a 64-bit fingerprint of an image's
+// visual structure. Visually-similar images get similar hashes; Hamming distance
+// between two hashes tells you how different they are.
+//
+// dHash works by:
+//   1. Shrink to a tiny grid (9 × 8)
+//   2. Convert to grayscale
+//   3. For each row, compare adjacent pixels — bit i = (left > right ? 1 : 0)
+//   4. Result: 64 bits = 8 hex chars
+//
+// Two hashes within a few bits Hamming distance ≈ near-duplicate visually.
+// Returns hex string or null on CORS/load failure.
+async function computePHash(url) {
+  return new Promise(resolve => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; resolve(null); } }, 5000);
+    img.onload = () => {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      try {
+        const W = 9, H = 8;
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, W, H);
+        const data = ctx.getImageData(0, 0, W, H).data;  // throws on tainted canvas
+        // Compute grayscale grid
+        const gray = new Uint8Array(W * H);
+        for (let i = 0; i < W * H; i++) {
+          const j = i * 4;
+          gray[i] = (data[j] + data[j + 1] + data[j + 2]) / 3;
+        }
+        // Build 64-bit hash by comparing adjacent pixels in each row
+        let bits = '';
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W - 1; x++) {
+            bits += gray[y * W + x] > gray[y * W + x + 1] ? '1' : '0';
+          }
+        }
+        // Convert binary to hex
+        let hex = '';
+        for (let i = 0; i < bits.length; i += 4) {
+          hex += parseInt(bits.substr(i, 4), 2).toString(16);
+        }
+        resolve(hex);
+      } catch (e) {
+        // CORS-tainted canvas or other error — return null, treat as "unknown"
+        resolve(null);
+      }
+    };
+    img.onerror = () => { if (!done) { done = true; clearTimeout(timer); resolve(null); } };
+    img.src = url;
+  });
+}
+
+// Hamming distance between two hex hashes — counts differing bits
+function hammingDist(a, b) {
+  if (!a || !b || a.length !== b.length) return 64;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) {
+    let x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
+    while (x) { d += x & 1; x >>= 1; }
+  }
+  return d;
+}
+
 async function detectBlur(url) {
   return new Promise(resolve => {
     if (!url) return resolve(null);
