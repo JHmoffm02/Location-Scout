@@ -8,6 +8,7 @@
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU = 'claude-haiku-4-5';
+const { parseJSON } = require('./_lib/parseClaude');
 
 const ALLOWED_ORIGINS = new Set([
   'https://location-scout-sand.vercel.app',
@@ -73,43 +74,6 @@ async function callHaiku(systemPrompt, userText, apiKey, maxTokens) {
   } finally { clearTimeout(timer); }
 }
 
-function parseJSON(text) {
-  let cleaned = text.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
-  const first = cleaned.indexOf('{');
-  if (first < 0) throw new Error('No JSON found');
-  cleaned = cleaned.slice(first);
-
-  // Recovery for truncated arrays
-  const lastBrace = cleaned.lastIndexOf('}');
-  if (lastBrace > 0) {
-    try { return JSON.parse(cleaned.slice(0, lastBrace + 1)); } catch (e) {}
-  }
-  // Best-effort repair: close open brackets/braces
-  let inStr = false, esc = false, bd = 0, kd = 0, lastSafe = -1;
-  for (let i = 0; i < cleaned.length; i++) {
-    const c = cleaned[i];
-    if (esc) { esc = false; continue; }
-    if (inStr) {
-      if (c === '\\') esc = true;
-      else if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') inStr = true;
-    else if (c === '{') bd++;
-    else if (c === '}') { bd--; if (bd === 0 && kd === 0) lastSafe = i + 1; }
-    else if (c === '[') kd++;
-    else if (c === ']') kd--;
-  }
-  if (lastSafe > 0) {
-    try { return JSON.parse(cleaned.slice(0, lastSafe)); } catch (e) {}
-  }
-  // Auto-close
-  let candidate = cleaned;
-  for (let i = 0; i < kd; i++) candidate += ']';
-  for (let i = 0; i < bd; i++) candidate += '}';
-  candidate = candidate.replace(/,(\s*[\]}])/g, '$1');
-  return JSON.parse(candidate);
-}
 
 module.exports = async function handler(req, res) {
   const origin = req.headers.origin || '';
