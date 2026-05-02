@@ -32,6 +32,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 #nav{height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;position:relative;z-index:10}
 #nav-status{position:absolute;left:14px;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap}
 .nav-btn{padding:0 28px;height:44px;font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--text3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:color .15s;text-transform:uppercase;display:inline-flex;align-items:center;justify-content:center;vertical-align:top;line-height:1}
+.nav-counts:hover{color:var(--text2);border-color:var(--border3) !important;background:var(--bg3)}
+.nav-counts .count-warn{color:var(--accent)}
 .nav-btn:hover{color:var(--text2)}
 .nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
 #pages{flex:1;overflow:hidden;position:relative}
@@ -898,6 +900,7 @@ mark.search-hit{
     <button class="nav-btn active" onclick="showPage('home',this)" aria-label="Map view">Map</button>
     <button class="nav-btn" onclick="showPage('library',this)" aria-label="Library view">Library</button>
     <button class="nav-btn" onclick="showPage('organize',this)" aria-label="Organize view">Organize</button>
+    <div id="nav-counts" class="nav-counts" onclick="dpShowCountsBreakdown()" title="Click for breakdown" style="margin-left:14px;font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);cursor:pointer;letter-spacing:.04em;display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:14px;border:1px solid var(--border2);transition:all .12s"></div>
     <div id="nav-status" style="position:absolute;font-size:9px;font-family:'DM Mono',monospace;color:var(--text3);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;right:0;top:0;height:44px;display:flex;align-items:center;pointer-events:none"></div>
     <div id="nav-right" style="position:absolute;right:10px;display:flex;align-items:center;gap:8px;flex-direction:row;flex-wrap:nowrap">
       <button class="dock-btn" id="dock-auth-btn" onclick="doAuth()" style="display:none;height:28px;padding:0 10px" title="Connect this app to SmugMug">authorize ↗</button>
