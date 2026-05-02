@@ -4316,15 +4316,56 @@ window.saveEdit = async function () {
     btn.textContent = 'Saving...';
   }
 
+// Detect a "stub" location — synthetic record with id like "stub:xxx" used when
+  // an Organize-tab album has no real DB row yet. Save promotes it to a real row.
+  const isStub = !S.editingLoc.id || String(S.editingLoc.id).startsWith('stub:') || S.editingLoc._isStub;
+
   try {
-    await fetch(`${SB_URL}/rest/v1/locations?id=eq.${S.editingLoc.id}`, {
-      method: 'PATCH',
-      headers: {
-        apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
-        'Content-Type': 'application/json', Prefer: 'return=minimal'
-      },
-      body: JSON.stringify(updates)
-    });
+    if (isStub) {
+      // Promote: INSERT a new location row, then swap S.editingLoc to point at it
+      const insertBody = Object.assign({
+        smugmug_album_key: S.editingLoc.smugmug_album_key || null,
+        smugmug_gallery_url: S.editingLoc.smugmug_gallery_url || null,
+        cover_photo_url: S.editingLoc.cover_photo_url || null,
+        status: S.editingLoc.status || 'identified',
+      }, updates);
+      const insertResp = await fetch(`${SB_URL}/rest/v1/locations`, {
+        method: 'POST',
+        headers: {
+          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=representation'
+        },
+        body: JSON.stringify(insertBody)
+      });
+      if (!insertResp.ok) {
+        const errText = await insertResp.text();
+        throw new Error(`Insert failed (${insertResp.status}): ${errText.slice(0, 200)}`);
+      }
+      const inserted = await insertResp.json();
+      const newRow = Array.isArray(inserted) ? inserted[0] : inserted;
+      if (!newRow || !newRow.id) throw new Error('Insert returned no row');
+      // Remove the stub from lookups and add the persistent record
+      const oldId = S.editingLoc.id;
+      try { S.locById.delete(oldId); } catch (e) {}
+      Object.assign(S.editingLoc, newRow);  // new id + DB defaults merged in
+      S.editingLoc._isStub = false;
+      S.locById.set(newRow.id, S.editingLoc);
+      if (newRow.smugmug_album_key) S.locByAlbumKey.set(newRow.smugmug_album_key, S.editingLoc);
+      S.locations.push(S.editingLoc);
+      // Update currentDetailLoc reference if it was pointing at this stub
+      if (S.currentDetailLoc && S.currentDetailLoc.id === oldId) {
+        S.currentDetailLoc = S.editingLoc;
+      }
+    } else {
+      await fetch(`${SB_URL}/rest/v1/locations?id=eq.${S.editingLoc.id}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+          'Content-Type': 'application/json', Prefer: 'return=minimal'
+        },
+        body: JSON.stringify(updates)
+      });
+    }
 
     // ── Save tag changes ──
     const tagSt = S.editTagsState;
