@@ -5,6 +5,7 @@
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU = 'claude-haiku-4-5';
+const { parseJSON } = require('./_lib/parseClaude');
 
 const ALLOWED_ORIGINS = new Set([
   'https://location-scout-sand.vercel.app',
@@ -117,42 +118,6 @@ async function callHaiku(systemPrompt, userText, apiKey) {
   } finally { clearTimeout(timer); }
 }
 
-function parseJSON(text) {
-  let cleaned = text.trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
-  const first = cleaned.indexOf('{');
-  if (first < 0) throw new Error('No JSON in response: ' + cleaned.slice(0, 120));
-  cleaned = cleaned.slice(first);
-
-  // Try direct parse if response ends in '}'
-  const lastBrace = cleaned.lastIndexOf('}');
-  if (lastBrace > 0) {
-    try { return JSON.parse(cleaned.slice(0, lastBrace + 1)); } catch (e) { /* fall through */ }
-  }
-
-  // Recovery: scan for last fully-balanced top-level object
-  let inString = false, escape = false, braceDepth = 0, bracketDepth = 0;
-  let lastSafeEnd = -1, lastTokenEnd = -1, currentStringStart = -1;
-  for (let i = 0; i < cleaned.length; i++) {
-    const c = cleaned[i];
-    if (escape) { escape = false; continue; }
-    if (inString) {
-      if (c === '\\') escape = true;
-      else if (c === '"') { inString = false; currentStringStart = -1; lastTokenEnd = i + 1; }
-      continue;
-    }
-    if (c === '"') { inString = true; currentStringStart = i; continue; }
-    if (c === '{') braceDepth++;
-    else if (c === '}') {
-      braceDepth--; lastTokenEnd = i + 1;
-      if (braceDepth === 0 && bracketDepth === 0) lastSafeEnd = i + 1;
-    }
-    else if (c === '[') bracketDepth++;
-    else if (c === ']') { bracketDepth--; lastTokenEnd = i + 1; }
-    else if (/[\d\.\-]/.test(c) || /[truefalsn]/i.test(c)) lastTokenEnd = i + 1;
-  }
-  if (lastSafeEnd > 0) {
-    try { return JSON.parse(cleaned.slice(0, lastSafeEnd)); } catch (e) {}
-  }
 
   let cut;
   if (inString && currentStringStart >= 0) {
