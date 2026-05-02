@@ -5659,7 +5659,7 @@ async function placePins(opts) {
     const query = [street, city, state, zip].filter(Boolean).join(', ');
     try {
       const stateParam = state ? '&state=' + state : '';
-      const d = await geocodeAddress(query, stateForBias || (loc && loc.state_code) || null, { trigger: 'address-geocode', loc_id: loc && loc.id });
+      const d = await geocodeAddress(query, state || (loc && loc.state_code) || null, { trigger: 'address-geocode', loc_id: loc && loc.id });
       if (d.ok && d.lat) {
         // If state_code wasn't stored but we picked one up from notes, save it too
         const updates = { lat: d.lat, lng: d.lng };
